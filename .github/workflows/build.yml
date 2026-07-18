@@ -13,11 +13,7 @@ jobs:
   mac:
     name: Build and verify macOS installers
     runs-on: macos-latest
-<<<<<<< HEAD
 
-=======
-    env:
->>>>>>> 7ba515d15f3be40fe9f96b09a84e11d5a762bc3e
     steps:
       - name: Check out source
         uses: actions/checkout@v4

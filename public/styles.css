@@ -18,3 +18,13 @@
 .live-camera select{width:100%;background:#071019;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px}
 .camera-role{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--muted)}
 .camera-role.on-program{color:var(--green)}
+
+/* Alpha 3.4 expanded lighting library */
+.lighting-toolbar{display:grid;grid-template-columns:1fr auto auto;gap:10px;margin-bottom:12px}
+.lighting-toolbar input,.lighting-toolbar select{background:#071019;color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px}
+.lighting-card.favorite{border-color:var(--amber)}
+.lighting-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:10px}
+.lighting-actions button{min-height:38px;padding:6px;font-size:12px}
+.live-lighting-favorites{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.live-lighting-favorites button{min-height:41px;padding:7px;font-size:12px}
+@media(max-width:1100px){.live-lighting-favorites{grid-template-columns:repeat(3,1fr)}}

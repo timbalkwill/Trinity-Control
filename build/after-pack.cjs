@@ -1,11 +1,6 @@
 const { execFileSync } = require("child_process");
 const path = require("path");
 
-/**
- * Internal Alpha builds do not use an Apple Developer ID yet.
- * Electron's nested frameworks must still have a coherent signature,
- * so each packaged application is re-signed ad hoc before the DMG is made.
- */
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== "darwin") return;
 
@@ -14,26 +9,19 @@ exports.default = async function afterPack(context) {
     `${context.packager.appInfo.productFilename}.app`
   );
 
-  console.log(`Re-signing Alpha app ad hoc: ${appPath}`);
+  console.log(`Applying coherent ad-hoc signature to: ${appPath}`);
 
   try {
     execFileSync("/usr/bin/codesign", ["--remove-signature", appPath], {
       stdio: "inherit"
     });
   } catch {
-    // A completely unsigned bundle has nothing to remove.
+    // Fine when the outer bundle has no existing signature.
   }
 
   execFileSync(
     "/usr/bin/codesign",
-    [
-      "--force",
-      "--deep",
-      "--sign",
-      "-",
-      "--timestamp=none",
-      appPath
-    ],
+    ["--force", "--deep", "--sign", "-", "--timestamp=none", appPath],
     { stdio: "inherit" }
   );
 

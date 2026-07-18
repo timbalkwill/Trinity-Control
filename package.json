@@ -1,13 +1,14 @@
 {
   "name": "trinity-control",
-  "version": "0.8.0-alpha.3",
+  "version": "0.8.1-alpha.3",
   "description": "Offline-first church production control application",
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",
   "private": true,
   "scripts": {
     "start": "electron .",
-    "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never"
+    "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
+    "verify:mac": "bash build/verify-macos-apps.sh"
   },
   "devDependencies": {
     "electron": "^37.2.0",
@@ -17,15 +18,34 @@
     "appId": "org.trinitybaptist.trinitycontrol",
     "productName": "Trinity Control",
     "asar": true,
-    "files": ["electron-main.cjs", "preload.cjs", "public/**/*", "package.json"],
-    "directories": { "output": "dist" },
+    "files": [
+      "electron-main.cjs",
+      "preload.cjs",
+      "public/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
     "mac": {
       "category": "public.app-category.utilities",
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }]
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
     "dmg": {
       "title": "Trinity Control ${version}",
       "artifactName": "Trinity-Control-${version}-${arch}.${ext}"
-    }
+    },
+    "afterPack": "build/after-pack.cjs"
   }
 }

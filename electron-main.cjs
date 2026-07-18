@@ -2,8 +2,8 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
-const APP_VERSION = "0.9.1-alpha.4.1";
-const STATE_SCHEMA_VERSION = 5;
+const APP_VERSION = "0.9.0-alpha.4";
+const STATE_SCHEMA_VERSION = 4;
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
@@ -643,10 +643,7 @@ function defaultState() {
     ],
     productionLooks: [
       { id: "look-welcome", name: "Welcome", lightingSceneId: "light-sermon", cameraLayoutId: "cam-sermon", graphics: "Welcome Lower Third", houseLights: 45, tracking: true },
-      { id: "look-worship-1", name: "Worship 1 · Wide", lightingSceneId: "light-worship-bright", cameraLayoutId: "cam-worship", graphics: "Lyrics", houseLights: 20, tracking: false },
-      { id: "look-worship-2", name: "Worship 2 · Left", lightingSceneId: "light-worship", cameraLayoutId: "cam-worship-left", graphics: "Lyrics", houseLights: 18, tracking: false },
-      { id: "look-worship-3", name: "Worship 3 · Intimate", lightingSceneId: "light-worship-intimate", cameraLayoutId: "cam-worship-right", graphics: "Lyrics", houseLights: 10, tracking: false },
-      { id: "look-worship", name: "Worship · Legacy", lightingSceneId: "light-worship", cameraLayoutId: "cam-worship", graphics: "Lyrics", houseLights: 20, tracking: false },
+      { id: "look-worship", name: "Worship", lightingSceneId: "light-worship", cameraLayoutId: "cam-worship", graphics: "Lyrics", houseLights: 20, tracking: false },
       { id: "look-sermon", name: "Sermon", lightingSceneId: "light-sermon", cameraLayoutId: "cam-sermon", graphics: "Scripture", houseLights: 35, tracking: true },
       { id: "look-invitation", name: "Invitation", lightingSceneId: "light-invitation", cameraLayoutId: "cam-sermon", graphics: "None", houseLights: 15, tracking: true },
       { id: "look-communion", name: "Communion", lightingSceneId: "light-communion", cameraLayoutId: "cam-communion", graphics: "Communion", houseLights: 10, tracking: false },
@@ -654,10 +651,7 @@ function defaultState() {
     ],
     cueTemplates: [
       { id: "tpl-welcome", category: "Service", name: "Welcome", duration: 300, notes: "Opening welcome", productionLookId: "look-welcome" },
-      { id: "tpl-worship-1", category: "Music", name: "Worship 1", duration: 420, notes: "Opening worship song · bright wide stage", productionLookId: "look-worship-1" },
-      { id: "tpl-worship-2", category: "Music", name: "Worship 2", duration: 420, notes: "Second worship song · left stage emphasis", productionLookId: "look-worship-2" },
-      { id: "tpl-worship-3", category: "Music", name: "Worship 3", duration: 420, notes: "Third worship song · intimate right stage look", productionLookId: "look-worship-3" },
-      { id: "tpl-worship", category: "Music", name: "Worship", duration: 1200, notes: "Congregational singing", productionLookId: "look-worship-1" },
+      { id: "tpl-worship", category: "Music", name: "Worship", duration: 1200, notes: "Congregational singing", productionLookId: "look-worship" },
       { id: "tpl-offering", category: "Service", name: "Offering", duration: 420, notes: "Offering and announcements", productionLookId: "look-welcome" },
       { id: "tpl-sermon", category: "Service", name: "Sermon", duration: 2100, notes: "Main preaching cue", productionLookId: "look-sermon" },
       { id: "tpl-invitation", category: "Service", name: "Invitation", duration: 600, notes: "Invitation", productionLookId: "look-invitation" },
@@ -667,9 +661,7 @@ function defaultState() {
     ],
     runOfService: [
       { id: "cue-welcome", name: "Welcome", duration: 300, notes: "Opening welcome", productionLookId: "look-welcome" },
-      { id: "cue-worship-1", name: "Worship 1", duration: 420, notes: "Opening worship song · bright wide stage", productionLookId: "look-worship-1" },
-      { id: "cue-worship-2", name: "Worship 2", duration: 420, notes: "Second worship song · left stage emphasis", productionLookId: "look-worship-2" },
-      { id: "cue-worship-3", name: "Worship 3", duration: 420, notes: "Third worship song · intimate right stage look", productionLookId: "look-worship-3" },
+      { id: "cue-worship", name: "Worship", duration: 1200, notes: "Congregational singing", productionLookId: "look-worship" },
       { id: "cue-sermon", name: "Sermon", duration: 2100, notes: "Main preaching cue", productionLookId: "look-sermon" },
       { id: "cue-invitation", name: "Invitation", duration: 600, notes: "Invitation", productionLookId: "look-invitation" }
     ],
@@ -726,20 +718,6 @@ function migrate(state = {}) {
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
   }));
-
-  // Alpha 4.1: turn the first three generic Worship cues into distinct production moments.
-  let worshipNumber = 0;
-  merged.runOfService = merged.runOfService.map(cue => {
-    const isGenericWorship = String(cue.name || "").trim().toLowerCase() === "worship";
-    if (!isGenericWorship || worshipNumber >= 3) return cue;
-    worshipNumber += 1;
-    return {
-      ...cue,
-      name: `Worship ${worshipNumber}`,
-      notes: fresh.cueTemplates.find(t => t.id === `tpl-worship-${worshipNumber}`)?.notes || cue.notes,
-      productionLookId: `look-worship-${worshipNumber}`
-    };
-  });
 
   const presetNames = merged.cameraPresets.map(preset => preset.name);
   const fallbackPreset = presetNames[0] || "Stage Wide";

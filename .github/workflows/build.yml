@@ -1,24 +1,47 @@
 name: Build Trinity Control
+
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
+
 permissions:
   contents: read
+
 jobs:
   mac:
+    name: Build and verify macOS installers
     runs-on: macos-latest
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - run: npm install
-      - run: npm run build:mac
-      - uses: actions/upload-artifact@v4
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build Intel and Apple Silicon DMGs
+        run: npm run build:mac
+
+      - name: Verify app bundles and disk images
+        run: npm run verify:mac
+
+      - name: Upload verified DMG installers
+        uses: actions/upload-artifact@v4
         with:
-          name: Trinity-Control-Alpha-2-macOS
+          name: Trinity-Control-verified-macOS-DMGs
           path: dist/*.dmg
           if-no-files-found: error
+          compression-level: 0

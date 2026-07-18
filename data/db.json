@@ -1,0 +1,322 @@
+{
+  "meta": {
+    "version": "0.3.2-alpha",
+    "church": "Trinity Baptist Church",
+    "room": "Main Sanctuary",
+    "simulationMode": true
+  },
+  "devices": [
+    {
+      "id": "ptz-main",
+      "name": "PTZOptics Main",
+      "type": "camera",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "avk-left",
+      "name": "AVKANS Left",
+      "type": "camera",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "avk-right",
+      "name": "AVKANS Right",
+      "type": "camera",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "atem",
+      "name": "ATEM Mini",
+      "type": "switcher",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "qlc",
+      "name": "QLC+ Lighting",
+      "type": "lighting",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "ha",
+      "name": "Home Assistant",
+      "type": "automation",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "propresenter",
+      "name": "ProPresenter",
+      "type": "graphics",
+      "status": "online",
+      "simulated": true
+    },
+    {
+      "id": "encoder",
+      "name": "Stream Encoder",
+      "type": "stream",
+      "status": "online",
+      "simulated": true
+    }
+  ],
+  "cameraShots": [
+    {
+      "id": "ptz-stage-wide",
+      "cameraId": "ptz-main",
+      "name": "Stage Wide",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-stage-medium",
+      "cameraId": "ptz-main",
+      "name": "Stage Medium",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-pulpit-tight",
+      "cameraId": "ptz-main",
+      "name": "Pulpit Tight",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-pulpit-wide",
+      "cameraId": "ptz-main",
+      "name": "Pulpit Wide",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-stage-right",
+      "cameraId": "ptz-main",
+      "name": "Pulpit \u2192 Stage Right",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-stage-left",
+      "cameraId": "ptz-main",
+      "name": "Pulpit \u2192 Stage Left",
+      "category": "Stage"
+    },
+    {
+      "id": "ptz-baptistry",
+      "cameraId": "ptz-main",
+      "name": "Baptistry",
+      "category": "Events"
+    },
+    {
+      "id": "ptz-communion",
+      "cameraId": "ptz-main",
+      "name": "Communion Table",
+      "category": "Events"
+    },
+    {
+      "id": "ptz-cong-wide",
+      "cameraId": "ptz-main",
+      "name": "Congregation Wide",
+      "category": "Congregation"
+    },
+    {
+      "id": "ptz-cong-center",
+      "cameraId": "ptz-main",
+      "name": "Congregation Center",
+      "category": "Congregation"
+    },
+    {
+      "id": "left-stage-wide",
+      "cameraId": "avk-left",
+      "name": "Stage Wide",
+      "category": "Stage"
+    },
+    {
+      "id": "left-cross-medium",
+      "cameraId": "avk-left",
+      "name": "Cross Stage Medium",
+      "category": "Stage"
+    },
+    {
+      "id": "left-cong-right",
+      "cameraId": "avk-left",
+      "name": "Congregation Right",
+      "category": "Congregation"
+    },
+    {
+      "id": "left-cong-wide",
+      "cameraId": "avk-left",
+      "name": "Congregation Wide",
+      "category": "Congregation"
+    },
+    {
+      "id": "right-stage-wide",
+      "cameraId": "avk-right",
+      "name": "Stage Wide",
+      "category": "Stage"
+    },
+    {
+      "id": "right-cross-tight",
+      "cameraId": "avk-right",
+      "name": "Cross Stage Tight",
+      "category": "Stage"
+    },
+    {
+      "id": "right-cong-left",
+      "cameraId": "avk-right",
+      "name": "Congregation Left",
+      "category": "Congregation"
+    },
+    {
+      "id": "right-cong-wide",
+      "cameraId": "avk-right",
+      "name": "Congregation Wide",
+      "category": "Congregation"
+    }
+  ],
+  "productionShots": [
+    {
+      "id": "sermon-main",
+      "name": "Sermon Main",
+      "assignments": {
+        "ptz-main": "ptz-pulpit-tight",
+        "avk-left": "left-cross-medium",
+        "avk-right": "right-cross-tight"
+      },
+      "preferredCamera": "ptz-main",
+      "alternates": [
+        "avk-left",
+        "avk-right"
+      ],
+      "lighting": "Sermon",
+      "houseLights": 15
+    },
+    {
+      "id": "worship-wide",
+      "name": "Worship Wide",
+      "assignments": {
+        "ptz-main": "ptz-stage-wide",
+        "avk-left": "left-stage-wide",
+        "avk-right": "right-stage-wide"
+      },
+      "preferredCamera": "ptz-main",
+      "alternates": [
+        "avk-left",
+        "avk-right"
+      ],
+      "lighting": "Worship",
+      "houseLights": 20
+    },
+    {
+      "id": "congregation",
+      "name": "Congregation",
+      "assignments": {
+        "ptz-main": "ptz-cong-center",
+        "avk-left": "left-cong-right",
+        "avk-right": "right-cong-left"
+      },
+      "preferredCamera": "ptz-main",
+      "alternates": [
+        "avk-left",
+        "avk-right"
+      ],
+      "lighting": "Worship",
+      "houseLights": 40
+    }
+  ],
+  "runsOfService": [
+    {
+      "id": "sunday-morning",
+      "name": "Sunday Morning",
+      "cues": [
+        {
+          "id": "cue-countdown",
+          "name": "Countdown",
+          "duration": 600,
+          "productionShot": "worship-wide",
+          "tracking": false,
+          "notes": "Confirm stream and recording."
+        },
+        {
+          "id": "cue-welcome",
+          "name": "Welcome",
+          "duration": 180,
+          "productionShot": "sermon-main",
+          "tracking": true,
+          "notes": ""
+        },
+        {
+          "id": "cue-worship",
+          "name": "Worship",
+          "duration": 1200,
+          "productionShot": "worship-wide",
+          "tracking": false,
+          "notes": "Rotate all three cameras."
+        },
+        {
+          "id": "cue-announcements",
+          "name": "Announcements",
+          "duration": 300,
+          "productionShot": "sermon-main",
+          "tracking": true,
+          "notes": ""
+        },
+        {
+          "id": "cue-offering",
+          "name": "Offering",
+          "duration": 360,
+          "productionShot": "congregation",
+          "tracking": false,
+          "notes": "Use congregation shots carefully."
+        },
+        {
+          "id": "cue-sermon",
+          "name": "Sermon",
+          "duration": 2100,
+          "productionShot": "sermon-main",
+          "tracking": true,
+          "notes": "PTZ is primary; use cross angles as alternates."
+        },
+        {
+          "id": "cue-invitation",
+          "name": "Invitation",
+          "duration": 480,
+          "productionShot": "sermon-main",
+          "tracking": true,
+          "notes": ""
+        },
+        {
+          "id": "cue-communion",
+          "name": "Communion",
+          "duration": 600,
+          "productionShot": "sermon-main",
+          "tracking": false,
+          "notes": "Prepare communion table framing."
+        },
+        {
+          "id": "cue-closing",
+          "name": "Closing",
+          "duration": 180,
+          "productionShot": "sermon-main",
+          "tracking": true,
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "liveState": {
+    "active": false,
+    "rosId": "sunday-morning",
+    "cueIndex": 0,
+    "programCamera": "ptz-main",
+    "previewCamera": "avk-left",
+    "startedAt": null,
+    "paused": false,
+    "history": [
+      {
+        "time": "2026-07-18T02:02:56.527Z",
+        "action": "Preview camera selected",
+        "detail": "AVKANS Right"
+      }
+    ]
+  }
+}

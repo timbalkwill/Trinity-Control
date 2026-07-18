@@ -1,0 +1,42 @@
+{
+  "name": "trinity-control",
+  "productName": "Trinity Control",
+  "version": "0.5.1-alpha",
+  "description": "Offline-first church production control application",
+  "main": "electron-main.cjs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:mac": "electron-builder --mac dmg zip",
+    "build:win": "electron-builder --win nsis zip"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "org.trinitybaptist.trinitycontrol",
+    "productName": "Trinity Control",
+    "asar": true,
+    "files": [
+      "electron-main.cjs",
+      "server.mjs",
+      "public/**/*",
+      "data/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "zip"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

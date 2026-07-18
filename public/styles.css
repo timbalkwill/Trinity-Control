@@ -8,3 +8,288 @@
 .cue-heading{padding-right:16px}.cue-heading h1{font-size:30px}.summary-metric{border-left:1px solid var(--line);padding:4px 14px;display:flex;flex-direction:column;justify-content:center;gap:5px;min-width:0}.summary-metric span,.lower-title span{font-size:10px;font-weight:900;letter-spacing:.16em;color:var(--muted)}.summary-metric strong{font-size:16px;white-space:normal}.summary-metric#cue-elapsed,.summary-metric strong:first-of-type{font-variant-numeric:tabular-nums}.summary-metric small{color:var(--muted);font-size:11px}.notes-card{padding:14px 16px}.notes-card p{margin:12px 0 0;line-height:1.45;color:#dbe6ee}.cue-item{grid-template-columns:28px 1fr auto;padding:10px 12px}.cue-number{width:22px;height:22px;border:1px solid #71889a;border-radius:50%;display:grid;place-items:center;font-size:11px}.cue-item.current .cue-number{background:#1aa875;border-color:#48e0a0}.cue-icons{font-size:12px;color:#73a5c8;letter-spacing:4px;white-space:nowrap}.cue-item.completed{opacity:.72}.camera-monitor{padding:9px}.video-placeholder{min-height:145px}.quick-panel{padding:12px}.quick-panel .section-title{margin-bottom:9px}.quick-grid button{min-height:50px}.lower-grid{display:grid;grid-template-columns:minmax(330px,.9fr) minmax(0,1.7fr);gap:10px}.activity-panel,.status-panel{min-height:150px;padding:14px}.lower-title{margin-bottom:12px}.activity-list{display:grid;gap:7px}.activity-list>div{display:grid;grid-template-columns:70px 1fr;gap:10px;font-size:12px}.activity-list time{color:var(--green);font-variant-numeric:tabular-nums}.activity-list span{color:#c4d2dc}.empty-state{color:var(--muted);font-size:12px}.status-grid{display:grid;grid-template-columns:repeat(4,minmax(105px,1fr));gap:13px 16px}.status-grid>div{display:grid;grid-template-columns:14px 1fr;column-gap:7px;align-items:center}.status-grid i{width:12px;height:12px;border:2px solid #28db7e;border-radius:50%;box-shadow:0 0 7px #28db7e66}.status-grid strong{font-size:12px}.status-grid small{grid-column:2;color:var(--muted);font-size:10px}.ready{box-shadow:0 0 14px #20ca7b22}
 @media(max-width:1250px){.summary-row{grid-template-columns:1fr}.notes-card{display:none}.refined-summary{grid-template-columns:minmax(220px,1.4fr) repeat(4,minmax(95px,.7fr))}.status-grid{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:1050px){.refined-summary{grid-template-columns:1fr 1fr}.cue-heading{grid-column:1/-1}.summary-metric{border-left:0;border-top:1px solid var(--line)}.lower-grid{grid-template-columns:1fr}.cue-icons{display:none}}
+
+/* Alpha 5.3 — compact 1080p Live console */
+
+@media (min-width: 1251px) and (min-height: 760px) {
+  .content {
+    padding: 10px 12px;
+  }
+
+  .refined-main {
+    overflow: hidden;
+    grid-template-rows:
+      auto
+      minmax(205px, 1fr)
+      auto
+      minmax(92px, auto);
+    gap: 8px;
+    padding-bottom: 0;
+  }
+
+  .summary-row {
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 8px;
+  }
+
+  .refined-summary {
+    grid-template-columns:
+      minmax(190px, 1.65fr)
+      minmax(92px, 0.62fr)
+      minmax(105px, 0.72fr)
+      minmax(100px, 0.68fr)
+      minmax(95px, 0.62fr);
+    padding: 9px 12px;
+    gap: 0;
+    min-width: 0;
+  }
+
+  .cue-heading {
+    min-width: 0;
+    padding-right: 10px;
+    overflow: hidden;
+  }
+
+  .cue-heading h1 {
+    margin: 2px 0;
+    font-size: clamp(22px, 2vw, 28px);
+    line-height: 1.05;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cue-heading p {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .summary-metric {
+    padding: 3px 9px;
+    gap: 3px;
+    overflow: hidden;
+  }
+
+  .summary-metric strong {
+    display: block;
+    min-width: 0;
+    font-size: 14px;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .summary-metric small {
+    font-size: 9px;
+  }
+
+  .notes-card {
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+
+  .notes-card p {
+    margin-top: 7px;
+    font-size: 12px;
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .camera-grid {
+    min-height: 0;
+    gap: 9px;
+  }
+
+  .camera-monitor {
+  min-height: 0;
+  padding: 7px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  }
+
+  .monitor-topline {
+    margin-bottom: 5px;
+  }
+
+  .video-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  min-height: 0;
+  }
+
+  .video-placeholder .lens {
+    font-size: 27px;
+  }
+
+  .camera-controls {
+    margin-top: 6px;
+  }
+
+  .camera-controls select,
+  .camera-controls button {
+    padding-top: 7px;
+    padding-bottom: 7px;
+  }
+
+  .quick-panel {
+    padding: 9px 11px;
+    margin-bottom: 0;
+  }
+
+  .quick-panel .section-title {
+    margin-bottom: 6px;
+  }
+
+  .quick-grid {
+    gap: 6px;
+  }
+
+  .quick-grid button {
+    min-height: 40px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .lower-grid {
+    grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.75fr);
+    gap: 8px;
+    min-height: 0;
+  }
+
+  .activity-panel,
+  .status-panel {
+    min-height: 92px;
+    max-height: 112px;
+    padding: 9px 11px;
+    overflow: hidden;
+  }
+
+  .lower-title {
+    margin-bottom: 6px;
+  }
+
+  .activity-list {
+    gap: 3px;
+    max-height: 72px;
+    overflow: hidden;
+  }
+
+  .activity-list > div {
+    grid-template-columns: 58px 1fr;
+    gap: 7px;
+    font-size: 10px;
+    line-height: 1.2;
+  }
+
+  .activity-list > div:nth-child(n + 5) {
+    display: none;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(4, minmax(90px, 1fr));
+    gap: 6px 10px;
+  }
+
+  .status-grid > div {
+    grid-template-columns: 11px minmax(0, 1fr);
+    column-gap: 5px;
+  }
+
+  .status-grid i {
+    width: 9px;
+    height: 9px;
+  }
+
+  .status-grid strong {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .status-grid small {
+    font-size: 8px;
+  }
+
+  .cue-item {
+    padding: 7px 9px;
+  }
+
+  .cue-item strong,
+  .cue-item small {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+/* Alpha 5.3 — broadcast-style camera monitors */
+
+.camera-grid {
+  align-items: start;
+}
+
+.camera-monitor {
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: start;
+  gap: 6px;
+}
+
+.camera-monitor.program,
+.camera-monitor.preview {
+  border: 0;
+  box-shadow: none;
+}
+
+.monitor-topline {
+  margin: 0;
+  padding: 0 3px;
+  min-height: 18px;
+}
+
+.video-placeholder {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  min-height: 0;
+}
+
+.camera-monitor.program .video-placeholder {
+  border-color: var(--green);
+  box-shadow: 0 0 0 1px var(--green);
+}
+
+.camera-monitor.preview .video-placeholder {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 1px var(--amber);
+}
+
+.camera-controls {
+  margin: 0;
+  padding: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.camera-controls select,
+.camera-controls button {
+  min-height: 38px;
+  padding: 7px 11px;
+}
+
+.camera-controls button {
+  min-width: 104px;
+}

@@ -7,7 +7,7 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 
 function defaultState() {
   return {
-    version: "0.8.1-alpha.3",
+    version: "0.8.3-alpha.3",
     cameras: [
       { id: "main", name: "Main PTZ", online: true },
       { id: "left", name: "Left PTZ", online: true },

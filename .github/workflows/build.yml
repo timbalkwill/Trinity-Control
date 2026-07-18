@@ -29,7 +29,9 @@ jobs:
         run: npm install
 
       - name: Build Trinity Control for macOS
-        run: npm run build:mac
+        env:
+          GH_TOKEN: ""
+        run: npx electron-builder --mac dmg zip --publish never
 
       - name: Upload Mac installer
         uses: actions/upload-artifact@v4

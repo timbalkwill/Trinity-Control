@@ -7,7 +7,7 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 
 function defaultState() {
   return {
-    version: "0.7.0-alpha.2",
+    version: "0.7.0-alpha.3",
     cameras: [
       { id: "main", name: "Main PTZ", online: true },
       { id: "left", name: "Left PTZ", online: true },
@@ -21,10 +21,22 @@ function defaultState() {
       { id: "light-full", name: "Full White", platform: 100, fill: 80, room: "White", ceiling: 50, house: 60, fade: 2 }
     ],
     cameraLayouts: [
-      { id: "cam-worship", name: "Worship Wide", programCamera: "main", programPreset: "Stage Wide", previewCamera: "left", previewPreset: "Stage Left", tracking: false },
-      { id: "cam-sermon", name: "Pastor Tight", programCamera: "main", programPreset: "Pulpit Tight", previewCamera: "left", previewPreset: "Pulpit Wide", tracking: true },
-      { id: "cam-communion", name: "Communion Layout", programCamera: "main", programPreset: "Communion", previewCamera: "right", previewPreset: "Stage Wide", tracking: false },
-      { id: "cam-baptism", name: "Baptism Layout", programCamera: "right", programPreset: "Baptistry", previewCamera: "main", previewPreset: "Stage Wide", tracking: false }
+      { id: "cam-worship", category: "Worship", favorite: true, name: "Worship Wide", programCamera: "main", programPreset: "Stage Wide", previewCamera: "left", previewPreset: "Stage Left", tracking: false },
+      { id: "cam-worship-left", category: "Worship", favorite: false, name: "Worship Left", programCamera: "left", programPreset: "Stage Left", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-worship-right", category: "Worship", favorite: false, name: "Worship Right", programCamera: "right", programPreset: "Stage Right", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-center-vocal", category: "Worship", favorite: false, name: "Center Vocal", programCamera: "main", programPreset: "Stage Medium", previewCamera: "left", previewPreset: "Stage Wide", tracking: true },
+      { id: "cam-pastor-wide", category: "Sermon", favorite: false, name: "Pastor Wide", programCamera: "main", programPreset: "Pulpit Wide", previewCamera: "left", previewPreset: "Congregation Wide", tracking: true },
+      { id: "cam-pastor-medium", category: "Sermon", favorite: true, name: "Pastor Medium", programCamera: "main", programPreset: "Stage Medium", previewCamera: "left", previewPreset: "Pulpit Wide", tracking: true },
+      { id: "cam-sermon", category: "Sermon", favorite: true, name: "Pastor Tight", programCamera: "main", programPreset: "Pulpit Tight", previewCamera: "left", previewPreset: "Pulpit Wide", tracking: true },
+      { id: "cam-guest", category: "Sermon", favorite: false, name: "Guest Speaker", programCamera: "left", programPreset: "Pulpit Tight", previewCamera: "main", previewPreset: "Pulpit Wide", tracking: true },
+      { id: "cam-piano", category: "Music", favorite: false, name: "Piano", programCamera: "right", programPreset: "Piano", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-choir", category: "Music", favorite: false, name: "Choir", programCamera: "main", programPreset: "Stage Wide", previewCamera: "right", previewPreset: "Stage Right", tracking: false },
+      { id: "cam-congregation", category: "Room", favorite: false, name: "Congregation", programCamera: "left", programPreset: "Congregation Wide", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-communion", category: "Special Events", favorite: true, name: "Communion", programCamera: "main", programPreset: "Communion", previewCamera: "right", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-baptism", category: "Special Events", favorite: true, name: "Baptism", programCamera: "right", programPreset: "Baptistry", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-dedication", category: "Special Events", favorite: false, name: "Baby Dedication", programCamera: "main", programPreset: "Stage Medium", previewCamera: "left", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-announcement", category: "Media", favorite: false, name: "Announcement", programCamera: "main", programPreset: "Pulpit Wide", previewCamera: "left", previewPreset: "Stage Wide", tracking: false },
+      { id: "cam-blank", category: "Media", favorite: false, name: "Blank Stage", programCamera: "main", programPreset: "Stage Wide", previewCamera: "right", previewPreset: "Stage Wide", tracking: false }
     ],
     productionLooks: [
       { id: "look-welcome", name: "Welcome", lightingSceneId: "light-sermon", cameraLayoutId: "cam-sermon", graphics: "Welcome Lower Third", houseLights: 45, tracking: true },
@@ -65,8 +77,18 @@ function migrate(state) {
   const fresh = defaultState();
   const merged = { ...fresh, ...state, version: fresh.version };
   for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates"]) {
-    if (!Array.isArray(merged[key]) || !merged[key].length) merged[key] = fresh[key];
+    if (!Array.isArray(merged[key]) || !merged[key].length) {
+      merged[key] = fresh[key];
+    } else {
+      const existing = new Set(merged[key].map(item => item.id));
+      merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
+    }
   }
+  merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
+    category: "Custom",
+    favorite: false,
+    ...layout
+  }));
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
   merged.runOfService = merged.runOfService.map((cue, i) => ({

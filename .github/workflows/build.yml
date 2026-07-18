@@ -28,14 +28,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build Trinity Control for macOS
-        run: npm run build:mac -- --publish=never
+      - name: Build Trinity Control DMGs
+        run: npm run build:mac
 
-      - name: Upload Mac installer
+      - name: Upload Mac installers
         uses: actions/upload-artifact@v4
         with:
           name: Trinity-Control-macOS
-          path: |
-            dist/*.dmg
-            dist/*.zip
+          path: dist/*.dmg
           if-no-files-found: error

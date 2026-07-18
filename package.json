@@ -1,16 +1,13 @@
 {
   "name": "trinity-control",
-  "productName": "Trinity Control",
-  "version": "0.5.1-alpha",
+  "version": "0.6.0-alpha",
   "description": "Offline-first church production control application",
+  "author": "Tim Balkwill",
   "main": "electron-main.cjs",
   "private": true,
-  "type": "module",
   "scripts": {
     "start": "electron .",
-    "dev": "electron .",
-    "build:mac": "electron-builder --mac dmg zip",
-    "build:win": "electron-builder --win nsis zip"
+    "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never"
   },
   "devDependencies": {
     "electron": "^37.2.0",
@@ -22,21 +19,28 @@
     "asar": true,
     "files": [
       "electron-main.cjs",
-      "server.mjs",
+      "preload.cjs",
       "public/**/*",
-      "data/**/*",
       "package.json"
     ],
+    "directories": {
+      "output": "dist"
+    },
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"]
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
     },
-    "win": {
-      "target": ["nsis", "zip"]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+    "dmg": {
+      "title": "Trinity Control ${version}",
+      "artifactName": "Trinity-Control-${version}-${arch}.${ext}"
     }
   }
 }

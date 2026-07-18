@@ -1,6 +1,6 @@
 {
   "name": "trinity-control",
-  "version": "0.6.0-alpha",
+  "version": "0.7.0-alpha.2",
   "description": "Offline-first church production control application",
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",
@@ -17,26 +17,11 @@
     "appId": "org.trinitybaptist.trinitycontrol",
     "productName": "Trinity Control",
     "asar": true,
-    "files": [
-      "electron-main.cjs",
-      "preload.cjs",
-      "public/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "output": "dist"
-    },
+    "files": ["electron-main.cjs", "preload.cjs", "public/**/*", "package.json"],
+    "directories": { "output": "dist" },
     "mac": {
       "category": "public.app-category.utilities",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }]
     },
     "dmg": {
       "title": "Trinity Control ${version}",

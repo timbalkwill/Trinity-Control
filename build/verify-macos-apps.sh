@@ -2,7 +2,7 @@
 set -euo pipefail
 shopt -s nullglob
 
-apps=(dist/mac*/"Trinity Control.app")
+apps=(dist/mac*/"Trinity Control Refresh.app")
 if [ ${#apps[@]} -eq 0 ]; then
   echo "No packaged Trinity Control apps found."
   exit 1

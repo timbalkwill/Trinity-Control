@@ -1,37 +1,24 @@
-# Trinity Control
+# Trinity Control Refresh
 
-Offline-first church production control software.
+A clean, separate development build for Trinity Baptist Church in Hendersonville, Tennessee.
 
-## Current alpha features
+## Included in Alpha 5 Refresh
 
-- Mission Control
-- Live Director
-- Run of Service with functional Add Cue
-- Shared camera preset library across every camera
-- Direct Preview and Program camera selection
-- Production Shots
-- Technical device status simulation
+- Three camera monitor panels on the Live page.
+- Click any camera panel or TAKE LIVE to put that camera on Program.
+- Independent preset selection for all three cameras.
+- Worship 1, Worship 2, and Worship 3 cues.
+- Matching Worship 1, Worship 2, and Worship 3 production looks.
+- Different camera layouts and lighting scenes for each worship look.
+- Direct cue selection from the Order of Service.
+- TAKE NEXT, BACK, and HOLD removed from the Live page.
+- Correct scrolling above the fixed bottom navigation bar.
+- Separate app name and data folder so the previous Trinity Control installation remains untouched.
 
-## Run for development
+## Run on a Mac
 
-Install Node.js 22 or newer, then:
+1. Open Terminal in this folder.
+2. Run `npm install`.
+3. Run `npm start`.
 
-```bash
-npm install
-npm start
-```
-
-## Build a Mac application
-
-```bash
-npm install
-npm run build:mac
-```
-
-The finished `.dmg` and `.zip` appear in `dist/`. End users do not need Node.js.
-
-## GitHub automatic builds
-
-Open the repository's **Actions** tab and run **Build Trinity Control**. Download the macOS artifact after the workflow finishes.
-
-The build is currently unsigned. On first launch, macOS may require Control-click → Open.
+Or push this folder to a new GitHub repository and use the included build workflow.

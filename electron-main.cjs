@@ -2,37 +2,20 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
-const APP_VERSION = "0.9.0-alpha.4";
-const STATE_SCHEMA_VERSION = 4;
+app.setName("Trinity Control Refresh");
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
 
 function defaultState() {
   return {
-    version: APP_VERSION,
-    schemaVersion: STATE_SCHEMA_VERSION,
+    version: "1.0.2-alpha.5.2-refined",
+    schemaVersion: 5,
     cameras: [
-      { id: "main", name: "Main PTZ", role: "main", protocol: "simulation", address: "", online: true, enabled: true },
-      { id: "left", name: "Left PTZ", role: "left", protocol: "simulation", address: "", online: true, enabled: true },
-      { id: "right", name: "Right PTZ", role: "right", protocol: "simulation", address: "", online: true, enabled: true }
+      { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true },
+      { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true },
+      { id: "right", name: "Right PTZ", role: "right", online: true, enabled: true }
     ],
-    cameraPresets: [
-      { id: "preset-stage-wide", name: "Stage Wide", category: "Stage", favorite: true },
-      { id: "preset-stage-medium", name: "Stage Medium", category: "Stage", favorite: true },
-      { id: "preset-stage-left", name: "Stage Left", category: "Stage", favorite: false },
-      { id: "preset-stage-right", name: "Stage Right", category: "Stage", favorite: false },
-      { id: "preset-pulpit-wide", name: "Pulpit Wide", category: "Pulpit", favorite: true },
-      { id: "preset-pulpit-tight", name: "Pulpit Tight", category: "Pulpit", favorite: true },
-      { id: "preset-piano", name: "Piano", category: "Music", favorite: false },
-      { id: "preset-choir", name: "Choir", category: "Music", favorite: false },
-      { id: "preset-baptistry", name: "Baptistry", category: "Special Events", favorite: false },
-      { id: "preset-communion", name: "Communion", category: "Special Events", favorite: false },
-      { id: "preset-congregation-wide", name: "Congregation Wide", category: "Congregation", favorite: true },
-      { id: "preset-congregation-left", name: "Congregation Left", category: "Congregation", favorite: false },
-      { id: "preset-congregation-right", name: "Congregation Right", category: "Congregation", favorite: false }
-    ],
-    cameraPresetAssignments: {},
     lightingScenes: [
       {
             "id": "light-preservice",
@@ -624,6 +607,9 @@ function defaultState() {
       }
 ],
     cameraLayouts: [
+      { id: "cam-worship-1", category: "Worship", favorite: true, name: "Worship 1 · Wide", programCamera: "main", programPreset: "Stage Wide", previewCamera: "left", previewPreset: "Stage Left", tracking: false },
+      { id: "cam-worship-2", category: "Worship", favorite: true, name: "Worship 2 · Left", programCamera: "left", programPreset: "Stage Medium", previewCamera: "right", previewPreset: "Stage Right", tracking: false },
+      { id: "cam-worship-3", category: "Worship", favorite: true, name: "Worship 3 · Intimate", programCamera: "right", programPreset: "Stage Medium", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
       { id: "cam-worship", category: "Worship", favorite: true, name: "Worship Wide", programCamera: "main", programPreset: "Stage Wide", previewCamera: "left", previewPreset: "Stage Left", tracking: false },
       { id: "cam-worship-left", category: "Worship", favorite: false, name: "Worship Left", programCamera: "left", programPreset: "Stage Left", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
       { id: "cam-worship-right", category: "Worship", favorite: false, name: "Worship Right", programCamera: "right", programPreset: "Stage Right", previewCamera: "main", previewPreset: "Stage Wide", tracking: false },
@@ -642,6 +628,9 @@ function defaultState() {
       { id: "cam-blank", category: "Media", favorite: false, name: "Blank Stage", programCamera: "main", programPreset: "Stage Wide", previewCamera: "right", previewPreset: "Stage Wide", tracking: false }
     ],
     productionLooks: [
+      { id: "look-worship-1", name: "Worship 1 · Wide", lightingSceneId: "light-worship", cameraLayoutId: "cam-worship-1", graphics: "Lyrics", houseLights: 20, tracking: false },
+      { id: "look-worship-2", name: "Worship 2 · Bright", lightingSceneId: "light-worship-bright", cameraLayoutId: "cam-worship-2", graphics: "Lyrics", houseLights: 18, tracking: false },
+      { id: "look-worship-3", name: "Worship 3 · Intimate", lightingSceneId: "light-worship-intimate", cameraLayoutId: "cam-worship-3", graphics: "Lyrics", houseLights: 10, tracking: false },
       { id: "look-welcome", name: "Welcome", lightingSceneId: "light-sermon", cameraLayoutId: "cam-sermon", graphics: "Welcome Lower Third", houseLights: 45, tracking: true },
       { id: "look-worship", name: "Worship", lightingSceneId: "light-worship", cameraLayoutId: "cam-worship", graphics: "Lyrics", houseLights: 20, tracking: false },
       { id: "look-sermon", name: "Sermon", lightingSceneId: "light-sermon", cameraLayoutId: "cam-sermon", graphics: "Scripture", houseLights: 35, tracking: true },
@@ -651,7 +640,9 @@ function defaultState() {
     ],
     cueTemplates: [
       { id: "tpl-welcome", category: "Service", name: "Welcome", duration: 300, notes: "Opening welcome", productionLookId: "look-welcome" },
-      { id: "tpl-worship", category: "Music", name: "Worship", duration: 1200, notes: "Congregational singing", productionLookId: "look-worship" },
+      { id: "tpl-worship-1", category: "Music", name: "Worship 1", duration: 420, notes: "First worship song", productionLookId: "look-worship-1" },
+      { id: "tpl-worship-2", category: "Music", name: "Worship 2", duration: 420, notes: "Second worship song", productionLookId: "look-worship-2" },
+      { id: "tpl-worship-3", category: "Music", name: "Worship 3", duration: 420, notes: "Third worship song", productionLookId: "look-worship-3" },
       { id: "tpl-offering", category: "Service", name: "Offering", duration: 420, notes: "Offering and announcements", productionLookId: "look-welcome" },
       { id: "tpl-sermon", category: "Service", name: "Sermon", duration: 2100, notes: "Main preaching cue", productionLookId: "look-sermon" },
       { id: "tpl-invitation", category: "Service", name: "Invitation", duration: 600, notes: "Invitation", productionLookId: "look-invitation" },
@@ -661,7 +652,9 @@ function defaultState() {
     ],
     runOfService: [
       { id: "cue-welcome", name: "Welcome", duration: 300, notes: "Opening welcome", productionLookId: "look-welcome" },
-      { id: "cue-worship", name: "Worship", duration: 1200, notes: "Congregational singing", productionLookId: "look-worship" },
+      { id: "cue-worship-1", name: "Worship 1", duration: 420, notes: "First worship song", productionLookId: "look-worship-1" },
+      { id: "cue-worship-2", name: "Worship 2", duration: 420, notes: "Second worship song", productionLookId: "look-worship-2" },
+      { id: "cue-worship-3", name: "Worship 3", duration: 420, notes: "Third worship song", productionLookId: "look-worship-3" },
       { id: "cue-sermon", name: "Sermon", duration: 2100, notes: "Main preaching cue", productionLookId: "look-sermon" },
       { id: "cue-invitation", name: "Invitation", duration: 600, notes: "Invitation", productionLookId: "look-invitation" }
     ],
@@ -669,23 +662,21 @@ function defaultState() {
       cueIndex: 0,
       programCamera: "main",
       previewCamera: "left",
+      programPreset: "Stage Wide",
+      previewPreset: "Stage Left",
       hold: false,
       lightingOverrideId: null,
-      lastLightingSceneId: null
+      lastLightingSceneId: null,
+      cueStartedAt: Date.now(),
+      activityLog: []
     }
   };
 }
 
-function migrate(state = {}) {
+function migrate(state) {
   const fresh = defaultState();
-  const merged = {
-    ...fresh,
-    ...state,
-    version: APP_VERSION,
-    schemaVersion: STATE_SCHEMA_VERSION
-  };
-
-  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates", "cameraPresets"]) {
+  const merged = { ...fresh, ...state, version: fresh.version, schemaVersion: fresh.schemaVersion };
+  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
     } else {
@@ -693,38 +684,24 @@ function migrate(state = {}) {
       merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
     }
   }
-
-  merged.cameras = Array.isArray(state.cameras) && state.cameras.length
-    ? state.cameras.map((camera, index) => ({
-        role: ["main", "left", "right"][index] || "aux",
-        protocol: "simulation",
-        address: "",
-        online: false,
-        enabled: true,
-        ...camera
-      }))
-    : fresh.cameras;
-
-  merged.lightingScenes = merged.lightingScenes.map(scene => ({ category: "Custom", favorite: false, ...scene }));
-  merged.cameraLayouts = merged.cameraLayouts.map(layout => ({ category: "Custom", favorite: false, ...layout }));
-  merged.cameraPresets = merged.cameraPresets.map(preset => ({ category: "Custom", favorite: false, ...preset }));
-  merged.cameraPresetAssignments = state.cameraPresetAssignments && typeof state.cameraPresetAssignments === "object"
-    ? state.cameraPresetAssignments
-    : {};
-
+    merged.lightingScenes = merged.lightingScenes.map(scene => ({
+    category: "Custom",
+    favorite: false,
+    ...scene
+  }));
+merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
+    category: "Custom",
+    favorite: false,
+    ...layout
+  }));
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
+  if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
+  if (!Array.isArray(merged.live.activityLog)) merged.live.activityLog = [];
   merged.runOfService = merged.runOfService.map((cue, i) => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
   }));
-
-  const presetNames = merged.cameraPresets.map(preset => preset.name);
-  const fallbackPreset = presetNames[0] || "Stage Wide";
-  merged.presetNames = presetNames; // temporary Alpha 3 compatibility alias
-  merged.live.programPreset = presetNames.includes(merged.live.programPreset) ? merged.live.programPreset : fallbackPreset;
-  merged.live.previewPreset = presetNames.includes(merged.live.previewPreset) ? merged.live.previewPreset : fallbackPreset;
-
   return merged;
 }
 
@@ -734,15 +711,19 @@ function loadState() {
 }
 function saveState(state) { fs.writeFileSync(dataPath(), JSON.stringify(state, null, 2)); return state; }
 
+function addActivity(state, message) {
+  state.live.activityLog = [{ at: Date.now(), message }, ...(state.live.activityLog || [])].slice(0, 8);
+}
+
 function applyLook(state, lookId) {
   const look = state.productionLooks.find(x => x.id === lookId);
   if (!look) return state;
   const layout = state.cameraLayouts.find(x => x.id === look.cameraLayoutId);
   if (layout) {
     state.live.programCamera = layout.programCamera;
-    state.live.programPreset = layout.programPreset || state.live.programPreset;
     state.live.previewCamera = layout.previewCamera;
-    state.live.previewPreset = layout.previewPreset || state.live.previewPreset;
+    state.live.programPreset = layout.programPreset;
+    state.live.previewPreset = layout.previewPreset;
   }
   state.live.lastLightingSceneId = look.lightingSceneId;
   state.live.lightingOverrideId = null;
@@ -758,14 +739,20 @@ app.whenReady().then(() => {
     return saveState(s);
   });
   ipcMain.handle("cue:move", (_e, { from, to }) => {
-    const s = loadState(); if (from < 0 || to < 0 || from >= s.runOfService.length || to >= s.runOfService.length) return s;
-    const [item] = s.runOfService.splice(from, 1); s.runOfService.splice(to, 0, item); return saveState(s);
+    const s = loadState();
+    if (from < 0 || to < 0 || from >= s.runOfService.length || to >= s.runOfService.length || from === to) return s;
+    const currentCueId = s.runOfService[s.live.cueIndex]?.id;
+    const [item] = s.runOfService.splice(from, 1);
+    s.runOfService.splice(to, 0, item);
+    const currentIndex = s.runOfService.findIndex(cue => cue.id === currentCueId);
+    if (currentIndex >= 0) s.live.cueIndex = currentIndex;
+    return saveState(s);
   });
   ipcMain.handle("cue:remove", (_e, index) => {
     const s = loadState(); s.runOfService.splice(index, 1); s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1)); return saveState(s);
   });
   ipcMain.handle("live:go", (_e, index) => {
-    const s = loadState(); s.live.cueIndex = Math.max(0, Math.min(index, s.runOfService.length - 1)); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
+    const s = loadState(); s.live.cueIndex = Math.max(0, Math.min(index, s.runOfService.length - 1)); s.live.cueStartedAt = Date.now(); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); addActivity(s, `Cue started: ${s.runOfService[s.live.cueIndex]?.name || "Cue"}`); return saveState(s);
   });
   ipcMain.handle("live:next", () => {
     const s = loadState(); s.live.cueIndex = Math.min(s.runOfService.length - 1, s.live.cueIndex + 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
@@ -774,8 +761,8 @@ app.whenReady().then(() => {
     const s = loadState(); s.live.cueIndex = Math.max(0, s.live.cueIndex - 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
   });
   ipcMain.handle("live:hold", () => { const s = loadState(); s.live.hold = !s.live.hold; return saveState(s); });
-  ipcMain.handle("lighting:override", (_e, sceneId) => { const s = loadState(); s.live.lightingOverrideId = sceneId; return saveState(s); });
-  ipcMain.handle("lighting:returnToCue", () => { const s = loadState(); s.live.lightingOverrideId = null; return saveState(s); });
+  ipcMain.handle("lighting:override", (_e, sceneId) => { const s = loadState(); s.live.lightingOverrideId = sceneId; const scene = s.lightingScenes.find(x => x.id === sceneId); addActivity(s, `Lighting scene: ${scene?.name || sceneId}`); return saveState(s); });
+  ipcMain.handle("lighting:returnToCue", () => { const s = loadState(); s.live.lightingOverrideId = null; addActivity(s, "Returned to cue lighting"); return saveState(s); });
 
   const win = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,

@@ -1,12 +1,13 @@
 {
-  "name": "trinity-control",
-  "version": "0.9.0-alpha.4",
-  "description": "Offline-first church production control application",
+  "name": "trinity-control-refresh",
+  "version": "1.0.2-alpha.5.2",
+  "description": "Clean refresh of Trinity Baptist Church production control application",
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",
   "private": true,
   "scripts": {
     "start": "electron .",
+    "check": "node --check electron-main.cjs && node --check preload.cjs && node --check public/app.js",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"
   },
@@ -15,8 +16,8 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "org.trinitybaptist.trinitycontrol",
-    "productName": "Trinity Control",
+    "appId": "org.trinitybaptist.trinitycontrol.refresh",
+    "productName": "Trinity Control Refresh",
     "asar": true,
     "files": [
       "electron-main.cjs",
@@ -43,8 +44,8 @@
       ]
     },
     "dmg": {
-      "title": "Trinity Control ${version}",
-      "artifactName": "Trinity-Control-${version}-${arch}.${ext}"
+      "title": "Trinity Control Refresh ${version}",
+      "artifactName": "Trinity-Control-Refresh-${version}-${arch}.${ext}"
     },
     "afterPack": "build/after-pack.cjs"
   }

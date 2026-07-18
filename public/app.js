@@ -1,172 +1,279 @@
-const root=document.getElementById("app");let state,page="live";
-const nav=[['live','LIVE'],['service','SERVICE'],['looks','LOOKS'],['lighting','LIGHTING'],['cameras','CAMERAS']];
-const byId=(arr,id)=>arr.find(x=>x.id===id);const currentCue=()=>state.runOfService[state.live.cueIndex];const currentLook=()=>byId(state.productionLooks,currentCue()?.productionLookId);const activeLight=()=>byId(state.lightingScenes,state.live.lightingOverrideId||currentLook()?.lightingSceneId);
-function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-function shell(content){root.innerHTML=`<div class="shell"><header class="top"><div class="brand">Trinity Control <small>${state.version}</small></div><div class="status">● Simulation Ready</div></header><main class="content">${content}</main><nav class="nav">${nav.map(([id,label])=>`<button data-page="${id}" class="${page===id?'active':''}">${label}</button>`).join('')}</nav></div>`;document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=b.dataset.page;render()})}
-function livePage(){
-  const cue=currentCue(),next=state.runOfService[state.live.cueIndex+1],look=currentLook(),light=activeLight();
-  const favorites=state.lightingScenes.filter(s=>s.favorite).slice(0,6);
-  const quickLights=favorites.length?favorites:state.lightingScenes.slice(0,6);
-  const presetOptions=(selected)=>state.presetNames.map(p=>`<option ${p===selected?'selected':''}>${esc(p)}</option>`).join('');
+const root = document.getElementById('app');
+let state;
+let page = 'live';
+const nav = [['live','LIVE'],['service','SERVICE'],['looks','LOOKS'],['lighting','LIGHTING'],['cameras','CAMERAS']];
 
-  shell(`<div class="live-main">
-    <section class="card ros-panel">
-      <div><div class="kicker">Order of Service</div><h2>Sunday Service · ${state.runOfService.length} cues</h2></div>
-      <div class="ros-list">${state.runOfService.map((c,i)=>{
-        const status=i<state.live.cueIndex?'completed':i===state.live.cueIndex?'current':i===state.live.cueIndex+1?'next':'upcoming';
-        const icon=status==='completed'?'✓':status==='current'?'▶':status==='next'?'●':'○';
-        return `<div class="ros-item ${status}" data-live-go="${i}">
-          <div class="ros-status">${icon}</div><div><strong>${esc(c.name)}</strong></div>
-        </div>`;
-      }).join('')}</div>
-    </section>
+const byId = (items, id) => items.find(item => item.id === id);
+const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const currentCue = () => state.runOfService[state.live.cueIndex];
+const currentLook = () => byId(state.productionLooks, currentCue()?.productionLookId);
+const activeLighting = () => byId(state.lightingScenes, state.live.lightingOverrideId || currentLook()?.lightingSceneId);
 
-    <section class="card stack">
-      <div><div class="kicker">Current Cue</div><div class="hero">${esc(cue?.name||'No Cue')}</div><div class="muted">${esc(cue?.notes||'')}</div></div>
+const formatElapsed = start => {
+  const seconds = Math.max(0, Math.floor((Date.now() - Number(start || Date.now())) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return hours ? `${hours}:${String(minutes).padStart(2,'0')}:${String(secs).padStart(2,'0')}` : `${minutes}:${String(secs).padStart(2,'0')}`;
+};
+const formatClock = timestamp => new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const activityTime = timestamp => new Date(timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-      <div class="live-camera-console">
-        <div class="kicker">Manual Camera Control · tap a camera to put it on Program</div>
-        <div class="live-camera-grid">${state.cameras.map(camera=>{
-          const isProgram=state.live.programCamera===camera.id;
-          const isPreview=state.live.previewCamera===camera.id;
-          const selectedPreset=isProgram?(state.live.programPreset||state.presetNames[0]):isPreview?(state.live.previewPreset||state.presetNames[0]):(state.presets[camera.id]?.[0]?.name||state.presetNames[0]);
-          return `<div class="live-camera ${isProgram?'program':''} ${isPreview?'preview':''}">
-            <div class="camera-role ${isProgram?'on-program':''}">${isProgram?'● PROGRAM':isPreview?'● PREVIEW':'CAMERA'}</div>
-            <button data-program-camera="${camera.id}">${esc(camera.name)}</button>
-            <select data-camera-preset="${camera.id}">${presetOptions(selectedPreset)}</select>
-          </div>`;
-        }).join('')}</div>
-      </div>
+const presetNames = ['Stage Wide','Stage Medium','Stage Left','Stage Right','Pulpit Wide','Pulpit Tight','Piano','Choir','Baptistry','Communion','Congregation Wide','Congregation Left','Congregation Right'];
 
-      <div class="grid three">
-        <div><div class="kicker">Program</div><div class="monitor program">${esc(byId(state.cameras,state.live.programCamera)?.name||'None')}<div class="muted">${esc(state.live.programPreset||'')}</div></div></div>
-        <div><div class="kicker">Preview</div><div class="monitor preview">${esc(byId(state.cameras,state.live.previewCamera)?.name||'None')}<div class="muted">${esc(state.live.previewPreset||'')}</div></div></div>
-        <div><div class="kicker">Next</div><div class="monitor">${esc(next?.name||'End')}</div></div>
-      </div>
-
-      <div><div class="kicker">Production State</div><div class="actions">
-        <span class="badge">${esc(look?.name||'No look')}</span>
-        <span class="badge">${esc(light?.name||'No lighting')}</span>
-        <span class="badge">House ${look?.houseLights??0}%</span>
-        <span class="badge">${look?.tracking?'Tracking ON':'Tracking OFF'}</span>
-      </div></div>
-
-      ${state.live.lightingOverrideId?`<div class="override"><strong>Manual Lighting Override Active:</strong> ${esc(light?.name)} <button id="return-light">Return to Cue Lighting</button></div>`:''}
-
-      <div><div class="kicker">Favorite Lighting Scenes</div>
-        <div class="live-lighting-favorites">${quickLights.map(s=>`<button data-light="${s.id}" class="${state.live.lightingOverrideId===s.id?'warn':''}">${esc(s.name)}</button>`).join('')}</div>
-      </div>
-
-      <div class="actions">
-        <button class="go" id="next">TAKE NEXT</button><button id="back">BACK</button>
-        <button class="${state.live.hold?'warn':''}" id="hold">${state.live.hold?'HOLD ACTIVE':'HOLD'}</button>
-        <button class="danger" id="blackout">BLACKOUT</button>
-      </div>
-    </section>
-  </div>`);
-
-  document.getElementById('next').onclick=async()=>{state=await window.trinity.nextCue();render()};
-  document.getElementById('back').onclick=async()=>{state=await window.trinity.previousCue();render()};
-  document.getElementById('hold').onclick=async()=>{state=await window.trinity.toggleHold();render()};
-  document.querySelectorAll('[data-live-go]').forEach(el=>el.onclick=async()=>{state=await window.trinity.goCue(Number(el.dataset.liveGo));render()});
-  document.querySelectorAll('[data-light]').forEach(button=>button.onclick=async()=>{state=await window.trinity.lightingOverride(button.dataset.light);render()});
-
-  document.querySelectorAll('[data-program-camera]').forEach(button=>button.onclick=async()=>{
-    const newProgram=button.dataset.programCamera;
-    if(newProgram===state.live.programCamera)return;
-    state.live.previewCamera=state.live.programCamera;
-    state.live.previewPreset=state.live.programPreset||state.presetNames[0];
-    state.live.programCamera=newProgram;
-    const selector=document.querySelector(`[data-camera-preset="${newProgram}"]`);
-    state.live.programPreset=selector?.value||state.presetNames[0];
-    state=await window.trinity.saveState(state);render();
+function shell(content) {
+  root.innerHTML = `
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">Trinity Control <span>${escapeHtml(state.version)}</span></div>
+        <div class="ready"><i></i> All Systems Ready</div>
+      </header>
+      <main class="content">${content}</main>
+      <nav class="bottom-nav">
+        ${nav.map(([id,label]) => `<button class="${page === id ? 'active' : ''}" data-page="${id}">${label}</button>`).join('')}
+      </nav>
+    </div>`;
+  document.querySelectorAll('[data-page]').forEach(button => {
+    button.onclick = () => { page = button.dataset.page; render(); };
   });
-
-  document.querySelectorAll('[data-camera-preset]').forEach(select=>select.onchange=async()=>{
-    const cameraId=select.dataset.cameraPreset;
-    if(cameraId===state.live.programCamera){state.live.programPreset=select.value}
-    else{state.live.previewCamera=cameraId;state.live.previewPreset=select.value}
-    state=await window.trinity.saveState(state);render();
-  });
-
-  const returnButton=document.getElementById('return-light');
-  if(returnButton)returnButton.onclick=async()=>{state=await window.trinity.returnToCueLighting();render()};
-  document.getElementById('blackout').onclick=async()=>{state=await window.trinity.lightingOverride('light-blackout');render()};
 }
-function servicePage(){const cats=[...new Set(state.cueTemplates.map(t=>t.category))];shell(`<div class="grid service-grid"><section class="card"><h2>Run of Service</h2><div class="cue-list">${state.runOfService.map((c,i)=>`<div class="cue-row ${i===state.live.cueIndex?'current':i===state.live.cueIndex+1?'next':''}"><strong>${String(i+1).padStart(2,'0')}</strong><div><strong>${esc(c.name)}</strong><div class="muted">${esc(byId(state.productionLooks,c.productionLookId)?.name||'No look')} · ${Math.round(c.duration/60)} min</div></div><div class="actions"><button data-go="${i}">GO</button><button data-up="${i}">↑</button><button data-down="${i}">↓</button><button data-remove="${i}">×</button></div></div>`).join('')}</div></section><aside class="card"><h2>Add Cue</h2><div class="library">${cats.map(cat=>state.cueTemplates.filter(t=>t.category===cat).map(t=>`<div class="template"><div class="kicker">${esc(cat)}</div><strong>${esc(t.name)}</strong><div class="muted">${esc(byId(state.productionLooks,t.productionLookId)?.name||'')}</div><button data-template="${t.id}">Add</button></div>`).join('')).join('')}</div></aside></div>`);document.querySelectorAll('[data-template]').forEach(b=>b.onclick=async()=>{state=await window.trinity.addCueTemplate(b.dataset.template);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=async()=>{state=await window.trinity.goCue(Number(b.dataset.go));render()});document.querySelectorAll('[data-up]').forEach(b=>b.onclick=async()=>{const i=Number(b.dataset.up);if(i>0)state=await window.trinity.moveCue(i,i-1);render()});document.querySelectorAll('[data-down]').forEach(b=>b.onclick=async()=>{const i=Number(b.dataset.down);if(i<state.runOfService.length-1)state=await window.trinity.moveCue(i,i+1);render()});document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=async()=>{state=await window.trinity.removeCue(Number(b.dataset.remove));render()});}
-function looksPage(){shell(`<section class="card"><h2>Production Look Library</h2><div class="editor-grid">${state.productionLooks.map(l=>`<div class="editor"><div class="kicker">Production Look</div><h3>${esc(l.name)}</h3><label>Lighting<select data-look="${l.id}" data-field="lightingSceneId">${state.lightingScenes.map(s=>`<option value="${s.id}" ${s.id===l.lightingSceneId?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label><label>Camera Layout<select data-look="${l.id}" data-field="cameraLayoutId">${state.cameraLayouts.map(c=>`<option value="${c.id}" ${c.id===l.cameraLayoutId?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label>Graphics<input data-look="${l.id}" data-field="graphics" value="${esc(l.graphics)}"></label><label>House Lights<input type="number" min="0" max="100" data-look="${l.id}" data-field="houseLights" value="${l.houseLights}"></label></div>`).join('')}</div></section>`);document.querySelectorAll('[data-look]').forEach(el=>el.onchange=async()=>{const l=byId(state.productionLooks,el.dataset.look);l[el.dataset.field]=el.type==='number'?Number(el.value):el.value;state=await window.trinity.saveState(state);render()});}
-let lightingSearch="",lightingCategory="All";
-function lightingPage(){
-  const categories=["All","Favorites",...[...new Set(state.lightingScenes.map(s=>s.category||"Custom"))]];
-  const visible=state.lightingScenes.filter(s=>{
-    const categoryMatch=lightingCategory==="All"||(lightingCategory==="Favorites"&&s.favorite)||s.category===lightingCategory;
-    const searchMatch=!lightingSearch||`${s.name} ${s.category} ${s.room}`.toLowerCase().includes(lightingSearch.toLowerCase());
-    return categoryMatch&&searchMatch;
+
+function cameraCard(camera) {
+  const isProgram = state.live.programCamera === camera.id;
+  const isPreview = state.live.previewCamera === camera.id;
+  const selected = isProgram ? state.live.programPreset : isPreview ? state.live.previewPreset : 'Stage Wide';
+  return `
+    <article class="camera-monitor ${isProgram ? 'program' : ''} ${isPreview ? 'preview' : ''}" data-take-camera="${camera.id}">
+      <div class="monitor-topline">
+        <span>${isProgram ? '● LIVE' : isPreview ? '● PREVIEW' : 'CAMERA'}</span>
+        <strong>${escapeHtml(camera.name)}</strong>
+      </div>
+      <div class="video-placeholder">
+        <div class="lens">◎</div>
+        <div>${isProgram ? 'PROGRAM OUTPUT' : 'LIVE CAMERA VIEW'}</div>
+        <small>${escapeHtml(selected || 'Stage Wide')}</small>
+      </div>
+      <div class="camera-controls">
+        <select data-camera-preset="${camera.id}" aria-label="Preset for ${escapeHtml(camera.name)}">
+          ${presetNames.map(name => `<option ${name === selected ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+        </select>
+        <button class="${isProgram ? 'live-button' : ''}" data-take-button="${camera.id}">${isProgram ? 'ON AIR' : 'TAKE LIVE'}</button>
+      </div>
+    </article>`;
+}
+
+function livePage() {
+  const cue = currentCue();
+  const look = currentLook();
+  const lighting = activeLighting();
+  const nextCue = state.runOfService[state.live.cueIndex + 1];
+  const favorites = state.lightingScenes.filter(scene => scene.favorite).slice(0, 6);
+  const activity = state.live.activityLog || [];
+
+  shell(`
+    <div class="live-layout refined-live">
+      <aside class="panel cue-panel">
+        <div class="section-title"><span>ORDER OF SERVICE · ${state.runOfService.length} CUES</span><strong>Sunday Service</strong></div>
+        <div class="cue-scroll">
+          ${state.runOfService.map((item, index) => {
+            const cls = index === state.live.cueIndex ? 'current' : index < state.live.cueIndex ? 'completed' : '';
+            return `<button class="cue-item ${cls}" data-go-cue="${index}">
+              <span class="cue-number">${index === state.live.cueIndex ? '▶' : index + 1}</span>
+              <div><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(byId(state.productionLooks, item.productionLookId)?.name || '')}</small></div>
+              <span class="cue-icons">◉ ◇ ♪</span>
+            </button>`;
+          }).join('')}
+        </div>
+      </aside>
+
+      <section class="main-scroll refined-main">
+        <div class="summary-row">
+          <div class="panel current-summary refined-summary">
+            <div class="cue-heading"><span class="eyebrow">CURRENT CUE</span><h1>${escapeHtml(cue?.name || 'No Cue')}</h1><p>${escapeHtml(cue?.notes || '')}</p></div>
+            <div class="summary-metric"><span>TIME IN CUE</span><strong id="cue-elapsed">${formatElapsed(state.live.cueStartedAt)}</strong><small>Started ${formatClock(state.live.cueStartedAt)}</small></div>
+            <div class="summary-metric"><span>NEXT CUE</span><strong>${escapeHtml(nextCue?.name || 'End of service')}</strong></div>
+            <div class="summary-metric"><span>LIGHTING</span><strong>${escapeHtml(lighting?.name || 'None')}</strong></div>
+            <div class="summary-metric"><span>LOOK</span><strong>${escapeHtml(look?.name || 'None')}</strong></div>
+          </div>
+          <div class="panel notes-card"><span class="eyebrow">NOTES</span><p>${escapeHtml(cue?.notes || 'No notes for this cue.')}</p></div>
+        </div>
+
+        <div class="camera-grid">
+          ${state.cameras.map(cameraCard).join('')}
+        </div>
+
+        <div class="panel quick-panel">
+          <div class="section-title"><span>FAVORITE LIGHTING SCENES</span></div>
+          <div class="quick-grid">
+            ${favorites.map(scene => `<button data-lighting="${scene.id}" class="${state.live.lightingOverrideId === scene.id ? 'selected' : ''}">${escapeHtml(scene.name)}</button>`).join('')}
+            <button class="danger" data-lighting="light-blackout">⏻ BLACKOUT</button>
+          </div>
+          ${state.live.lightingOverrideId ? `<button id="return-lighting" class="return-button">Return to cue lighting</button>` : ''}
+        </div>
+
+        <div class="lower-grid">
+          <section class="panel activity-panel">
+            <div class="lower-title"><span>ACTIVITY LOG</span></div>
+            <div class="activity-list">${activity.length ? activity.map(item => `<div><time>${activityTime(item.at)}</time><span>${escapeHtml(item.message)}</span></div>`).join('') : '<p class="empty-state">Activity will appear here as cues, cameras, and lights are changed.</p>'}</div>
+          </section>
+          <section class="panel status-panel">
+            <div class="lower-title"><span>SYSTEM STATUS</span></div>
+            <div class="status-grid">
+              ${state.cameras.map(camera => `<div><i></i><strong>${escapeHtml(camera.name)}</strong><small>Ready</small></div>`).join('')}
+              <div><i></i><strong>QLC+</strong><small>Simulation</small></div>
+              <div><i></i><strong>ATEM</strong><small>Simulation</small></div>
+              <div><i></i><strong>Streaming</strong><small>Ready</small></div>
+              <div><i></i><strong>Network</strong><small>Good</small></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </div>`);
+
+  const timer = setInterval(() => {
+    const el = document.getElementById('cue-elapsed');
+    if (!el || page !== 'live') return clearInterval(timer);
+    el.textContent = formatElapsed(state.live.cueStartedAt);
+  }, 1000);
+
+  document.querySelectorAll('[data-go-cue]').forEach(button => button.onclick = async () => {
+    state = await window.trinity.goCue(Number(button.dataset.goCue));
+    render();
   });
 
-  shell(`<section class="card">
-    <h2>Lighting Scene Library <span class="badge">${state.lightingScenes.length} scenes</span></h2>
-    <div class="lighting-toolbar">
-      <input id="lighting-search" placeholder="Search lighting scenes…" value="${esc(lightingSearch)}">
-      <select id="lighting-category">${categories.map(c=>`<option ${c===lightingCategory?'selected':''}>${esc(c)}</option>`).join('')}</select>
-      <button id="add-lighting">+ Add Scene</button>
-    </div>
-    <div class="editor-grid">${visible.map(s=>`
-      <div class="editor lighting-card ${s.favorite?'favorite':''}">
-        <div class="kicker">${esc(s.category||'Custom')} ${s.favorite?'<span class="star">★ FAVORITE</span>':''}</div>
-        <h3>${esc(s.name)}</h3>
-        ${[['Platform','platform'],['SlimPAR Fill','fill'],['Ceiling','ceiling'],['House','house'],['Fade Seconds','fade']].map(([label,key])=>`
-          <div class="metric"><span>${label}</span><strong>${s[key]}${key==='fade'?'s':'%'}</strong></div>`).join('')}
-        <div class="metric"><span>Room</span><strong>${esc(s.room)}</strong></div>
-        <div class="lighting-actions">
-          <button data-preview-light="${s.id}">Preview</button>
-          <button data-favorite-light="${s.id}">${s.favorite?'★':'☆'}</button>
-          <button data-copy-light="${s.id}">Duplicate</button>
-          <button data-delete-light="${s.id}">Delete</button>
-        </div>
-      </div>`).join('')||'<div class="muted">No scenes match this filter.</div>'}
-    </div>
-  </section>`);
-
-  document.getElementById('lighting-search').oninput=e=>{lightingSearch=e.target.value;lightingPage()};
-  document.getElementById('lighting-category').onchange=e=>{lightingCategory=e.target.value;lightingPage()};
-
-  document.getElementById('add-lighting').onclick=async()=>{
-    const name=prompt('Scene name','New Lighting Scene');
-    if(!name)return;
-    state.lightingScenes.push({id:`light-${Date.now()}`,name,category:'Custom',favorite:false,platform:75,fill:35,room:'Warm Amber',ceiling:20,house:30,fade:3});
-    state=await window.trinity.saveState(state);render();
+  const takeCamera = async cameraId => {
+    if (cameraId === state.live.programCamera) return;
+    const previousProgram = state.live.programCamera;
+    const previousPreset = state.live.programPreset;
+    state.live.programCamera = cameraId;
+    const selector = document.querySelector(`[data-camera-preset="${cameraId}"]`);
+    state.live.programPreset = selector?.value || 'Stage Wide';
+    state.live.previewCamera = previousProgram;
+    state.live.previewPreset = previousPreset || 'Stage Wide';
+    state.live.activityLog = [{ at: Date.now(), message: `Camera live: ${byId(state.cameras, cameraId)?.name || cameraId}` }, ...(state.live.activityLog || [])].slice(0, 8);
+    state = await window.trinity.saveState(state);
+    render();
   };
 
-  document.querySelectorAll('[data-preview-light]').forEach(b=>b.onclick=async()=>{
-    state=await window.trinity.lightingOverride(b.dataset.previewLight);page='live';render();
+  document.querySelectorAll('[data-take-camera]').forEach(card => card.onclick = event => {
+    if (event.target.closest('select') || event.target.closest('button')) return;
+    takeCamera(card.dataset.takeCamera);
   });
-
-  document.querySelectorAll('[data-favorite-light]').forEach(b=>b.onclick=async()=>{
-    const scene=byId(state.lightingScenes,b.dataset.favoriteLight);
-    scene.favorite=!scene.favorite;
-    state=await window.trinity.saveState(state);render();
+  document.querySelectorAll('[data-take-button]').forEach(button => button.onclick = () => takeCamera(button.dataset.takeButton));
+  document.querySelectorAll('[data-camera-preset]').forEach(select => select.onchange = async () => {
+    const cameraId = select.dataset.cameraPreset;
+    if (cameraId === state.live.programCamera) state.live.programPreset = select.value;
+    else { state.live.previewCamera = cameraId; state.live.previewPreset = select.value; }
+    state.live.activityLog = [{ at: Date.now(), message: `${byId(state.cameras, cameraId)?.name || cameraId} preset: ${select.value}` }, ...(state.live.activityLog || [])].slice(0, 8);
+    state = await window.trinity.saveState(state);
+    render();
   });
+  document.querySelectorAll('[data-lighting]').forEach(button => button.onclick = async () => { state = await window.trinity.lightingOverride(button.dataset.lighting); render(); });
+  const returnButton = document.getElementById('return-lighting');
+  if (returnButton) returnButton.onclick = async () => { state = await window.trinity.returnToCueLighting(); render(); };
+}
 
-  document.querySelectorAll('[data-copy-light]').forEach(b=>b.onclick=async()=>{
-    const scene=byId(state.lightingScenes,b.dataset.copyLight);
-    state.lightingScenes.push({...scene,id:`light-${Date.now()}`,name:`${scene.name} Copy`,category:'Custom',favorite:false});
-    state=await window.trinity.saveState(state);render();
-  });
+function servicePage() {
+  const categories = [...new Set(state.cueTemplates.map(template => template.category))];
+  shell(`
+    <div class="page-scroll">
+      <div class="two-column">
+        <section class="panel">
+          <div class="section-title"><span>RUN OF SERVICE</span><strong>${state.runOfService.length} cues</strong></div>
+          <div class="service-list">
+            ${state.runOfService.map((cue,index) => `<div class="service-row ${index === state.live.cueIndex ? 'current' : ''}" draggable="true" data-cue-index="${index}">
+              <span class="drag-handle" title="Drag to reorder" aria-hidden="true">⋮⋮</span>
+              <strong>${String(index + 1).padStart(2,'0')}</strong>
+              <div><b>${escapeHtml(cue.name)}</b><small>${escapeHtml(byId(state.productionLooks,cue.productionLookId)?.name || '')}</small></div>
+              <div class="row-actions"><button data-go="${index}">GO</button><button data-remove="${index}" aria-label="Remove ${escapeHtml(cue.name)}">×</button></div>
+            </div>`).join('')}
+          </div>
+        </section>
+        <aside class="panel">
+          <div class="section-title"><span>ADD CUE</span></div>
+          <div class="template-grid">
+            ${categories.map(category => state.cueTemplates.filter(t => t.category === category).map(template => `<article class="template-card"><small>${escapeHtml(category)}</small><h3>${escapeHtml(template.name)}</h3><p>${escapeHtml(byId(state.productionLooks,template.productionLookId)?.name || '')}</p><button data-template="${template.id}">ADD</button></article>`).join('')).join('')}
+          </div>
+        </aside>
+      </div>
+    </div>`);
+  document.querySelectorAll('[data-template]').forEach(button => button.onclick = async () => { state = await window.trinity.addCueTemplate(button.dataset.template); render(); });
+  document.querySelectorAll('[data-go]').forEach(button => button.onclick = async () => { state = await window.trinity.goCue(Number(button.dataset.go)); page = 'live'; render(); });
+  document.querySelectorAll('[data-remove]').forEach(button => button.onclick = async () => { state = await window.trinity.removeCue(Number(button.dataset.remove)); render(); });
 
-  document.querySelectorAll('[data-delete-light]').forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.deleteLight;
-    if(state.productionLooks.some(l=>l.lightingSceneId===id)){
-      alert('This scene is used by a Production Look and cannot be deleted.');
-      return;
-    }
-    if(confirm('Delete this lighting scene?')){
-      state.lightingScenes=state.lightingScenes.filter(s=>s.id!==id);
-      state=await window.trinity.saveState(state);render();
-    }
+  let draggedIndex = null;
+  const rows = [...document.querySelectorAll('[data-cue-index]')];
+  rows.forEach(row => {
+    row.addEventListener('dragstart', event => {
+      if (event.target.closest('button')) { event.preventDefault(); return; }
+      draggedIndex = Number(row.dataset.cueIndex);
+      row.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(draggedIndex));
+    });
+    row.addEventListener('dragover', event => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      rows.forEach(item => item.classList.remove('drop-before','drop-after'));
+      const rect = row.getBoundingClientRect();
+      row.classList.add(event.clientY < rect.top + rect.height / 2 ? 'drop-before' : 'drop-after');
+    });
+    row.addEventListener('dragleave', event => {
+      if (!row.contains(event.relatedTarget)) row.classList.remove('drop-before','drop-after');
+    });
+    row.addEventListener('drop', async event => {
+      event.preventDefault();
+      const from = draggedIndex ?? Number(event.dataTransfer.getData('text/plain'));
+      const target = Number(row.dataset.cueIndex);
+      const rect = row.getBoundingClientRect();
+      let to = target + (event.clientY >= rect.top + rect.height / 2 ? 1 : 0);
+      if (from < to) to -= 1;
+      to = Math.max(0, Math.min(to, state.runOfService.length - 1));
+      rows.forEach(item => item.classList.remove('dragging','drop-before','drop-after'));
+      draggedIndex = null;
+      if (from !== to) state = await window.trinity.moveCue(from, to);
+      render();
+    });
+    row.addEventListener('dragend', () => {
+      draggedIndex = null;
+      rows.forEach(item => item.classList.remove('dragging','drop-before','drop-after'));
+    });
   });
 }
-let cameraSearch="",cameraCategory="All";
-function camerasPage(){const categories=["All","Favorites",...[...new Set(state.cameraLayouts.map(c=>c.category||"Custom"))]];const visible=state.cameraLayouts.filter(c=>(cameraCategory==="All"||cameraCategory==="Favorites"&&c.favorite||c.category===cameraCategory)&&(!cameraSearch||`${c.name} ${c.category} ${c.programPreset} ${c.previewPreset}`.toLowerCase().includes(cameraSearch.toLowerCase())));shell(`<section class="card"><h2>Camera Layout Library <span class="badge">${state.cameraLayouts.length} layouts</span></h2><div class="camera-toolbar"><input id="camera-search" placeholder="Search camera layouts…" value="${esc(cameraSearch)}"><select id="camera-category">${categories.map(c=>`<option ${c===cameraCategory?'selected':''}>${esc(c)}</option>`).join('')}</select><button id="add-layout">+ Add Layout</button></div><div class="editor-grid">${visible.map(c=>`<div class="editor camera-card ${c.favorite?'favorite':''}"><div class="kicker">${esc(c.category||'Custom')} ${c.favorite?'<span class="star">★ FAVORITE</span>':''}</div><h3>${esc(c.name)}</h3><div class="metric"><span>Program</span><strong>${esc(byId(state.cameras,c.programCamera)?.name||c.programCamera)} · ${esc(c.programPreset)}</strong></div><div class="metric"><span>Preview</span><strong>${esc(byId(state.cameras,c.previewCamera)?.name||c.previewCamera)} · ${esc(c.previewPreset)}</strong></div><div class="metric"><span>Tracking</span><strong>${c.tracking?'ON':'OFF'}</strong></div><div class="camera-actions"><button data-favorite="${c.id}">${c.favorite?'★':'☆'}</button><button data-rename="${c.id}">Rename</button><button data-copy="${c.id}">Duplicate</button><button data-delete-layout="${c.id}">Delete</button></div></div>`).join('')||'<div class="muted">No layouts match this filter.</div>'}</div></section>`);document.getElementById('camera-search').oninput=e=>{cameraSearch=e.target.value;camerasPage()};document.getElementById('camera-category').onchange=e=>{cameraCategory=e.target.value;camerasPage()};document.getElementById('add-layout').onclick=async()=>{const name=prompt('Layout name','New Camera Layout');if(!name)return;state.cameraLayouts.push({id:`cam-${Date.now()}`,name,category:'Custom',favorite:false,programCamera:'main',programPreset:'Stage Wide',previewCamera:'left',previewPreset:'Stage Left',tracking:false});state=await window.trinity.saveState(state);render()};document.querySelectorAll('[data-favorite]').forEach(b=>b.onclick=async()=>{const c=byId(state.cameraLayouts,b.dataset.favorite);c.favorite=!c.favorite;state=await window.trinity.saveState(state);render()});document.querySelectorAll('[data-rename]').forEach(b=>b.onclick=async()=>{const c=byId(state.cameraLayouts,b.dataset.rename);const name=prompt('Rename layout',c.name);if(name){c.name=name;state=await window.trinity.saveState(state);render()}});document.querySelectorAll('[data-copy]').forEach(b=>b.onclick=async()=>{const c=byId(state.cameraLayouts,b.dataset.copy);state.cameraLayouts.push({...c,id:`cam-${Date.now()}`,name:`${c.name} Copy`,favorite:false,category:'Custom'});state=await window.trinity.saveState(state);render()});document.querySelectorAll('[data-delete-layout]').forEach(b=>b.onclick=async()=>{const id=b.dataset.deleteLayout;if(state.productionLooks.some(l=>l.cameraLayoutId===id)){alert('This layout is used by a Production Look and cannot be deleted.');return}if(confirm('Delete this camera layout?')){state.cameraLayouts=state.cameraLayouts.filter(c=>c.id!==id);state=await window.trinity.saveState(state);render()}})}
-function render(){if(page==='live')livePage();if(page==='service')servicePage();if(page==='looks')looksPage();if(page==='lighting')lightingPage();if(page==='cameras')camerasPage()}
-(async()=>{state=await window.trinity.getState();render()})();
+
+function looksPage() {
+  shell(`<div class="page-scroll"><section class="panel"><div class="section-title"><span>PRODUCTION LOOKS</span><strong>${state.productionLooks.length} looks</strong></div><div class="card-grid">${state.productionLooks.map(look => `<article class="edit-card"><small>PRODUCTION LOOK</small><h2>${escapeHtml(look.name)}</h2><label>Lighting<select data-look="${look.id}" data-field="lightingSceneId">${state.lightingScenes.map(scene => `<option value="${scene.id}" ${scene.id === look.lightingSceneId ? 'selected' : ''}>${escapeHtml(scene.name)}</option>`).join('')}</select></label><label>Camera layout<select data-look="${look.id}" data-field="cameraLayoutId">${state.cameraLayouts.map(layout => `<option value="${layout.id}" ${layout.id === look.cameraLayoutId ? 'selected' : ''}>${escapeHtml(layout.name)}</option>`).join('')}</select></label><label>Graphics<input data-look="${look.id}" data-field="graphics" value="${escapeHtml(look.graphics)}"></label><label>House lights<input type="number" min="0" max="100" data-look="${look.id}" data-field="houseLights" value="${look.houseLights}"></label></article>`).join('')}</div></section></div>`);
+  document.querySelectorAll('[data-look]').forEach(input => input.onchange = async () => {
+    const look = byId(state.productionLooks,input.dataset.look);
+    look[input.dataset.field] = input.type === 'number' ? Number(input.value) : input.value;
+    state = await window.trinity.saveState(state);
+    render();
+  });
+}
+
+function lightingPage() {
+  shell(`<div class="page-scroll"><section class="panel"><div class="section-title"><span>LIGHTING LIBRARY</span><strong>${state.lightingScenes.length} scenes</strong></div><div class="card-grid">${state.lightingScenes.map(scene => `<article class="edit-card ${scene.favorite ? 'favorite' : ''}"><small>${escapeHtml(scene.category || 'Custom')}</small><h2>${escapeHtml(scene.name)}</h2><div class="metrics"><span>Platform <b>${scene.platform}%</b></span><span>Fill <b>${scene.fill}%</b></span><span>House <b>${scene.house}%</b></span><span>Fade <b>${scene.fade}s</b></span></div><button data-preview-light="${scene.id}">PREVIEW ON LIVE PAGE</button></article>`).join('')}</div></section></div>`);
+  document.querySelectorAll('[data-preview-light]').forEach(button => button.onclick = async () => { state = await window.trinity.lightingOverride(button.dataset.previewLight); page = 'live'; render(); });
+}
+
+function camerasPage() {
+  shell(`<div class="page-scroll"><section class="panel"><div class="section-title"><span>CAMERA LAYOUTS</span><strong>${state.cameraLayouts.length} layouts</strong></div><div class="card-grid">${state.cameraLayouts.map(layout => `<article class="edit-card ${layout.favorite ? 'favorite' : ''}"><small>${escapeHtml(layout.category || 'Custom')}</small><h2>${escapeHtml(layout.name)}</h2><div class="metrics vertical"><span>Program <b>${escapeHtml(byId(state.cameras,layout.programCamera)?.name || layout.programCamera)} · ${escapeHtml(layout.programPreset)}</b></span><span>Preview <b>${escapeHtml(byId(state.cameras,layout.previewCamera)?.name || layout.previewCamera)} · ${escapeHtml(layout.previewPreset)}</b></span><span>Tracking <b>${layout.tracking ? 'ON' : 'OFF'}</b></span></div></article>`).join('')}</div></section></div>`);
+}
+
+function render() {
+  if (!state) return;
+  if (page === 'live') livePage();
+  else if (page === 'service') servicePage();
+  else if (page === 'looks') looksPage();
+  else if (page === 'lighting') lightingPage();
+  else camerasPage();
+}
+
+(async () => {
+  try {
+    state = await window.trinity.getState();
+    render();
+  } catch (error) {
+    root.innerHTML = `<div class="fatal"><h1>Trinity Control could not start</h1><pre>${escapeHtml(error?.stack || error)}</pre></div>`;
+  }
+})();

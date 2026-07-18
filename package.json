@@ -1,6 +1,6 @@
 {
   "name": "trinity-control",
-  "version": "0.8.5-alpha.3",
+  "version": "0.9.0-alpha.4",
   "description": "Offline-first church production control application",
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",

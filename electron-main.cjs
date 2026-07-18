@@ -2,17 +2,37 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 
+const APP_VERSION = "0.9.0-alpha.4";
+const STATE_SCHEMA_VERSION = 4;
+
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
 
 function defaultState() {
   return {
-    version: "0.8.4-alpha.3",
+    version: APP_VERSION,
+    schemaVersion: STATE_SCHEMA_VERSION,
     cameras: [
-      { id: "main", name: "Main PTZ", online: true },
-      { id: "left", name: "Left PTZ", online: true },
-      { id: "right", name: "Right PTZ", online: true }
+      { id: "main", name: "Main PTZ", role: "main", protocol: "simulation", address: "", online: true, enabled: true },
+      { id: "left", name: "Left PTZ", role: "left", protocol: "simulation", address: "", online: true, enabled: true },
+      { id: "right", name: "Right PTZ", role: "right", protocol: "simulation", address: "", online: true, enabled: true }
     ],
+    cameraPresets: [
+      { id: "preset-stage-wide", name: "Stage Wide", category: "Stage", favorite: true },
+      { id: "preset-stage-medium", name: "Stage Medium", category: "Stage", favorite: true },
+      { id: "preset-stage-left", name: "Stage Left", category: "Stage", favorite: false },
+      { id: "preset-stage-right", name: "Stage Right", category: "Stage", favorite: false },
+      { id: "preset-pulpit-wide", name: "Pulpit Wide", category: "Pulpit", favorite: true },
+      { id: "preset-pulpit-tight", name: "Pulpit Tight", category: "Pulpit", favorite: true },
+      { id: "preset-piano", name: "Piano", category: "Music", favorite: false },
+      { id: "preset-choir", name: "Choir", category: "Music", favorite: false },
+      { id: "preset-baptistry", name: "Baptistry", category: "Special Events", favorite: false },
+      { id: "preset-communion", name: "Communion", category: "Special Events", favorite: false },
+      { id: "preset-congregation-wide", name: "Congregation Wide", category: "Congregation", favorite: true },
+      { id: "preset-congregation-left", name: "Congregation Left", category: "Congregation", favorite: false },
+      { id: "preset-congregation-right", name: "Congregation Right", category: "Congregation", favorite: false }
+    ],
+    cameraPresetAssignments: {},
     lightingScenes: [
       {
             "id": "light-preservice",
@@ -656,10 +676,16 @@ function defaultState() {
   };
 }
 
-function migrate(state) {
+function migrate(state = {}) {
   const fresh = defaultState();
-  const merged = { ...fresh, ...state, version: fresh.version };
-  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates"]) {
+  const merged = {
+    ...fresh,
+    ...state,
+    version: APP_VERSION,
+    schemaVersion: STATE_SCHEMA_VERSION
+  };
+
+  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates", "cameraPresets"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
     } else {
@@ -667,22 +693,38 @@ function migrate(state) {
       merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
     }
   }
-    merged.lightingScenes = merged.lightingScenes.map(scene => ({
-    category: "Custom",
-    favorite: false,
-    ...scene
-  }));
-merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
-    category: "Custom",
-    favorite: false,
-    ...layout
-  }));
+
+  merged.cameras = Array.isArray(state.cameras) && state.cameras.length
+    ? state.cameras.map((camera, index) => ({
+        role: ["main", "left", "right"][index] || "aux",
+        protocol: "simulation",
+        address: "",
+        online: false,
+        enabled: true,
+        ...camera
+      }))
+    : fresh.cameras;
+
+  merged.lightingScenes = merged.lightingScenes.map(scene => ({ category: "Custom", favorite: false, ...scene }));
+  merged.cameraLayouts = merged.cameraLayouts.map(layout => ({ category: "Custom", favorite: false, ...layout }));
+  merged.cameraPresets = merged.cameraPresets.map(preset => ({ category: "Custom", favorite: false, ...preset }));
+  merged.cameraPresetAssignments = state.cameraPresetAssignments && typeof state.cameraPresetAssignments === "object"
+    ? state.cameraPresetAssignments
+    : {};
+
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
   merged.runOfService = merged.runOfService.map((cue, i) => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
   }));
+
+  const presetNames = merged.cameraPresets.map(preset => preset.name);
+  const fallbackPreset = presetNames[0] || "Stage Wide";
+  merged.presetNames = presetNames; // temporary Alpha 3 compatibility alias
+  merged.live.programPreset = presetNames.includes(merged.live.programPreset) ? merged.live.programPreset : fallbackPreset;
+  merged.live.previewPreset = presetNames.includes(merged.live.previewPreset) ? merged.live.previewPreset : fallbackPreset;
+
   return merged;
 }
 
@@ -698,7 +740,9 @@ function applyLook(state, lookId) {
   const layout = state.cameraLayouts.find(x => x.id === look.cameraLayoutId);
   if (layout) {
     state.live.programCamera = layout.programCamera;
+    state.live.programPreset = layout.programPreset || state.live.programPreset;
     state.live.previewCamera = layout.previewCamera;
+    state.live.previewPreset = layout.previewPreset || state.live.previewPreset;
   }
   state.live.lastLightingSceneId = look.lightingSceneId;
   state.live.lightingOverrideId = null;

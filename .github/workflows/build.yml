@@ -1,0 +1,41 @@
+name: Build Trinity Control
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: Build macOS app
+    runs-on: macos-latest
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Trinity Control for macOS
+        run: npm run build:mac
+
+      - name: Upload Mac installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trinity-Control-macOS
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: error

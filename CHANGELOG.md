@@ -1,3 +1,12 @@
+## Alpha 6 Phase 2
+
+- Added a Configuration area with Cameras, Lighting, Video Switcher, Production Defaults, Devices, and System tabs.
+- Added editable camera and lighting configuration cards while preserving the existing console styling and navigation destinations.
+- Added explicit Production Engine commands for camera and lighting configuration updates.
+- Persisted configuration changes through the State Store and existing JSON persistence callback.
+- Added backward-compatible defaults for the new configuration sections and schema version 6.
+- Added tests for configuration validation, revisions, and persistence.
+
 ## Alpha 6 Phase 1
 
 - Added an authoritative in-memory Production Engine with serialized command dispatch and state revisions.

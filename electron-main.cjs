@@ -14,7 +14,7 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 function defaultState() {
   return {
     version: "1.0.2-alpha.5.2-refined",
-    schemaVersion: 5,
+    schemaVersion: 6,
     cameras: [
       { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true },
       { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true },
@@ -662,6 +662,12 @@ function defaultState() {
       { id: "cue-sermon", name: "Sermon", duration: 2100, notes: "Main preaching cue", productionLookId: "look-sermon" },
       { id: "cue-invitation", name: "Invitation", duration: 600, notes: "Invitation", productionLookId: "look-invitation" }
     ],
+    configuration: {
+      videoSwitcher: { controller: "simulation", enabled: true },
+      productionDefaults: { transitionMode: "auto", transitionDelay: 800, waitForPTZ: true },
+      devices: { simulationMode: true },
+      system: { remoteControlEnabled: false }
+    },
     live: {
       cueIndex: 0,
       programCamera: "main",
@@ -693,11 +699,23 @@ function migrate(state) {
     favorite: false,
     ...scene
   }));
-merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
+  merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     category: "Custom",
     favorite: false,
     ...layout
   }));
+  merged.cameras = (Array.isArray(merged.cameras) && merged.cameras.length
+    ? merged.cameras
+    : fresh.cameras
+  ).map(camera => ({ enabled: true, online: true, role: "camera", ...camera }));
+  merged.configuration = {
+    ...fresh.configuration,
+    ...(state.configuration || {}),
+    videoSwitcher: { ...fresh.configuration.videoSwitcher, ...(state.configuration?.videoSwitcher || {}) },
+    productionDefaults: { ...fresh.configuration.productionDefaults, ...(state.configuration?.productionDefaults || {}) },
+    devices: { ...fresh.configuration.devices, ...(state.configuration?.devices || {}) },
+    system: { ...fresh.configuration.system, ...(state.configuration?.system || {}) }
+  };
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
@@ -785,6 +803,8 @@ app.whenReady().then(() => {
   ipcMain.handle("camera:take", (_e, payload) => engine.dispatch({ type: "TakeCamera", payload }));
   ipcMain.handle("lighting:override", (_e, sceneId) => engine.dispatch({ type: "SetLightingOverride", payload: { sceneId } }));
   ipcMain.handle("lighting:returnToCue", () => engine.dispatch({ type: "ReleaseLightingOverride" }));
+  ipcMain.handle("configuration:camera:update", (_e, payload) => engine.dispatch({ type: "UpdateCameraConfiguration", payload }));
+  ipcMain.handle("configuration:lighting:update", (_e, payload) => engine.dispatch({ type: "UpdateLightingSceneConfiguration", payload }));
 
   const win = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,

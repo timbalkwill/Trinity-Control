@@ -23,6 +23,8 @@ Both clients issue commands to the same Production Engine and observe the same a
 
 The implemented live commands are `ActivateCue`, `NextCue`, `PreviousCue`, `SetHold`, `TakeCamera`, `SetLightingOverride`, and `ReleaseLightingOverride`.
 
+Alpha 6 Phase 2 adds the explicit configuration commands `UpdateCameraConfiguration` and `UpdateLightingSceneConfiguration`. Configuration commands use the same serialized dispatch path as live commands and never allow a renderer to mutate the State Store directly.
+
 Cue activation resolves the cue's production look and any cue-level camera or lighting overrides. PTZ preparation is initiated before the simulated switcher transition. Every activation receives a transition generation. A newer cue or manual camera command invalidates older delayed transition work, preventing it from overwriting the operator's newer decision.
 
 The engine and its State Store are the authority for live production state. `src/core/state-store.cjs` encapsulates the raw authoritative snapshot and its monotonically increasing revision. Revision `0` is present on the initial snapshot; each committed command produces a new snapshot and state-change event with the same incremented revision. Compatibility editing commands still replace a complete snapshot during this phase; removing that temporary path is deferred until editing operations receive explicit commands.
@@ -64,6 +66,22 @@ Adapters translate an engine intent into subsystem-specific work. They do not ow
 
 The preload bridge keeps request-response methods for compatibility and adds unsubscribe-capable event subscriptions. The renderer requests cue, camera-take, and lighting-override operations; it no longer owns cue-transition timing.
 
+## Configuration flow
+
+The Production Console includes a dedicated Configuration area with Cameras, Lighting, Video Switcher, Production Defaults, Devices, and System tabs. Camera and lighting records are editable in Phase 2. The other tabs expose the boundaries and current simulated/default status without adding premature hardware behavior.
+
+Camera and lighting configuration follows this path:
+
+1. The operator submits a configuration card in the Production Console.
+2. Preload sends only the record ID and allowed changes through a configuration-specific IPC method.
+3. Electron translates the request into an explicit Production Engine command.
+4. The engine locates the existing record, validates and normalizes supported fields, and rejects unknown record IDs or invalid required values.
+5. The engine commits the updated snapshot through the State Store.
+6. The existing persistence callback writes the committed authoritative snapshot, including its new revision.
+7. A state-change event carrying the same revision and snapshot is delivered to subscribed clients.
+
+Camera IDs and lighting-scene IDs are immutable because other production records reference them. Observed camera connectivity is also not configuration: `online` remains simulated runtime status. Record creation and deletion are deferred until reference-integrity and live-safety rules are defined.
+
 ## Override direction
 
 Overrides are moving toward independent domains:
@@ -87,6 +105,8 @@ Only the existing lighting override is modeled explicitly in Phase 1. Manual cam
 - The iPad server, remote transport, authentication, and discovery
 - A complete persistence rewrite
 - Explicit engine commands for every editing operation
+- Camera and lighting record creation/deletion and reference-integrity policy
+- Editing commands for Video Switcher, Production Defaults, Devices, and System configuration
 - A generalized per-domain override and priority model
 - A front-end framework or TypeScript conversion
-- Visual or navigation changes to the Production Console
+- Redesign of existing Production Console screens or navigation behavior

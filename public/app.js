@@ -2,13 +2,15 @@ const root = document.getElementById('app');
 
 let state;
 let page = 'live';
+let configurationTab = 'cameras';
 
 const nav = [
   ['live', 'LIVE'],
   ['service', 'SERVICE'],
   ['looks', 'LOOKS'],
   ['lighting', 'LIGHTING'],
-  ['cameras', 'CAMERAS']
+  ['cameras', 'CAMERAS'],
+  ['configuration', 'CONFIGURATION']
 ];
 
 const byId = (items, id) => items.find(item => item.id === id);
@@ -144,6 +146,47 @@ function ensureAppStyles() {
 
     .brand {
       justify-self: start;
+    }
+
+    .bottom-nav {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+
+    .configuration-tabs {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .configuration-tabs button.active {
+      background: var(--blue);
+      color: #06111b;
+    }
+
+    .configuration-check {
+      display: flex !important;
+      align-items: center;
+      gap: 8px !important;
+    }
+
+    .configuration-check input {
+      width: auto;
+    }
+
+    .configuration-card-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 4px;
+    }
+
+    .configuration-card-actions button {
+      min-width: 120px;
+    }
+
+    .configuration-summary {
+      color: var(--muted);
+      line-height: 1.5;
     }
 
     .header-logo {
@@ -442,6 +485,10 @@ function ensureAppStyles() {
 
       .cue-editor-effective {
         grid-template-columns: 1fr;
+      }
+
+      .configuration-tabs {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
   `;
@@ -2021,6 +2068,221 @@ function camerasPage() {
   `);
 }
 
+function configurationPage() {
+  const tabs = [
+    ['cameras', 'CAMERAS'],
+    ['lighting', 'LIGHTING'],
+    ['switcher', 'VIDEO SWITCHER'],
+    ['defaults', 'PRODUCTION DEFAULTS'],
+    ['devices', 'DEVICES'],
+    ['system', 'SYSTEM']
+  ];
+
+  const cameraConfiguration = () => `
+    <section class="panel">
+      <div class="section-title">
+        <span>CAMERA CONFIGURATION</span>
+        <strong>${state.cameras.length} configured cameras</strong>
+      </div>
+
+      <div class="card-grid">
+        ${state.cameras.map(camera => `
+          <form class="edit-card" data-config-camera="${escapeHtml(camera.id)}">
+            <small>CAMERA · ${escapeHtml(camera.id)}</small>
+
+            <label>
+              Display name
+              <input data-config-field="name" value="${escapeHtml(camera.name)}" maxlength="80" required>
+            </label>
+
+            <label>
+              Role
+              <input data-config-field="role" value="${escapeHtml(camera.role || 'camera')}" maxlength="40" required>
+            </label>
+
+            <label>
+              Default or last preset
+              <input data-config-field="lastPreset" value="${escapeHtml(camera.lastPreset || 'Stage Wide')}" maxlength="80" required>
+            </label>
+
+            <label class="configuration-check">
+              <input type="checkbox" data-config-field="enabled" ${camera.enabled !== false ? 'checked' : ''}>
+              Enabled in production
+            </label>
+
+            <div class="metrics vertical">
+              <span>Status <b>${camera.online === false ? 'OFFLINE' : 'SIMULATED READY'}</b></span>
+            </div>
+
+            <div class="configuration-card-actions">
+              <button type="submit">SAVE CAMERA</button>
+            </div>
+          </form>
+        `).join('')}
+      </div>
+    </section>
+  `;
+
+  const lightingConfiguration = () => `
+    <section class="panel">
+      <div class="section-title">
+        <span>LIGHTING CONFIGURATION</span>
+        <strong>${state.lightingScenes.length} configured scenes</strong>
+      </div>
+
+      <div class="card-grid">
+        ${state.lightingScenes.map(scene => `
+          <form class="edit-card ${scene.favorite ? 'favorite' : ''}" data-config-lighting="${escapeHtml(scene.id)}">
+            <small>LIGHTING SCENE · ${escapeHtml(scene.id)}</small>
+
+            <label>
+              Scene name
+              <input data-config-field="name" value="${escapeHtml(scene.name)}" maxlength="80" required>
+            </label>
+
+            <label>
+              Category
+              <input data-config-field="category" value="${escapeHtml(scene.category || 'Custom')}" maxlength="60" required>
+            </label>
+
+            <label>
+              Room look
+              <input data-config-field="room" value="${escapeHtml(scene.room || 'Off')}" maxlength="80" required>
+            </label>
+
+            <div class="metrics">
+              <label>Platform<input type="number" min="0" max="100" data-config-field="platform" value="${Number(scene.platform) || 0}"></label>
+              <label>Fill<input type="number" min="0" max="100" data-config-field="fill" value="${Number(scene.fill) || 0}"></label>
+              <label>Ceiling<input type="number" min="0" max="100" data-config-field="ceiling" value="${Number(scene.ceiling) || 0}"></label>
+              <label>House<input type="number" min="0" max="100" data-config-field="house" value="${Number(scene.house) || 0}"></label>
+            </div>
+
+            <label>
+              Fade seconds
+              <input type="number" min="0" max="60" step="0.1" data-config-field="fade" value="${Number(scene.fade) || 0}">
+            </label>
+
+            <label class="configuration-check">
+              <input type="checkbox" data-config-field="favorite" ${scene.favorite ? 'checked' : ''}>
+              Favorite scene
+            </label>
+
+            <div class="configuration-card-actions">
+              <button type="submit">SAVE LIGHTING</button>
+            </div>
+          </form>
+        `).join('')}
+      </div>
+    </section>
+  `;
+
+  const configuration = state.configuration || {};
+  const summaries = {
+    switcher: {
+      title: 'VIDEO SWITCHER',
+      heading: 'Simulation controller',
+      text: `Controller: ${configuration.videoSwitcher?.controller || 'simulation'} · ${configuration.videoSwitcher?.enabled === false ? 'Disabled' : 'Enabled'}. Hardware addressing and ATEM communication remain outside this phase.`
+    },
+    defaults: {
+      title: 'PRODUCTION DEFAULTS',
+      heading: 'Current transition defaults',
+      text: `Mode: ${(configuration.productionDefaults?.transitionMode || 'auto').toUpperCase()} · Delay: ${Number(configuration.productionDefaults?.transitionDelay ?? 800) / 1000}s · Wait for PTZ: ${configuration.productionDefaults?.waitForPTZ === false ? 'No' : 'Yes'}. Editing these defaults will be introduced with dedicated commands in a later phase.`
+    },
+    devices: {
+      title: 'DEVICES',
+      heading: 'Simulation device registry',
+      text: `${state.cameras.length} cameras, one simulated video switcher, and one simulated lighting controller. Device discovery and hardware connections are not enabled.`
+    },
+    system: {
+      title: 'SYSTEM',
+      heading: 'Trinity Control',
+      text: `Version ${state.version} · Schema ${state.schemaVersion} · State revision ${state.revision}. Remote iPad control is not enabled in this phase.`
+    }
+  };
+
+  const summaryConfiguration = tab => {
+    const summary = summaries[tab];
+    return `
+      <section class="panel">
+        <div class="section-title">
+          <span>${summary.title}</span>
+          <strong>${summary.heading}</strong>
+        </div>
+        <p class="configuration-summary">${escapeHtml(summary.text)}</p>
+      </section>
+    `;
+  };
+
+  const content = configurationTab === 'cameras'
+    ? cameraConfiguration()
+    : configurationTab === 'lighting'
+      ? lightingConfiguration()
+      : summaryConfiguration(configurationTab);
+
+  shell(`
+    <div class="page-scroll">
+      <div class="configuration-tabs" role="tablist" aria-label="Configuration sections">
+        ${tabs.map(([id, label]) => `
+          <button
+            type="button"
+            role="tab"
+            aria-selected="${configurationTab === id}"
+            class="${configurationTab === id ? 'active' : ''}"
+            data-configuration-tab="${id}"
+          >${label}</button>
+        `).join('')}
+      </div>
+      ${content}
+    </div>
+  `);
+
+  document.querySelectorAll('[data-configuration-tab]').forEach(button => {
+    button.onclick = () => {
+      configurationTab = button.dataset.configurationTab;
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-config-camera]').forEach(form => {
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const value = field => form.querySelector(`[data-config-field="${field}"]`);
+      state = await window.trinity.updateCameraConfiguration(
+        form.dataset.configCamera,
+        {
+          name: value('name').value,
+          role: value('role').value,
+          lastPreset: value('lastPreset').value,
+          enabled: value('enabled').checked
+        }
+      );
+      render();
+    };
+  });
+
+  document.querySelectorAll('[data-config-lighting]').forEach(form => {
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const value = field => form.querySelector(`[data-config-field="${field}"]`);
+      state = await window.trinity.updateLightingConfiguration(
+        form.dataset.configLighting,
+        {
+          name: value('name').value,
+          category: value('category').value,
+          room: value('room').value,
+          platform: Number(value('platform').value),
+          fill: Number(value('fill').value),
+          ceiling: Number(value('ceiling').value),
+          house: Number(value('house').value),
+          fade: Number(value('fade').value),
+          favorite: value('favorite').checked
+        }
+      );
+      render();
+    };
+  });
+}
+
 function render() {
   if (!state) {
     return;
@@ -2034,8 +2296,10 @@ function render() {
     looksPage();
   } else if (page === 'lighting') {
     lightingPage();
-  } else {
+  } else if (page === 'cameras') {
     camerasPage();
+  } else {
+    configurationPage();
   }
 }
 

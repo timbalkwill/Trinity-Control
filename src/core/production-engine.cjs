@@ -113,6 +113,8 @@ class ProductionEngine {
     this.registerCommand("TakeCamera", payload => this.takeCamera(payload));
     this.registerCommand("SetLightingOverride", payload => this.setLightingOverride(payload));
     this.registerCommand("ReleaseLightingOverride", () => this.releaseLightingOverride());
+    this.registerCommand("UpdateCameraConfiguration", payload => this.updateCameraConfiguration(payload));
+    this.registerCommand("UpdateLightingSceneConfiguration", payload => this.updateLightingSceneConfiguration(payload));
 
     this.registerCommand("CompleteCueTransition", async payload => {
       if (payload.generation !== this.transitionGeneration) return false;
@@ -251,6 +253,68 @@ class ProductionEngine {
     await this.getAdapter("lighting")?.releaseOverride?.({ sceneId });
     this.commandState.live.lightingOverrideId = null;
     this.addActivity("Returned to cue lighting");
+  }
+
+  updateCameraConfiguration({ cameraId, changes }) {
+    const camera = this.findById(this.commandState.cameras, cameraId);
+    if (!camera) throw new Error(`Unknown camera: ${cameraId}`);
+    if (!changes || typeof changes !== "object") {
+      throw new TypeError("Camera configuration changes must be an object");
+    }
+    this.assertAllowedChanges(changes, ["name", "role", "enabled", "lastPreset"], "camera");
+
+    if (Object.hasOwn(changes, "name")) camera.name = this.requiredText(changes.name, "Camera name");
+    if (Object.hasOwn(changes, "role")) camera.role = this.requiredText(changes.role, "Camera role");
+    if (Object.hasOwn(changes, "enabled")) camera.enabled = Boolean(changes.enabled);
+    if (Object.hasOwn(changes, "lastPreset")) camera.lastPreset = this.requiredText(changes.lastPreset, "Camera preset");
+
+    this.addActivity(`Camera configuration updated: ${camera.name}`);
+  }
+
+  updateLightingSceneConfiguration({ sceneId, changes }) {
+    const scene = this.findById(this.commandState.lightingScenes, sceneId);
+    if (!scene) throw new Error(`Unknown lighting scene: ${sceneId}`);
+    if (!changes || typeof changes !== "object") {
+      throw new TypeError("Lighting configuration changes must be an object");
+    }
+    this.assertAllowedChanges(
+      changes,
+      ["name", "category", "room", "favorite", "platform", "fill", "ceiling", "house", "fade"],
+      "lighting scene"
+    );
+
+    for (const field of ["name", "category", "room"]) {
+      if (Object.hasOwn(changes, field)) {
+        scene[field] = this.requiredText(changes[field], `Lighting ${field}`);
+      }
+    }
+    if (Object.hasOwn(changes, "favorite")) scene.favorite = Boolean(changes.favorite);
+    for (const field of ["platform", "fill", "ceiling", "house"]) {
+      if (Object.hasOwn(changes, field)) scene[field] = this.boundedNumber(changes[field], field, 0, 100);
+    }
+    if (Object.hasOwn(changes, "fade")) scene.fade = this.boundedNumber(changes.fade, "fade", 0, 60);
+
+    this.addActivity(`Lighting configuration updated: ${scene.name}`);
+  }
+
+  requiredText(value, label) {
+    const normalized = String(value ?? "").trim();
+    if (!normalized) throw new Error(`${label} cannot be empty`);
+    return normalized;
+  }
+
+  assertAllowedChanges(changes, allowedFields, label) {
+    const allowed = new Set(allowedFields);
+    const unsupported = Object.keys(changes).filter(field => !allowed.has(field));
+    if (unsupported.length) {
+      throw new Error(`Unsupported ${label} configuration fields: ${unsupported.join(", ")}`);
+    }
+  }
+
+  boundedNumber(value, label, minimum, maximum) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) throw new Error(`${label} must be a number`);
+    return Math.min(maximum, Math.max(minimum, normalized));
   }
 
   effectiveCueLightingId() {

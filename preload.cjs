@@ -13,6 +13,10 @@ contextBridge.exposeInMainWorld("trinity", {
   takeCamera: (cameraId, preset) => ipcRenderer.invoke("camera:take", { cameraId, preset }),
   lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
   returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue"),
+  updateCameraConfiguration: (cameraId, changes) =>
+    ipcRenderer.invoke("configuration:camera:update", { cameraId, changes }),
+  updateLightingConfiguration: (sceneId, changes) =>
+    ipcRenderer.invoke("configuration:lighting:update", { sceneId, changes }),
   onStateChanged: subscriber => {
     const listener = (_event, update) => subscriber(update);
     ipcRenderer.on("production:state-changed", listener);

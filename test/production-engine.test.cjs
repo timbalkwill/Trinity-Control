@@ -41,8 +41,8 @@ function stateWithTransition(delay = 0) {
   };
 }
 
-function createEngine(delay = 0) {
-  const engine = new ProductionEngine({ initialState: stateWithTransition(delay) });
+function createEngine(delay = 0, { persistState } = {}) {
+  const engine = new ProductionEngine({ initialState: stateWithTransition(delay), persistState });
   engine.registerAdapter("camera", new SimulationCameraController());
   engine.registerAdapter("videoSwitcher", new SimulationSwitcherController());
   engine.registerAdapter("lighting", new SimulationLightingController());
@@ -125,5 +125,106 @@ test("stale delayed cue completion cannot overwrite a newer manual camera comman
   assert.equal(result.live.programCamera, "right");
   assert.equal(result.live.programPreset, "Right");
   assert.equal(result.revision, 2);
+  engine.dispose();
+});
+
+test("camera configuration is updated through an explicit command", async () => {
+  const engine = createEngine();
+  const result = await engine.dispatch({
+    type: "UpdateCameraConfiguration",
+    payload: {
+      cameraId: "main",
+      changes: { name: "Center PTZ", role: "center", enabled: false, lastPreset: "Pulpit" }
+    }
+  });
+
+  const camera = result.cameras.find(item => item.id === "main");
+  assert.deepEqual(
+    { name: camera.name, role: camera.role, enabled: camera.enabled, lastPreset: camera.lastPreset },
+    { name: "Center PTZ", role: "center", enabled: false, lastPreset: "Pulpit" }
+  );
+  assert.equal(result.revision, 1);
+  engine.dispose();
+});
+
+test("lighting configuration is normalized through an explicit command", async () => {
+  const engine = createEngine();
+  const result = await engine.dispatch({
+    type: "UpdateLightingSceneConfiguration",
+    payload: {
+      sceneId: "light-worship",
+      changes: {
+        name: "Worship Bright",
+        category: "Sunday",
+        room: "Blue",
+        platform: 120,
+        fill: 42,
+        ceiling: -5,
+        house: 18,
+        fade: 2.5,
+        favorite: true
+      }
+    }
+  });
+
+  const scene = result.lightingScenes.find(item => item.id === "light-worship");
+  assert.deepEqual(
+    {
+      name: scene.name,
+      category: scene.category,
+      room: scene.room,
+      platform: scene.platform,
+      fill: scene.fill,
+      ceiling: scene.ceiling,
+      house: scene.house,
+      fade: scene.fade,
+      favorite: scene.favorite
+    },
+    {
+      name: "Worship Bright",
+      category: "Sunday",
+      room: "Blue",
+      platform: 100,
+      fill: 42,
+      ceiling: 0,
+      house: 18,
+      fade: 2.5,
+      favorite: true
+    }
+  );
+  engine.dispose();
+});
+
+test("configuration commands persist the committed authoritative snapshot", async () => {
+  const persisted = [];
+  const engine = createEngine(0, {
+    persistState: snapshot => persisted.push(snapshot)
+  });
+
+  const result = await engine.dispatch({
+    type: "UpdateCameraConfiguration",
+    payload: { cameraId: "left", changes: { name: "Stage Left" } }
+  });
+
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0].revision, result.revision);
+  assert.equal(persisted[0].cameras.find(item => item.id === "left").name, "Stage Left");
+  persisted[0].cameras[0].name = "External mutation";
+  assert.notEqual(engine.getSnapshot().cameras[0].name, "External mutation");
+  engine.dispose();
+});
+
+test("configuration commands reject fields outside their explicit contract", async () => {
+  const engine = createEngine();
+
+  await assert.rejects(
+    engine.dispatch({
+      type: "UpdateCameraConfiguration",
+      payload: { cameraId: "main", changes: { online: false } }
+    }),
+    /Unsupported camera configuration fields: online/
+  );
+  assert.equal(engine.getSnapshot().revision, 0);
+  assert.notEqual(engine.getSnapshot().cameras[0].online, false);
   engine.dispose();
 });

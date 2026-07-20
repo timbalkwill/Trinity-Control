@@ -54,6 +54,33 @@ const activeLighting = () =>
     state.live.lightingOverrideId || cueLightingId(currentCue())
   );
 
+const wait = milliseconds =>
+  new Promise(resolve =>
+    setTimeout(resolve, Math.max(0, milliseconds))
+  );
+
+const cueSwitchBehavior = cue => ({
+  mode: cue?.transition?.mode || 'auto',
+
+  waitForPTZ:
+    cue?.transition?.waitForPTZ === undefined
+      ? true
+      : Boolean(cue.transition.waitForPTZ),
+
+  delay:
+    Number.isFinite(Number(cue?.transition?.delay))
+      ? Math.max(0, Number(cue.transition.delay))
+      : 800
+});
+
+const transitionLabel = mode =>
+  ({
+    auto: 'AUTO',
+    cut: 'CUT',
+    fade: 'FADE TO BLACK',
+    none: 'NO SWITCH'
+  })[mode] || 'AUTO';
+
 const formatElapsed = start => {
   const seconds = Math.max(
     0,
@@ -313,6 +340,75 @@ function ensureAppStyles() {
       font-size: 14px;
     }
 
+.cue-switch-section {
+  display: grid;
+  gap: 14px;
+  padding: 15px;
+  background: rgba(47, 124, 255, 0.07);
+  border: 1px solid rgba(47, 124, 255, 0.22);
+  border-radius: 12px;
+}
+
+.cue-switch-section h3 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cue-switch-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 12px;
+}
+
+.cue-switch-check {
+  display: flex !important;
+  grid-template-columns: none !important;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px !important;
+  padding: 10px 0;
+  color: rgba(255, 255, 255, 0.82) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+}
+
+.cue-switch-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.cue-switch-note {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.cue-transition-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+  border: 1px solid rgba(246, 189, 77, 0.3);
+  border-radius: 999px;
+  background: rgba(246, 189, 77, 0.1);
+  color: #f6d27e;
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+@media (max-width: 650px) {
+  .cue-switch-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
     .cue-editor-actions {
       position: sticky;
       bottom: 0;
@@ -476,53 +572,145 @@ function cameraCard(camera) {
 }
 
 async function activateCue(index) {
+  const previousProgramCamera =
+    state.live.programCamera;
+
+  const previousProgramPreset =
+    state.live.programPreset;
+
   state = await window.trinity.goCue(index);
 
-  const cue = state.runOfService[index];
+  const cue =
+    state.runOfService[index];
 
   if (!cue) {
     return state;
   }
 
-  const layout = cueCameraLayout(cue);
+  const layout =
+    cueCameraLayout(cue);
 
-  /*
-   * A cue-specific lightingSceneId becomes an active override.
-   * An empty value causes the Production Look lighting to be used.
-   */
+  const switchBehavior =
+    cueSwitchBehavior(cue);
+
   state.live.lightingOverrideId =
     cue.lightingSceneId || '';
 
+  /*
+   * Camera movement preparation.
+   *
+   * These preset values will later be sent to the physical PTZ
+   * cameras. Currently they update Trinity Control's state.
+   */
   if (layout) {
-    state.live.programCamera =
-      layout.programCamera || state.live.programCamera;
+    const programCamera =
+      byId(state.cameras, layout.programCamera);
 
-    state.live.programPreset =
-      layout.programPreset || 'Stage Wide';
+    const previewCamera =
+      byId(state.cameras, layout.previewCamera);
+
+    if (programCamera) {
+      programCamera.lastPreset =
+        layout.programPreset || 'Stage Wide';
+    }
+
+    if (previewCamera) {
+      previewCamera.lastPreset =
+        layout.previewPreset || 'Stage Wide';
+    }
 
     state.live.previewCamera =
-      layout.previewCamera || state.live.previewCamera;
+      layout.programCamera ||
+      state.live.previewCamera;
 
     state.live.previewPreset =
-      layout.previewPreset || 'Stage Wide';
+      layout.programPreset ||
+      'Stage Wide';
 
     if ('tracking' in layout) {
-      state.live.tracking = Boolean(layout.tracking);
+      state.live.tracking =
+        Boolean(layout.tracking);
     }
   }
 
   state.live.activityLog = [
     {
       at: Date.now(),
-      message:
-        `Cue loaded: ${cue.name}` +
-        `${cue.lightingSceneId ? ' · custom lighting' : ''}` +
-        `${cue.cameraLayoutId ? ' · custom cameras' : ''}`
+      message: `Preparing cue: ${cue.name}`
     },
     ...(state.live.activityLog || [])
   ].slice(0, 8);
 
-  state = await window.trinity.saveState(state);
+  state =
+    await window.trinity.saveState(state);
+
+  if (
+    switchBehavior.waitForPTZ &&
+    switchBehavior.mode !== 'none' &&
+    switchBehavior.delay > 0
+  ) {
+    await wait(switchBehavior.delay);
+  }
+
+  if (switchBehavior.mode === 'none') {
+    /*
+     * Leave the current live camera untouched.
+     */
+    state.live.programCamera =
+      previousProgramCamera;
+
+    state.live.programPreset =
+      previousProgramPreset;
+  } else if (layout) {
+    /*
+     * This is where the physical ATEM command will later run.
+     *
+     * AUTO: tell ATEM to perform Auto
+     * CUT: tell ATEM to Cut
+     * FADE: tell ATEM to Fade to Black
+     */
+    state.live.programCamera =
+      layout.programCamera ||
+      state.live.programCamera;
+
+    state.live.programPreset =
+      layout.programPreset ||
+      'Stage Wide';
+
+    state.live.previewCamera =
+      layout.previewCamera ||
+      state.live.previewCamera;
+
+    state.live.previewPreset =
+      layout.previewPreset ||
+      'Stage Wide';
+  }
+
+  state.live.lastTransition = {
+    cueId: cue.id,
+    mode: switchBehavior.mode,
+    waitForPTZ: switchBehavior.waitForPTZ,
+    delay: switchBehavior.delay,
+    completedAt: Date.now()
+  };
+
+  state.live.activityLog = [
+    {
+      at: Date.now(),
+      message:
+        `${transitionLabel(switchBehavior.mode)}: ${cue.name}` +
+        `${
+          switchBehavior.waitForPTZ &&
+          switchBehavior.mode !== 'none'
+            ? ` after ${(switchBehavior.delay / 1000).toFixed(1)}s`
+            : ''
+        }`
+    },
+    ...(state.live.activityLog || [])
+  ].slice(0, 8);
+
+  state =
+    await window.trinity.saveState(state);
 
   return state;
 }
@@ -646,7 +834,59 @@ function openCueEditor(index) {
               .join('')}
           </select>
         </label>
+<div class="cue-switch-section">
+  <h3>Switch Behavior</h3>
 
+  <div class="cue-switch-grid">
+    <label>
+      Transition
+
+      <select id="cue-edit-transition">
+        <option value="auto">
+          Auto
+        </option>
+
+        <option value="cut">
+          Cut
+        </option>
+
+        <option value="fade">
+          Fade to Black
+        </option>
+
+        <option value="none">
+          No Switch
+        </option>
+      </select>
+    </label>
+
+    <label>
+      Delay Before Switch
+
+      <input
+        id="cue-edit-delay"
+        type="number"
+        min="0"
+        max="10"
+        step="0.1"
+      >
+    </label>
+  </div>
+
+  <label class="cue-switch-check">
+    <input
+      id="cue-edit-wait"
+      type="checkbox"
+    >
+
+    Wait for camera movement before switching
+  </label>
+
+  <p class="cue-switch-note">
+    The delay is measured in seconds. The ATEM will eventually
+    perform its own configured transition when this cue runs.
+  </p>
+</div>
         <label>
           Notes
 
@@ -703,6 +943,27 @@ function openCueEditor(index) {
 
   const notesInput =
     backdrop.querySelector('#cue-edit-notes');
+
+const transitionSelect =
+  backdrop.querySelector('#cue-edit-transition');
+
+const waitInput =
+  backdrop.querySelector('#cue-edit-wait');
+
+const delayInput =
+  backdrop.querySelector('#cue-edit-delay');
+
+const switchBehavior =
+  cueSwitchBehavior(cue);
+
+transitionSelect.value =
+  switchBehavior.mode;
+
+waitInput.checked =
+  switchBehavior.waitForPTZ;
+
+delayInput.value =
+  switchBehavior.delay / 1000;
 
   const close = () => {
     backdrop.remove();
@@ -770,6 +1031,21 @@ function openCueEditor(index) {
 
     cue.notes =
       notesInput.value.trim();
+
+cue.transition = {
+  mode: transitionSelect.value,
+
+  waitForPTZ:
+    waitInput.checked,
+
+  delay:
+    Math.round(
+      Math.max(
+        0,
+        Number(delayInput.value) || 0
+      ) * 1000
+    )
+};
 
     state = await window.trinity.saveState(state);
 
@@ -1310,20 +1586,24 @@ function servicePage() {
                       </small>
 
                       <span class="cue-detail-badges">
-                        <span
-                          class="cue-detail-badge
-                            ${
-                              cue.lightingSceneId
-                                ? 'override-light'
-                                : ''
-                            }"
-                        >
-                          💡
-                          ${escapeHtml(
-                            lighting?.name ||
-                            'No lighting'
-                          )}
-                        </span>
+                        <<span class="cue-transition-badge">
+  ⇄
+  ${escapeHtml(
+    transitionLabel(
+      cueSwitchBehavior(cue).mode
+    )
+  )}
+
+  ${
+    cueSwitchBehavior(cue).waitForPTZ &&
+    cueSwitchBehavior(cue).mode !== 'none'
+      ? ` · ${(
+          cueSwitchBehavior(cue).delay /
+          1000
+        ).toFixed(1)}s`
+      : ''
+  }
+</span>
 
                         <span
                           class="cue-detail-badge

@@ -9,6 +9,23 @@ contextBridge.exposeInMainWorld("trinity", {
   nextCue: () => ipcRenderer.invoke("live:next"),
   previousCue: () => ipcRenderer.invoke("live:back"),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
+  setHold: hold => ipcRenderer.invoke("live:setHold", hold),
+  takeCamera: (cameraId, preset) => ipcRenderer.invoke("camera:take", { cameraId, preset }),
   lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
-  returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue")
+  returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue"),
+  onStateChanged: subscriber => {
+    const listener = (_event, update) => subscriber(update);
+    ipcRenderer.on("production:state-changed", listener);
+    return () => ipcRenderer.removeListener("production:state-changed", listener);
+  },
+  onActivity: subscriber => {
+    const listener = (_event, activity) => subscriber(activity);
+    ipcRenderer.on("production:activity", listener);
+    return () => ipcRenderer.removeListener("production:activity", listener);
+  },
+  onProductionError: subscriber => {
+    const listener = (_event, error) => subscriber(error);
+    ipcRenderer.on("production:error", listener);
+    return () => ipcRenderer.removeListener("production:error", listener);
+  }
 });

@@ -572,147 +572,7 @@ function cameraCard(camera) {
 }
 
 async function activateCue(index) {
-  const previousProgramCamera =
-    state.live.programCamera;
-
-  const previousProgramPreset =
-    state.live.programPreset;
-
-  state = await window.trinity.goCue(index);
-
-  const cue =
-    state.runOfService[index];
-
-  if (!cue) {
-    return state;
-  }
-
-  const layout =
-    cueCameraLayout(cue);
-
-  const switchBehavior =
-    cueSwitchBehavior(cue);
-
-  state.live.lightingOverrideId =
-    cue.lightingSceneId || '';
-
-  /*
-   * Camera movement preparation.
-   *
-   * These preset values will later be sent to the physical PTZ
-   * cameras. Currently they update Trinity Control's state.
-   */
-  if (layout) {
-    const programCamera =
-      byId(state.cameras, layout.programCamera);
-
-    const previewCamera =
-      byId(state.cameras, layout.previewCamera);
-
-    if (programCamera) {
-      programCamera.lastPreset =
-        layout.programPreset || 'Stage Wide';
-    }
-
-    if (previewCamera) {
-      previewCamera.lastPreset =
-        layout.previewPreset || 'Stage Wide';
-    }
-
-    state.live.previewCamera =
-      layout.programCamera ||
-      state.live.previewCamera;
-
-    state.live.previewPreset =
-      layout.programPreset ||
-      'Stage Wide';
-
-    if ('tracking' in layout) {
-      state.live.tracking =
-        Boolean(layout.tracking);
-    }
-  }
-
-  state.live.activityLog = [
-    {
-      at: Date.now(),
-      message: `Preparing cue: ${cue.name}`
-    },
-    ...(state.live.activityLog || [])
-  ].slice(0, 8);
-
-  state =
-    await window.trinity.saveState(state);
-
-  if (
-    switchBehavior.waitForPTZ &&
-    switchBehavior.mode !== 'none' &&
-    switchBehavior.delay > 0
-  ) {
-    await wait(switchBehavior.delay);
-  }
-
-  if (switchBehavior.mode === 'none') {
-    /*
-     * Leave the current live camera untouched.
-     */
-    state.live.programCamera =
-      previousProgramCamera;
-
-    state.live.programPreset =
-      previousProgramPreset;
-  } else if (layout) {
-    /*
-     * This is where the physical ATEM command will later run.
-     *
-     * AUTO: tell ATEM to perform Auto
-     * CUT: tell ATEM to Cut
-     * FADE: tell ATEM to Fade to Black
-     */
-    state.live.programCamera =
-      layout.programCamera ||
-      state.live.programCamera;
-
-    state.live.programPreset =
-      layout.programPreset ||
-      'Stage Wide';
-
-    state.live.previewCamera =
-      layout.previewCamera ||
-      state.live.previewCamera;
-
-    state.live.previewPreset =
-      layout.previewPreset ||
-      'Stage Wide';
-  }
-
-  state.live.lastTransition = {
-    cueId: cue.id,
-    mode: switchBehavior.mode,
-    waitForPTZ: switchBehavior.waitForPTZ,
-    delay: switchBehavior.delay,
-    completedAt: Date.now()
-  };
-
-  state.live.activityLog = [
-    {
-      at: Date.now(),
-      message:
-        `${transitionLabel(switchBehavior.mode)}: ${cue.name}` +
-        `${
-          switchBehavior.waitForPTZ &&
-          switchBehavior.mode !== 'none'
-            ? ` after ${(switchBehavior.delay / 1000).toFixed(1)}s`
-            : ''
-        }`
-    },
-    ...(state.live.activityLog || [])
-  ].slice(0, 8);
-
-  state =
-    await window.trinity.saveState(state);
-
-  return state;
+  return window.trinity.goCue(index);
 }
 
 function openCueEditor(index) {
@@ -1364,54 +1224,14 @@ function livePage() {
       return;
     }
 
-    const previousProgram =
-      state.live.programCamera;
-
-    const previousPreset =
-      state.live.programPreset;
-
-    state.live.programCamera = cameraId;
-
     const selector = document.querySelector(
       `[data-camera-preset="${cameraId}"]`
     );
 
-    const camera =
-  byId(state.cameras, cameraId);
-
-state.live.programPreset =
-  selector?.value ||
-  camera?.lastPreset ||
-  'Stage Wide';
-
-if (camera) {
-  camera.lastPreset =
-    state.live.programPreset;
-}
-    state.live.previewCamera =
-      previousProgram;
-
-    const previousCamera =
-  byId(state.cameras, previousProgram);
-
-if (previousCamera) {
-  previousCamera.lastPreset =
-    state.live.previewPreset;
-}
-
-    state.live.activityLog = [
-      {
-        at: Date.now(),
-        message:
-          `Camera live: ${
-            byId(state.cameras, cameraId)?.name ||
-            cameraId
-          }`
-      },
-      ...(state.live.activityLog || [])
-    ].slice(0, 8);
-
-    state = await window.trinity.saveState(state);
+    state = await window.trinity.takeCamera(
+      cameraId,
+      selector?.value
+    );
 
     render();
   };
@@ -2221,6 +2041,13 @@ function render() {
 
 (async () => {
   try {
+    window.trinity.onStateChanged(update => {
+      if (!state || update.revision > Number(state.revision || 0)) {
+        state = update.state;
+        render();
+      }
+    });
+
     state =
       await window.trinity.getState();
 

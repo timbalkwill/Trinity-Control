@@ -1,3 +1,12 @@
+## Alpha 6 Phase 1
+
+- Added an authoritative in-memory Production Engine with serialized command dispatch and state revisions.
+- Added a modular Event Bus for state, activity, and error events.
+- Added validated simulation adapter contracts for camera/PTZ, video switching, and lighting.
+- Routed cue activation, camera takes, and lighting overrides through the engine.
+- Added engine-to-renderer state events while retaining compatibility request-response APIs.
+- Added automated tests for engine sequencing, revisions, live commands, events, and stale delayed work.
+
 ## 1.0.2-alpha.5.2
 - Refined the Live console without changing the core layout.
 - Added a live time-in-cue counter that resets whenever a cue is selected.

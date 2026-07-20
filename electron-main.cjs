@@ -1,6 +1,10 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { ENGINE_EVENTS, ProductionEngine } = require("./src/core/production-engine.cjs");
+const { SimulationCameraController } = require("./src/adapters/simulation/simulation-camera-controller.cjs");
+const { SimulationSwitcherController } = require("./src/adapters/simulation/simulation-switcher-controller.cjs");
+const { SimulationLightingController } = require("./src/adapters/simulation/simulation-lighting-controller.cjs");
 
 app.setName("Trinity Control Refresh");
 
@@ -731,43 +735,70 @@ function applyLook(state, lookId) {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle("state:get", () => loadState());
-  ipcMain.handle("state:save", (_e, s) => saveState(migrate(s)));
-  ipcMain.handle("cue:addTemplate", (_e, templateId) => {
-    const s = loadState(); const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return s;
-    s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
-    return saveState(s);
+  const engine = new ProductionEngine({
+    initialState: loadState(),
+    persistState: state => saveState(state)
   });
-  ipcMain.handle("cue:move", (_e, { from, to }) => {
-    const s = loadState();
-    if (from < 0 || to < 0 || from >= s.runOfService.length || to >= s.runOfService.length || from === to) return s;
-    const currentCueId = s.runOfService[s.live.cueIndex]?.id;
-    const [item] = s.runOfService.splice(from, 1);
-    s.runOfService.splice(to, 0, item);
-    const currentIndex = s.runOfService.findIndex(cue => cue.id === currentCueId);
-    if (currentIndex >= 0) s.live.cueIndex = currentIndex;
-    return saveState(s);
+  engine.registerAdapter("camera", new SimulationCameraController());
+  engine.registerAdapter("videoSwitcher", new SimulationSwitcherController());
+  engine.registerAdapter("lighting", new SimulationLightingController());
+
+  ipcMain.handle("state:get", () => engine.getSnapshot());
+  ipcMain.handle("state:save", (_e, state) => engine.replaceSnapshot(migrate(state)));
+  ipcMain.handle("cue:addTemplate", async (_e, templateId) => {
+    const state = engine.getSnapshot();
+    const template = state.cueTemplates.find(item => item.id === templateId);
+    if (!template) return state;
+    state.runOfService.push({
+      id: uid("cue"),
+      name: template.name,
+      duration: template.duration,
+      notes: template.notes,
+      productionLookId: template.productionLookId
+    });
+    return engine.replaceSnapshot(state, "AddCueTemplate");
   });
-  ipcMain.handle("cue:remove", (_e, index) => {
-    const s = loadState(); s.runOfService.splice(index, 1); s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1)); return saveState(s);
+  ipcMain.handle("cue:move", async (_e, { from, to }) => {
+    const state = engine.getSnapshot();
+    if (from < 0 || to < 0 || from >= state.runOfService.length || to >= state.runOfService.length || from === to) return state;
+    const currentCueId = state.runOfService[state.live.cueIndex]?.id;
+    const [item] = state.runOfService.splice(from, 1);
+    state.runOfService.splice(to, 0, item);
+    const currentIndex = state.runOfService.findIndex(cue => cue.id === currentCueId);
+    if (currentIndex >= 0) state.live.cueIndex = currentIndex;
+    return engine.replaceSnapshot(state, "MoveCue");
   });
-  ipcMain.handle("live:go", (_e, index) => {
-    const s = loadState(); s.live.cueIndex = Math.max(0, Math.min(index, s.runOfService.length - 1)); s.live.cueStartedAt = Date.now(); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); addActivity(s, `Cue started: ${s.runOfService[s.live.cueIndex]?.name || "Cue"}`); return saveState(s);
+  ipcMain.handle("cue:remove", async (_e, index) => {
+    const state = engine.getSnapshot();
+    state.runOfService.splice(index, 1);
+    state.live.cueIndex = Math.min(state.live.cueIndex, Math.max(0, state.runOfService.length - 1));
+    return engine.replaceSnapshot(state, "RemoveCue");
   });
-  ipcMain.handle("live:next", () => {
-    const s = loadState(); s.live.cueIndex = Math.min(s.runOfService.length - 1, s.live.cueIndex + 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
+  ipcMain.handle("live:go", (_e, index) => engine.dispatch({ type: "ActivateCue", payload: { index } }));
+  ipcMain.handle("live:next", () => engine.dispatch({ type: "NextCue" }));
+  ipcMain.handle("live:back", () => engine.dispatch({ type: "PreviousCue" }));
+  ipcMain.handle("live:setHold", (_e, hold) => engine.dispatch({ type: "SetHold", payload: { hold } }));
+  ipcMain.handle("live:hold", () => {
+    const hold = !engine.getSnapshot().live.hold;
+    return engine.dispatch({ type: "SetHold", payload: { hold } });
   });
-  ipcMain.handle("live:back", () => {
-    const s = loadState(); s.live.cueIndex = Math.max(0, s.live.cueIndex - 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
-  });
-  ipcMain.handle("live:hold", () => { const s = loadState(); s.live.hold = !s.live.hold; return saveState(s); });
-  ipcMain.handle("lighting:override", (_e, sceneId) => { const s = loadState(); s.live.lightingOverrideId = sceneId; const scene = s.lightingScenes.find(x => x.id === sceneId); addActivity(s, `Lighting scene: ${scene?.name || sceneId}`); return saveState(s); });
-  ipcMain.handle("lighting:returnToCue", () => { const s = loadState(); s.live.lightingOverrideId = null; addActivity(s, "Returned to cue lighting"); return saveState(s); });
+  ipcMain.handle("camera:take", (_e, payload) => engine.dispatch({ type: "TakeCamera", payload }));
+  ipcMain.handle("lighting:override", (_e, sceneId) => engine.dispatch({ type: "SetLightingOverride", payload: { sceneId } }));
+  ipcMain.handle("lighting:returnToCue", () => engine.dispatch({ type: "ReleaseLightingOverride" }));
 
   const win = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,
     backgroundColor: "#081018", title: "Trinity Control",
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
+  });
+  engine.subscribe(ENGINE_EVENTS.STATE_CHANGED, event => {
+    if (!win.isDestroyed()) win.webContents.send("production:state-changed", event);
+  });
+  engine.subscribe(ENGINE_EVENTS.ACTIVITY, event => {
+    if (!win.isDestroyed()) win.webContents.send("production:activity", event);
+  });
+  engine.subscribe(ENGINE_EVENTS.ERROR, event => {
+    if (!win.isDestroyed()) win.webContents.send("production:error", event);
   });
   win.loadFile(path.join(__dirname, "public", "index.html"));
 });

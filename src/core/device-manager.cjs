@@ -41,6 +41,7 @@ class DeviceManager {
     this.now = now;
     this.devices = new Map();
     this.adapters = new Map();
+    this.resourceIds = new Map();
     this.registeredAt = new Map();
   }
 
@@ -48,7 +49,7 @@ class DeviceManager {
     return this.eventBus.subscribe(eventName, subscriber);
   }
 
-  registerDevice(registration, adapter) {
+  registerDevice(registration, adapter, { resourceIds = [] } = {}) {
     const id = this.requiredText(registration?.id, "Device id");
     if (this.devices.has(id)) throw new Error(`Device already registered: ${id}`);
     if (!adapter || typeof adapter !== "object") {
@@ -87,6 +88,7 @@ class DeviceManager {
 
     this.devices.set(id, device);
     this.adapters.set(id, adapter);
+    this.resourceIds.set(id, new Set(resourceIds.map(String)));
     this.registeredAt.set(id, now - device.health.uptime);
     this.publish(DEVICE_EVENTS.REGISTERED, { device: this.snapshotDevice(id) });
     return this.snapshotDevice(id);
@@ -121,6 +123,7 @@ class DeviceManager {
     if (!device) return false;
     this.devices.delete(id);
     this.adapters.delete(id);
+    this.resourceIds.delete(id);
     this.registeredAt.delete(id);
     this.publish(DEVICE_EVENTS.REMOVED, { device });
     return true;
@@ -165,9 +168,20 @@ class DeviceManager {
     return [...this.devices.keys()].map(id => this.snapshotDevice(id));
   }
 
-  getAdapterByCapability(capability) {
+  getAdapterByCapability(capability, { resourceId } = {}) {
+    if (resourceId !== undefined) {
+      for (const [id, device] of this.devices) {
+        if (
+          device.supportedCapabilities.includes(capability) &&
+          this.resourceIds.get(id)?.has(String(resourceId))
+        ) return this.adapters.get(id);
+      }
+    }
     for (const [id, device] of this.devices) {
-      if (device.supportedCapabilities.includes(capability)) return this.adapters.get(id);
+      if (
+        device.supportedCapabilities.includes(capability) &&
+        this.resourceIds.get(id)?.size === 0
+      ) return this.adapters.get(id);
     }
     return undefined;
   }

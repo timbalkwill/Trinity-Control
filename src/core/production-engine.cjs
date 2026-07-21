@@ -58,8 +58,8 @@ class ProductionEngine {
     return adapter;
   }
 
-  getAdapter(subsystem) {
-    return this.deviceManager.getAdapterByCapability(subsystem);
+  getAdapter(subsystem, resourceId) {
+    return this.deviceManager.getAdapterByCapability(subsystem, { resourceId });
   }
 
   registerDeviceAdapter(adapter) {
@@ -208,8 +208,12 @@ class ProductionEngine {
 
   async prepareCamera(cameraId, preset) {
     if (!cameraId) return;
-    await this.getAdapter("camera")?.recallPreset?.({ cameraId, preset });
     const camera = this.findById(this.commandState.cameras, cameraId);
+    if (!camera) throw new Error(`Unknown camera: ${cameraId}`);
+    if (camera.enabled === false) throw new Error(`Camera is disabled: ${cameraId}`);
+    const adapter = this.getAdapter("camera", cameraId);
+    if (!adapter?.recallPreset) throw new Error(`No camera adapter registered for: ${cameraId}`);
+    await adapter.recallPreset({ cameraId, preset });
     if (camera) camera.lastPreset = preset || "Stage Wide";
   }
 
@@ -252,6 +256,7 @@ class ProductionEngine {
   async takeCamera({ cameraId, preset }) {
     const camera = this.findById(this.commandState.cameras, cameraId);
     if (!camera) throw new Error(`Unknown camera: ${cameraId}`);
+    if (camera.enabled === false) throw new Error(`Camera is disabled: ${cameraId}`);
     if (cameraId === this.commandState.live.programCamera && !preset) return false;
 
     this.transitionGeneration += 1;
@@ -290,12 +295,67 @@ class ProductionEngine {
     if (!changes || typeof changes !== "object") {
       throw new TypeError("Camera configuration changes must be an object");
     }
-    this.assertAllowedChanges(changes, ["name", "role", "enabled", "lastPreset"], "camera");
+    this.assertAllowedChanges(changes, [
+      "name", "role", "enabled", "lastPreset", "adapterType", "host", "port",
+      "cameraAddress", "protocol", "connectionTimeoutMs", "healthCheckIntervalMs",
+      "manufacturer", "model", "savedPositions"
+    ], "camera");
 
     if (Object.hasOwn(changes, "name")) camera.name = this.requiredText(changes.name, "Camera name");
     if (Object.hasOwn(changes, "role")) camera.role = this.requiredText(changes.role, "Camera role");
     if (Object.hasOwn(changes, "enabled")) camera.enabled = Boolean(changes.enabled);
     if (Object.hasOwn(changes, "lastPreset")) camera.lastPreset = this.requiredText(changes.lastPreset, "Camera preset");
+    if (Object.hasOwn(changes, "adapterType")) {
+      if (!["simulation", "visca-over-ip"].includes(changes.adapterType)) {
+        throw new Error(`Unsupported camera adapter type: ${changes.adapterType}`);
+      }
+      camera.adapterType = changes.adapterType;
+    }
+    if (Object.hasOwn(changes, "protocol")) {
+      if (changes.protocol !== "visca-over-ip") throw new Error(`Unsupported camera protocol: ${changes.protocol}`);
+      camera.protocol = changes.protocol;
+    }
+    for (const field of ["manufacturer", "model"]) {
+      if (Object.hasOwn(changes, field)) camera[field] = String(changes[field] || "").trim().slice(0, 100);
+    }
+    if (Object.hasOwn(changes, "host")) {
+      const host = String(changes.host || "").trim();
+      if (host && (host.length > 253 || /[\s/:]/.test(host))) {
+        throw new Error("Camera host must be an IP address or hostname without a URL scheme");
+      }
+      camera.host = host;
+    }
+    const numericRules = {
+      port: [1, 65535], cameraAddress: [1, 7],
+      connectionTimeoutMs: [100, 30000], healthCheckIntervalMs: [5000, 3600000]
+    };
+    for (const [field, [minimum, maximum]] of Object.entries(numericRules)) {
+      if (!Object.hasOwn(changes, field)) continue;
+      const value = Number(changes[field]);
+      if (!Number.isInteger(value) || value < minimum || value > maximum) {
+        throw new Error(`Camera ${field} must be an integer from ${minimum} to ${maximum}`);
+      }
+      camera[field] = value;
+    }
+    if (Object.hasOwn(changes, "savedPositions")) {
+      if (!Array.isArray(changes.savedPositions)) throw new TypeError("Camera saved positions must be an array");
+      const existing = new Map((camera.savedPositions || []).map(position => [position.id, position]));
+      camera.savedPositions = changes.savedPositions.map(position => {
+        const current = existing.get(position.id);
+        if (!current || current.name !== position.name) throw new Error("Saved position IDs and names are immutable");
+        const rawNumber = position.hardwarePresetNumber;
+        const hardwarePresetNumber = rawNumber === "" || rawNumber === null || rawNumber === undefined
+          ? null
+          : Number(rawNumber);
+        if (hardwarePresetNumber !== null && (
+          !Number.isInteger(hardwarePresetNumber) || hardwarePresetNumber < 0 || hardwarePresetNumber > 254
+        )) throw new Error("Hardware preset numbers must be blank or integers from 0 to 254");
+        return { ...current, hardwarePresetNumber };
+      });
+    }
+    if ((changes.adapterType || camera.adapterType) === "visca-over-ip" && !(changes.host ?? camera.host)) {
+      throw new Error("VISCA-over-IP cameras require a host");
+    }
 
     this.addActivity(`Camera configuration updated: ${camera.name}`);
   }

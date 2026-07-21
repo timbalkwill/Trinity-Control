@@ -105,6 +105,35 @@ test("manual camera switching updates program and preview", async () => {
   engine.dispose();
 });
 
+test("camera adapter failure publishes a production error without corrupting state", async () => {
+  const engine = createEngine();
+  const errors = [];
+  engine.subscribe(ENGINE_EVENTS.ERROR, event => errors.push(event));
+  engine.deviceManager.registerDevice({
+    id: "hardware-main",
+    name: "Hardware Main",
+    type: "Camera",
+    connectionState: "Error",
+    statusMessage: "Offline",
+    supportedCapabilities: ["camera"],
+    supportsReconnect: true,
+    supportsConfiguration: true,
+    supportsHealthMonitoring: true
+  }, {
+    recallPreset: async () => { throw new Error("Camera unreachable"); }
+  }, { resourceIds: ["main"] });
+
+  await assert.rejects(
+    engine.dispatch({ type: "TakeCamera", payload: { cameraId: "main", preset: "Pulpit" } }),
+    /Camera unreachable/
+  );
+  assert.equal(engine.getSnapshot().revision, 0);
+  assert.equal(engine.getSnapshot().live.programCamera, "main");
+  assert.equal(errors.at(-1).commandType, "TakeCamera");
+  assert.match(errors.at(-1).message, /Camera unreachable/);
+  engine.dispose();
+});
+
 test("lighting override can be set and released", async () => {
   const engine = createEngine();
   const overridden = await engine.dispatch({ type: "SetLightingOverride", payload: { sceneId: "light-sermon" } });
@@ -226,5 +255,52 @@ test("configuration commands reject fields outside their explicit contract", asy
   );
   assert.equal(engine.getSnapshot().revision, 0);
   assert.notEqual(engine.getSnapshot().cameras[0].online, false);
+  engine.dispose();
+});
+
+test("network camera configuration validates and preserves immutable saved positions", async () => {
+  const engine = createEngine();
+  const initial = engine.getSnapshot();
+  initial.cameras[0].adapterType = "simulation";
+  initial.cameras[0].host = "";
+  initial.cameras[0].savedPositions = [
+    { id: "pulpit", name: "Pulpit", hardwarePresetNumber: null }
+  ];
+  await engine.replaceSnapshot(initial);
+
+  const result = await engine.dispatch({
+    type: "UpdateCameraConfiguration",
+    payload: {
+      cameraId: "main",
+      changes: {
+        adapterType: "visca-over-ip",
+        protocol: "visca-over-ip",
+        host: "192.168.1.50",
+        port: 5678,
+        cameraAddress: 1,
+        connectionTimeoutMs: 1500,
+        healthCheckIntervalMs: 15000,
+        manufacturer: "Configured Vendor",
+        model: "PTZ Camera",
+        savedPositions: [{ id: "pulpit", name: "Pulpit", hardwarePresetNumber: 7 }]
+      }
+    }
+  });
+  const camera = result.cameras.find(item => item.id === "main");
+  assert.equal(camera.adapterType, "visca-over-ip");
+  assert.equal(camera.host, "192.168.1.50");
+  assert.equal(camera.savedPositions[0].hardwarePresetNumber, 7);
+
+  await assert.rejects(engine.dispatch({
+    type: "UpdateCameraConfiguration",
+    payload: { cameraId: "main", changes: { port: 70000 } }
+  }), /port must be an integer/);
+  await assert.rejects(engine.dispatch({
+    type: "UpdateCameraConfiguration",
+    payload: {
+      cameraId: "main",
+      changes: { savedPositions: [{ id: "pulpit", name: "Renamed", hardwarePresetNumber: 8 }] }
+    }
+  }), /IDs and names are immutable/);
   engine.dispose();
 });

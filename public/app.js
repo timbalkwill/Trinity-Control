@@ -701,7 +701,7 @@ function cameraCard(camera) {
           data-camera-preset="${camera.id}"
           aria-label="Preset for ${escapeHtml(camera.name)}"
         >
-          ${presetNames
+          ${(camera.savedPositions?.map(position => position.name) || presetNames)
             .map(
               name =>
                 `<option
@@ -2293,8 +2293,58 @@ function configurationPage() {
               Enabled in production
             </label>
 
+            <label>
+              Adapter type
+              <select data-config-field="adapterType">
+                <option value="simulation" ${camera.adapterType === 'simulation' ? 'selected' : ''}>Simulation</option>
+                <option value="visca-over-ip" ${camera.adapterType === 'visca-over-ip' ? 'selected' : ''}>VISCA over IP</option>
+              </select>
+            </label>
+
+            <label>
+              Host or IP address
+              <input data-config-field="host" value="${escapeHtml(camera.host || '')}" placeholder="192.168.1.50">
+            </label>
+
+            <div class="metrics">
+              <label>TCP port<input type="number" min="1" max="65535" data-config-field="port" value="${Number(camera.port) || 5678}"></label>
+              <label>Camera address<input type="number" min="1" max="7" data-config-field="cameraAddress" value="${Number(camera.cameraAddress) || 1}"></label>
+              <label>Timeout ms<input type="number" min="100" max="30000" data-config-field="connectionTimeoutMs" value="${Number(camera.connectionTimeoutMs) || 1500}"></label>
+              <label>Health interval ms<input type="number" min="5000" max="3600000" data-config-field="healthCheckIntervalMs" value="${Number(camera.healthCheckIntervalMs) || 15000}"></label>
+            </div>
+
+            <label>
+              Manufacturer (optional)
+              <input data-config-field="manufacturer" value="${escapeHtml(camera.manufacturer || '')}" maxlength="100">
+            </label>
+
+            <label>
+              Model (optional)
+              <input data-config-field="model" value="${escapeHtml(camera.model || '')}" maxlength="100">
+            </label>
+
+            <div>
+              <span class="eyebrow">SAVED POSITION MAPPING</span>
+              <div class="metrics vertical">
+                ${(camera.savedPositions || []).map(position => `
+                  <label>
+                    ${escapeHtml(position.name)} hardware preset
+                    <input type="number" min="0" max="254"
+                      data-config-position="${escapeHtml(position.id)}"
+                      data-position-name="${escapeHtml(position.name)}"
+                      value="${position.hardwarePresetNumber ?? ''}"
+                      placeholder="Not mapped">
+                  </label>
+                `).join('') || '<p class="empty-state">No saved positions</p>'}
+              </div>
+            </div>
+
+            <p class="configuration-summary">Network adapter changes take effect after Trinity Control restarts.</p>
+
             <div class="metrics vertical">
-              <span>Status <b>${camera.online === false ? 'OFFLINE' : 'SIMULATED READY'}</b></span>
+              <span>Status <b>${escapeHtml(
+                runtimeDevices.find(device => device.id === `camera-${camera.id}`)?.connectionState || 'Unknown'
+              )}</b></span>
             </div>
 
             <div class="configuration-card-actions">
@@ -2477,7 +2527,21 @@ function configurationPage() {
           name: value('name').value,
           role: value('role').value,
           lastPreset: value('lastPreset').value,
-          enabled: value('enabled').checked
+          enabled: value('enabled').checked,
+          adapterType: value('adapterType').value,
+          protocol: 'visca-over-ip',
+          host: value('host').value,
+          port: Number(value('port').value),
+          cameraAddress: Number(value('cameraAddress').value),
+          connectionTimeoutMs: Number(value('connectionTimeoutMs').value),
+          healthCheckIntervalMs: Number(value('healthCheckIntervalMs').value),
+          manufacturer: value('manufacturer').value,
+          model: value('model').value,
+          savedPositions: [...form.querySelectorAll('[data-config-position]')].map(input => ({
+            id: input.dataset.configPosition,
+            name: input.dataset.positionName,
+            hardwarePresetNumber: input.value
+          }))
         }
       );
       render();

@@ -2,15 +2,27 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { ENGINE_EVENTS, ProductionEngine } = require("./src/core/production-engine.cjs");
-const { SimulationCameraController } = require("./src/adapters/simulation/simulation-camera-controller.cjs");
 const { SimulationSwitcherController } = require("./src/adapters/simulation/simulation-switcher-controller.cjs");
 const { SimulationLightingController } = require("./src/adapters/simulation/simulation-lighting-controller.cjs");
+const { registerCameraAdapters } = require("./src/adapters/camera-adapter-factory.cjs");
 const { DEVICE_EVENTS, DeviceManager } = require("./src/core/device-manager.cjs");
 const { DEFAULT_PORT, createLocalNetworkServer } = require("./src/server/local-network-server.cjs");
 
 app.setName("Trinity Control Refresh");
 
 let localNetworkServer;
+let cameraAdapterRegistry;
+
+const defaultPresetNames = [
+  "Stage Wide", "Stage Medium", "Stage Left", "Stage Right", "Pulpit Wide",
+  "Pulpit Tight", "Piano", "Choir", "Baptistry", "Communion",
+  "Congregation Wide", "Congregation Left", "Congregation Right"
+];
+const defaultSavedPositions = () => defaultPresetNames.map((name, index) => ({
+  id: `position-${index + 1}`,
+  name,
+  hardwarePresetNumber: null
+}));
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
@@ -20,9 +32,9 @@ function defaultState() {
     version: "1.0.2-alpha.5.2-refined",
     schemaVersion: 6,
     cameras: [
-      { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true },
-      { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true },
-      { id: "right", name: "Right PTZ", role: "right", online: true, enabled: true }
+      { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true, adapterType: "simulation", protocol: "visca-over-ip", host: "", port: 5678, cameraAddress: 1, connectionTimeoutMs: 1500, healthCheckIntervalMs: 15000, manufacturer: "", model: "", savedPositions: defaultSavedPositions() },
+      { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true, adapterType: "simulation", protocol: "visca-over-ip", host: "", port: 5678, cameraAddress: 1, connectionTimeoutMs: 1500, healthCheckIntervalMs: 15000, manufacturer: "", model: "", savedPositions: defaultSavedPositions() },
+      { id: "right", name: "Right PTZ", role: "right", online: true, enabled: true, adapterType: "simulation", protocol: "visca-over-ip", host: "", port: 5678, cameraAddress: 1, connectionTimeoutMs: 1500, healthCheckIntervalMs: 15000, manufacturer: "", model: "", savedPositions: defaultSavedPositions() }
     ],
     lightingScenes: [
       {
@@ -711,7 +723,24 @@ function migrate(state) {
   merged.cameras = (Array.isArray(merged.cameras) && merged.cameras.length
     ? merged.cameras
     : fresh.cameras
-  ).map(camera => ({ enabled: true, online: true, role: "camera", ...camera }));
+  ).map(camera => ({
+    enabled: true,
+    online: true,
+    role: "camera",
+    adapterType: "simulation",
+    protocol: "visca-over-ip",
+    host: "",
+    port: 5678,
+    cameraAddress: 1,
+    connectionTimeoutMs: 1500,
+    healthCheckIntervalMs: 15000,
+    manufacturer: "",
+    model: "",
+    ...camera,
+    savedPositions: Array.isArray(camera.savedPositions) && camera.savedPositions.length
+      ? camera.savedPositions
+      : defaultSavedPositions()
+  }));
   merged.configuration = {
     ...fresh.configuration,
     ...(state.configuration || {}),
@@ -763,7 +792,10 @@ app.whenReady().then(() => {
     deviceManager,
     persistState: state => saveState(state)
   });
-  engine.registerDeviceAdapter(new SimulationCameraController());
+  cameraAdapterRegistry = registerCameraAdapters({
+    cameras: engine.getSnapshot().cameras,
+    deviceManager
+  });
   engine.registerDeviceAdapter(new SimulationSwitcherController());
   engine.registerDeviceAdapter(new SimulationLightingController());
 
@@ -856,6 +888,7 @@ app.whenReady().then(() => {
   win.loadFile(path.join(__dirname, "public", "index.html"));
 });
 app.on("before-quit", () => {
+  cameraAdapterRegistry?.close();
   localNetworkServer?.close().catch(error => {
     console.error(`[Trinity Remote] Server failed to close cleanly: ${error.message}`);
   });

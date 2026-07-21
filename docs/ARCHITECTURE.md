@@ -57,6 +57,32 @@ The Device Manager publishes `device:registered`, `device:updated`, `device:remo
 
 The current camera, switcher, and lighting simulation adapters self-register in the Simulation state and report health after simulated operations. They do not perform hardware or network I/O.
 
+## Network PTZ Camera Adapter
+
+Alpha 7.1 adds a standards-based `visca-over-ip` camera adapter without adding manufacturer logic to the Production Engine or renderer. `src/adapters/camera-adapter-factory.cjs` is the startup composition boundary: each camera explicitly selects `simulation` or `visca-over-ip` from persisted configuration. Unknown or invalid adapter configurations register a generic Error device with a useful diagnostic and do not prevent the application or other cameras from starting. Hardware failure never silently changes a camera to simulation.
+
+The Device Manager routes the generic `camera` capability using the configured camera ID. This allows several real and simulated cameras to coexist while the Production Engine continues to issue only normalized `{ cameraId, preset }` requests. Every configured camera registers a distinct generic runtime device record; the adapter instance remains private.
+
+### VISCA Transport Boundary
+
+`src/adapters/visca/visca-commands.cjs` encodes raw VISCA commands and classifies terminated responses. `tcp-visca-transport.cjs` owns TCP sockets, request timeouts, response collection, and cleanup. `visca-camera-adapter.cjs` maps camera configuration and saved positions to protocol requests and reports results to Device Manager. Protocol encoding, socket lifecycle, and production commands therefore remain separate and independently testable.
+
+This phase uses raw VISCA over TCP with a configurable port that defaults to 5678. Preset recall is encoded as `8x 01 04 3F 02 pp FF`, using configured camera address `x` and explicit hardware preset `pp`. Conservative health monitoring sends the VISCA power inquiry `8x 09 04 00 FF` and requires a valid VISCA completion response. A successful TCP connection without a protocol response is not considered healthy.
+
+### Camera Adapter Configuration and Preset Mapping
+
+The authoritative camera configuration adds `adapterType`, `host`, `port`, `cameraAddress`, `protocol`, `connectionTimeoutMs`, `healthCheckIntervalMs`, optional manufacturer/model metadata, and per-camera `savedPositions`. Existing position names and layout references are preserved. Each saved position may contain an explicit `hardwarePresetNumber` from 0 through 254; blank mappings remain valid configuration but cannot be recalled by hardware. The adapter never guesses a preset number.
+
+Camera IDs, saved-position IDs, and saved-position names remain immutable through the configuration command. Host, port, address, timeout, interval, adapter type, and preset numbers are validated before a production snapshot is committed. Runtime connectivity and errors remain exclusively in Device Manager and are never persisted into camera configuration. Adapter-setting changes take effect on the next application start.
+
+### Startup, Health, and Shutdown
+
+At startup, migration adds safe simulation defaults and preserves existing camera records. The factory registers simulation cameras and one VISCA adapter per configured network camera. Each enabled VISCA camera starts one non-overlapping health check on a configurable interval (15 seconds by default); individual requests default to a 1.5-second timeout. Success updates `lastSeen`, last-success time, and Connected state. Failure records the error, increments health-check reconnect attempts, and leaves other cameras and commands running.
+
+On application shutdown, the camera adapter registry clears health timers and closes all active sockets. Tests use both transport doubles and controllable local TCP servers; no physical camera is required.
+
+Current limitations are deliberate: there is no camera discovery, preset creation, joystick pan/tilt, zoom, focus, auto-tracking, ONVIF, NDI, vendor web API, UDP/Sony VISCA encapsulation, video transport, or browser camera command endpoint.
+
 ## Event Bus
 
 `src/core/event-bus.cjs` is a small synchronous publication boundary with explicit event names. It supports subscription, returned unsubscribe functions, direct unsubscribe, wildcard observation, and clearing subscriptions. A failed subscriber cannot stop delivery to other subscribers. Rejected asynchronous subscribers are also contained and reported when an error reporter is configured.
@@ -128,7 +154,7 @@ Camera and lighting configuration follows this path:
 6. The existing persistence callback writes the committed authoritative snapshot, including its new revision.
 7. A state-change event carrying the same revision and snapshot is delivered to subscribed clients.
 
-Camera IDs and lighting-scene IDs are immutable because other production records reference them. Observed camera connectivity is also not configuration: `online` remains simulated runtime status. Record creation and deletion are deferred until reference-integrity and live-safety rules are defined.
+Camera IDs and lighting-scene IDs are immutable because other production records reference them. Camera saved-position IDs and names are also immutable because layouts reference their names. Observed camera connectivity is runtime Device Manager state rather than configuration. Record creation and deletion are deferred until reference-integrity and live-safety rules are defined.
 
 ## Override direction
 

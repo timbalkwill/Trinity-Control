@@ -5,6 +5,7 @@ const { ENGINE_EVENTS, ProductionEngine } = require("./src/core/production-engin
 const { SimulationCameraController } = require("./src/adapters/simulation/simulation-camera-controller.cjs");
 const { SimulationSwitcherController } = require("./src/adapters/simulation/simulation-switcher-controller.cjs");
 const { SimulationLightingController } = require("./src/adapters/simulation/simulation-lighting-controller.cjs");
+const { DEVICE_EVENTS, DeviceManager } = require("./src/core/device-manager.cjs");
 const { DEFAULT_PORT, createLocalNetworkServer } = require("./src/server/local-network-server.cjs");
 
 app.setName("Trinity Control Refresh");
@@ -756,13 +757,15 @@ function applyLook(state, lookId) {
 }
 
 app.whenReady().then(() => {
+  const deviceManager = new DeviceManager();
   const engine = new ProductionEngine({
     initialState: loadState(),
+    deviceManager,
     persistState: state => saveState(state)
   });
-  engine.registerAdapter("camera", new SimulationCameraController());
-  engine.registerAdapter("videoSwitcher", new SimulationSwitcherController());
-  engine.registerAdapter("lighting", new SimulationLightingController());
+  engine.registerDeviceAdapter(new SimulationCameraController());
+  engine.registerDeviceAdapter(new SimulationSwitcherController());
+  engine.registerDeviceAdapter(new SimulationLightingController());
 
   const configuredPort = Number(process.env.TRINITY_REMOTE_PORT);
   const remotePort = Number.isInteger(configuredPort) && configuredPort >= 0 && configuredPort <= 65535
@@ -770,6 +773,7 @@ app.whenReady().then(() => {
     : DEFAULT_PORT;
   localNetworkServer = createLocalNetworkServer({
     getSnapshot: () => engine.getSnapshot(),
+    getDevices: () => deviceManager.getDevices(),
     publicDirectory: path.join(__dirname, "public"),
     port: remotePort
   });
@@ -778,6 +782,7 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("state:get", () => engine.getSnapshot());
+  ipcMain.handle("devices:get", () => deviceManager.getDevices());
   ipcMain.handle("state:save", (_e, state) => engine.replaceSnapshot(migrate(state)));
   ipcMain.handle("cue:addTemplate", async (_e, templateId) => {
     const state = engine.getSnapshot();
@@ -836,6 +841,17 @@ app.whenReady().then(() => {
   });
   engine.subscribe(ENGINE_EVENTS.ERROR, event => {
     if (!win.isDestroyed()) win.webContents.send("production:error", event);
+  });
+  deviceManager.subscribe("*", (event, eventName) => {
+    if (!Object.values(DEVICE_EVENTS).includes(eventName)) return;
+    const update = {
+      type: "devices-changed",
+      eventType: eventName,
+      event,
+      devices: deviceManager.getDevices()
+    };
+    if (!win.isDestroyed()) win.webContents.send("devices:changed", update);
+    localNetworkServer.broadcastDevicesChanged(update);
   });
   win.loadFile(path.join(__dirname, "public", "index.html"));
 });

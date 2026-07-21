@@ -1,6 +1,7 @@
 const root = document.getElementById('app');
 
 let state;
+let runtimeDevices = [];
 let page = 'live';
 let configurationTab = 'cameras';
 let connectionStatus = 'offline';
@@ -1068,7 +1069,7 @@ cue.transition = {
 }
 
 function operatorLivePage() {
-  const view = window.TrinityInterface.liveViewModel(state);
+  const view = window.TrinityInterface.liveViewModel(state, runtimeDevices);
   shell(`
     <div class="operator-live">
       <section class="panel operator-hero">
@@ -1089,7 +1090,7 @@ function operatorLivePage() {
         <section class="panel operator-summary-card">
           <span class="eyebrow">PROGRAM CAMERA</span>
           <strong>${escapeHtml(view.camera?.name || 'No program camera')}</strong>
-          <small>${escapeHtml(view.programPreset || 'No active position')}</small>
+          <small>${escapeHtml(view.programPreset || 'No active position')} · ${escapeHtml(view.cameraConnectionState)}</small>
         </section>
         <section class="panel operator-summary-card">
           <span class="eyebrow">CONNECTION</span>
@@ -1336,38 +1337,20 @@ function livePage() {
             </div>
 
             <div class="status-grid">
-              ${state.cameras
+              ${runtimeDevices
                 .map(
-                  camera =>
+                  device =>
                     `<div>
                       <i></i>
 
                       <strong>
-                        ${escapeHtml(camera.name)}
+                        ${escapeHtml(device.name)}
                       </strong>
 
-                      <small>Ready</small>
+                      <small>${escapeHtml(device.connectionState)}</small>
                     </div>`
                 )
                 .join('')}
-
-              <div>
-                <i></i>
-                <strong>QLC+</strong>
-                <small>Simulation</small>
-              </div>
-
-              <div>
-                <i></i>
-                <strong>ATEM</strong>
-                <small>Simulation</small>
-              </div>
-
-              <div>
-                <i></i>
-                <strong>Streaming</strong>
-                <small>Ready</small>
-              </div>
 
               <div>
                 <i></i>
@@ -2146,7 +2129,7 @@ function lightingPage() {
 
 function camerasPage() {
   if (!capabilities.canRecallCamera && !capabilities.canConfigureCameras) {
-    const cameras = window.TrinityInterface.cameraViewModels(state);
+    const cameras = window.TrinityInterface.cameraViewModels(state, runtimeDevices);
     shell(`
       <div class="page-scroll">
         <section class="panel">
@@ -2157,7 +2140,7 @@ function camerasPage() {
           <div class="operator-camera-grid">
             ${cameras.map(camera => `
               <article class="edit-card operator-camera-card">
-                <small>${camera.online ? 'AVAILABLE' : 'OFFLINE'}</small>
+                <small>${escapeHtml(camera.connectionState)}</small>
                 <h2>${escapeHtml(camera.name)}</h2>
                 ${camera.positions.length
                   ? `<div class="metrics vertical">${camera.positions.map(position => `
@@ -2376,6 +2359,50 @@ function configurationPage() {
     </section>
   `;
 
+  const deviceRegistryConfiguration = () => {
+    const devices = window.TrinityInterface.deviceRegistryViewModels(runtimeDevices);
+    return `
+    <section class="panel">
+      <div class="section-title">
+        <span>DEVICE REGISTRY</span>
+        <strong>${devices.length} registered devices</strong>
+      </div>
+
+      <div class="card-grid">
+        ${devices.length ? devices.map(device => `
+          <article class="edit-card">
+            <small>${escapeHtml(device.type)} · ${escapeHtml(device.id)}</small>
+            <h2>${escapeHtml(device.name)}</h2>
+            <div class="metrics vertical">
+              <span>Connection State <b>${escapeHtml(device.connectionState)}</b></span>
+              <span>Status <b>${escapeHtml(device.statusMessage)}</b></span>
+              <span>Environment <b>${device.environment}</b></span>
+              <span>Manufacturer <b>${escapeHtml(device.manufacturer || 'Not reported')}</b></span>
+              <span>Model <b>${escapeHtml(device.model || 'Not reported')}</b></span>
+              <span>Version <b>${escapeHtml(device.version || 'Not reported')}</b></span>
+              <span>Last Seen <b>${device.lastSeen ? escapeHtml(new Date(device.lastSeen).toLocaleString()) : 'Never'}</b></span>
+              <span>Last Error <b>${escapeHtml(device.health?.lastError || 'None')}</b></span>
+              <span>Reconnect Attempts <b>${Number(device.health?.reconnectAttempts) || 0}</b></span>
+              <span>Uptime <b>${Math.floor((Number(device.health?.uptime) || 0) / 1000)}s</b></span>
+            </div>
+            <div>
+              <span class="eyebrow">SUPPORTED CAPABILITIES</span>
+              <p class="configuration-summary">${escapeHtml(
+                device.capabilitiesLabel
+              )}</p>
+            </div>
+            <div class="metrics vertical">
+              <span>Reconnect <b>${device.supportsReconnect ? 'SUPPORTED' : 'NO'}</b></span>
+              <span>Configuration <b>${device.supportsConfiguration ? 'SUPPORTED' : 'NO'}</b></span>
+              <span>Health Monitoring <b>${device.supportsHealthMonitoring ? 'SUPPORTED' : 'NO'}</b></span>
+            </div>
+          </article>
+        `).join('') : '<p class="empty-state">No devices registered</p>'}
+      </div>
+    </section>
+  `;
+  };
+
   const configuration = state.configuration || {};
   const summaries = {
     switcher: {
@@ -2387,11 +2414,6 @@ function configurationPage() {
       title: 'PRODUCTION DEFAULTS',
       heading: 'Current transition defaults',
       text: `Mode: ${(configuration.productionDefaults?.transitionMode || 'auto').toUpperCase()} · Delay: ${Number(configuration.productionDefaults?.transitionDelay ?? 800) / 1000}s · Wait for PTZ: ${configuration.productionDefaults?.waitForPTZ === false ? 'No' : 'Yes'}. Editing these defaults will be introduced with dedicated commands in a later phase.`
-    },
-    devices: {
-      title: 'DEVICES',
-      heading: 'Simulation device registry',
-      text: `${state.cameras.length} cameras, one simulated video switcher, and one simulated lighting controller. Device discovery and hardware connections are not enabled.`
     },
     system: {
       title: 'SYSTEM',
@@ -2417,6 +2439,8 @@ function configurationPage() {
     ? cameraConfiguration()
     : configurationTab === 'lighting'
       ? lightingConfiguration()
+      : configurationTab === 'devices'
+        ? deviceRegistryConfiguration()
       : summaryConfiguration(configurationTab);
 
   shell(`
@@ -2516,9 +2540,15 @@ function render() {
         render();
       }
     });
+    window.trinity.onDevicesChanged?.(update => {
+      runtimeDevices = update.devices || [];
+      render();
+    });
 
-    state =
-      await window.trinity.getState();
+    [state, runtimeDevices] = await Promise.all([
+      window.trinity.getState(),
+      window.trinity.getDevices?.() || Promise.resolve([])
+    ]);
 
     render();
   } catch (error) {

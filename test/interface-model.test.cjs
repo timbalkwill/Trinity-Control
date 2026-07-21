@@ -6,6 +6,7 @@ const {
   cameraViewModels,
   capabilitiesForMode,
   detectMode,
+  deviceRegistryViewModels,
   liveViewModel,
   navigationFor
 } = require("../public/interface-model.js");
@@ -14,6 +15,22 @@ test("operator mode is detected explicitly from the transport", () => {
   assert.equal(detectMode({ getInterfaceMode: () => "operator" }), "operator");
   assert.equal(detectMode({ getInterfaceMode: () => "production-console" }), "production-console");
   assert.equal(detectMode({}), "production-console");
+});
+
+test("renderer device registry models expose generic runtime fields", () => {
+  const devices = [{
+    id: "simulation-lighting",
+    name: "Simulation Lighting",
+    type: "Lighting",
+    connectionState: "Simulation",
+    supportedCapabilities: ["lighting", "lighting.applyScene"],
+    health: { reconnectAttempts: 0 }
+  }];
+  const view = deviceRegistryViewModels(devices)[0];
+  assert.equal(view.name, "Simulation Lighting");
+  assert.equal(view.type, "Lighting");
+  assert.equal(view.environment, "SIMULATION");
+  assert.equal(view.capabilitiesLabel, "lighting · lighting.applyScene");
 });
 
 test("capabilities keep browser operation read-only and desktop complete", () => {
@@ -49,13 +66,16 @@ test("browser view models render only authoritative service and camera data", ()
     live: { cueIndex: 0, programCamera: "main", programPreset: "Pulpit Tight" }
   };
 
-  assert.deepEqual(liveViewModel(state), {
+  const devices = [{ connectionState: "Simulation", supportedCapabilities: ["camera"] }];
+  assert.deepEqual(liveViewModel(state, devices), {
     current: state.runOfService[0],
     next: state.runOfService[1],
     look: state.productionLooks[0],
     camera: state.cameras[0],
-    programPreset: "Pulpit Tight"
+    programPreset: "Pulpit Tight",
+    cameraConnectionState: "Simulation"
   });
-  assert.deepEqual(cameraViewModels(state)[0].positions, []);
-  assert.equal(cameraViewModels(state)[0].name, "Center PTZ");
+  assert.deepEqual(cameraViewModels(state, devices)[0].positions, []);
+  assert.equal(cameraViewModels(state, devices)[0].name, "Center PTZ");
+  assert.equal(cameraViewModels(state, devices)[0].online, true);
 });

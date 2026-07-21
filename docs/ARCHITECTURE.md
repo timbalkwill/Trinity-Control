@@ -18,7 +18,7 @@ Both clients observe the same authoritative state and events. The Production Con
 - One serialized command-dispatch path
 - Live command handlers
 - State-change, activity, and error events
-- A registry for subsystem adapters
+- Capability-based adapter discovery through the Device Manager
 - Guarded delayed cue transitions
 
 The implemented live commands are `ActivateCue`, `NextCue`, `PreviousCue`, `SetHold`, `TakeCamera`, `SetLightingOverride`, and `ReleaseLightingOverride`.
@@ -28,6 +28,34 @@ Alpha 6 Phase 2 adds the explicit configuration commands `UpdateCameraConfigurat
 Cue activation resolves the cue's production look and any cue-level camera or lighting overrides. PTZ preparation is initiated before the simulated switcher transition. Every activation receives a transition generation. A newer cue or manual camera command invalidates older delayed transition work, preventing it from overwriting the operator's newer decision.
 
 The engine and its State Store are the authority for live production state. `src/core/state-store.cjs` encapsulates the raw authoritative snapshot and its monotonically increasing revision. Revision `0` is present on the initial snapshot; each committed command produces a new snapshot and state-change event with the same incremented revision. Compatibility editing commands still replace a complete snapshot during this phase; removing that temporary path is deferred until editing operations receive explicit commands.
+
+## Device Manager
+
+`src/core/device-manager.cjs` is the single runtime registry for physical and simulated production devices. The Production Engine requests an adapter by supported capability; it does not select concrete manufacturers or adapter classes. The Device Manager coordinates registered adapters but does not replace their subsystem-specific contracts.
+
+Production state and runtime device state are intentionally separate. Production state contains the service plan, active cue, looks, and operator choices; it is authoritative, revisioned, and persisted by the State Store. Runtime device state contains volatile connectivity and health observations; it is authoritative in the Device Manager, is not persisted into production snapshots, and can change without creating a production revision.
+
+### Runtime Device Model
+
+Every registration exposes a generic device record with `id`, `name`, `type`, `connectionState`, `lastSeen`, `statusMessage`, optional manufacturer/model/version metadata, support flags for reconnect/configuration/health monitoring, and a list of supported capabilities. Generic types currently include Camera, VideoSwitcher, Lighting, Audio, Graphics, Streaming, Controller, and Unknown. Generic connection states are Unknown, Disconnected, Connecting, Connected, Degraded, Error, and Simulation.
+
+Health data includes the last successful communication time, last error, reconnect attempts, and runtime uptime. Renderers consume only this generic model and never branch on PTZOptics, AVKANS, ATEM, QLC+, or another hardware brand.
+
+### Registration Flow
+
+1. An adapter constructs its generic runtime descriptor and calls `registerDevice` through its `register(deviceManager)` method.
+2. The Device Manager rejects duplicate IDs, stores the descriptor and private adapter reference, and publishes `device:registered`.
+3. The Production Engine discovers the adapter through a generic supported capability such as `camera`, `videoSwitcher`, or `lighting`.
+4. Adapter operations report successful communication or errors back to the Device Manager.
+5. IPC and the read-only HTTP/SSE transport publish runtime device snapshots independently from production snapshots.
+
+Future adapters use this registration flow without modifications to the Production Engine or renderer. Manufacturer-specific configuration remains inside the adapter boundary.
+
+### Device Lifecycle and Health Monitoring
+
+The Device Manager publishes `device:registered`, `device:updated`, `device:removed`, `device:error`, and `device:health` through the existing Event Bus. Updates can move a device through generic connection states. Successful communication refreshes `lastSeen` and the last-success timestamp; failures retain the last error and move the device to Error; reconnect attempts are counted independently.
+
+The current camera, switcher, and lighting simulation adapters self-register in the Simulation state and report health after simulated operations. They do not perform hardware or network I/O.
 
 ## Event Bus
 
@@ -58,7 +86,7 @@ Adapters translate an engine intent into subsystem-specific work. They do not ow
 1. An interface requests an operation through its transport adapter.
 2. Electron IPC translates the current desktop request into an engine command.
 3. The engine serializes and validates command execution.
-4. The engine calls registered subsystem adapters as needed.
+4. The engine requests a capability from the Device Manager, which coordinates the registered adapter.
 5. The engine updates its snapshot, increments the revision, and persists through the existing JSON callback.
 6. The engine publishes state, activity, or error events.
 7. Electron forwards state events through preload to the Production Console.
@@ -68,7 +96,7 @@ Adapters translate an engine intent into subsystem-specific work. They do not ow
 
 `src/server/local-network-server.cjs` uses Node's built-in HTTP server and binds to `0.0.0.0` on port `4310` by default. `TRINITY_REMOTE_PORT` can select a different port. It serves the existing `public` application, exposes the current authoritative snapshot at `GET /api/state`, and streams state-change events at `GET /api/events`.
 
-`public/remote-client.js` supplies the same state-loading and subscription shape used by the renderer when Electron's preload bridge is absent. It maps browser connectivity to `connected`, `reconnecting`, and `offline`. Electron keeps its existing IPC bridge and reports `connected` locally.
+`public/remote-client.js` supplies the same state-loading and subscription shape used by the renderer when Electron's preload bridge is absent. It maps browser connectivity to `connected`, `reconnecting`, and `offline`. Electron keeps its existing IPC bridge and reports `connected` locally. Runtime devices are exposed separately at `GET /api/devices` and as `devices-changed` SSE events.
 
 SSE is intentionally one-way: only the PC's Production Engine can commit state. Authentication, remote command authorization, discovery, TLS, and an iPad-specific presentation remain future work. The HTTP server logs its listening addresses and client connection lifecycle.
 
@@ -79,6 +107,8 @@ The preload bridge keeps request-response methods for compatibility and adds uns
 The Production Console and browser Operator Interface use the same renderer, state mapping, formatting helpers, and page functions. `public/interface-model.js` defines explicit capabilities and derives navigation and read-only view models from them. Pages adapt to capabilities rather than checking whether the runtime is Electron or a browser.
 
 The Production Console receives the complete capability set. It is responsible for live operation, camera recall, service and look editing, lighting control, and system configuration. Its Electron IPC transport and existing desktop behavior remain unchanged.
+
+Its read-only Device Registry configuration view displays generic Device Manager records and health without exposing adapter instances or editing controls. Browser Operator Mode does not expose Configuration; the camera availability it displays is derived from Device Manager runtime state.
 
 The browser receives Operator capabilities. It can view only Live, Service, and Cameras. These views consume the authoritative snapshot, update through SSE, and expose no mutation controls. Camera names and saved positions come only from Production Engine state; an empty position collection is shown honestly rather than populated with renderer defaults. Reconnecting browsers fetch a fresh snapshot before continuing the event stream.
 

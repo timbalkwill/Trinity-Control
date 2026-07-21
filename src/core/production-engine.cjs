@@ -1,5 +1,6 @@
 const { EventBus } = require("./event-bus.cjs");
 const { assertAdapterContract } = require("../adapters/contracts.cjs");
+const { DEVICE_STATES, DEVICE_TYPES, DeviceManager } = require("./device-manager.cjs");
 const { StateStore } = require("./state-store.cjs");
 
 const ENGINE_EVENTS = Object.freeze({
@@ -11,12 +12,12 @@ const ENGINE_EVENTS = Object.freeze({
 const clone = value => JSON.parse(JSON.stringify(value));
 
 class ProductionEngine {
-  constructor({ initialState, stateStore, eventBus, persistState } = {}) {
+  constructor({ initialState, stateStore, eventBus, deviceManager, persistState } = {}) {
     this.eventBus = eventBus || new EventBus();
     this.stateStore = stateStore || new StateStore(initialState);
     this.commandState = null;
     this.persistState = persistState;
-    this.adapters = new Map();
+    this.deviceManager = deviceManager || new DeviceManager();
     this.commandHandlers = new Map();
     this.commandQueue = Promise.resolve();
     this.transitionGeneration = 0;
@@ -37,12 +38,40 @@ class ProductionEngine {
     if (typeof subsystem !== "string" || !subsystem) {
       throw new TypeError("Adapter subsystem must be a non-empty string");
     }
-    this.adapters.set(subsystem, assertAdapterContract(subsystem, adapter));
+    assertAdapterContract(subsystem, adapter);
+    const type = {
+      camera: DEVICE_TYPES.CAMERA,
+      videoSwitcher: DEVICE_TYPES.VIDEO_SWITCHER,
+      lighting: DEVICE_TYPES.LIGHTING
+    }[subsystem] || DEVICE_TYPES.UNKNOWN;
+    this.deviceManager.registerDevice({
+      id: `legacy-${subsystem}`,
+      name: `${subsystem} adapter`,
+      type,
+      connectionState: adapter.mode === "simulation" ? DEVICE_STATES.SIMULATION : DEVICE_STATES.UNKNOWN,
+      statusMessage: "Registered through compatibility adapter path",
+      supportsReconnect: false,
+      supportsConfiguration: false,
+      supportsHealthMonitoring: false,
+      supportedCapabilities: [subsystem]
+    }, adapter);
     return adapter;
   }
 
   getAdapter(subsystem) {
-    return this.adapters.get(subsystem);
+    return this.deviceManager.getAdapterByCapability(subsystem);
+  }
+
+  registerDeviceAdapter(adapter) {
+    if (!adapter || typeof adapter.register !== "function") {
+      throw new TypeError("Device adapter must implement register(deviceManager)");
+    }
+    adapter.register(this.deviceManager);
+    return adapter;
+  }
+
+  getDevices() {
+    return this.deviceManager.getDevices();
   }
 
   registerCommand(commandType, handler) {

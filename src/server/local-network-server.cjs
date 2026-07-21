@@ -31,6 +31,7 @@ function contentType(filePath) {
 
 function createLocalNetworkServer({
   getSnapshot,
+  getDevices = () => [],
   publicDirectory,
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
@@ -93,6 +94,11 @@ function createLocalNetworkServer({
       return;
     }
 
+    if (request.method === "GET" && requestUrl.pathname === "/api/devices") {
+      sendJson(response, 200, getDevices());
+      return;
+    }
+
     if (request.method === "GET" && requestUrl.pathname === "/api/events") {
       const clientId = nextClientId++;
       response.writeHead(200, {
@@ -110,6 +116,11 @@ function createLocalNetworkServer({
         commandType: "InitialSnapshot",
         revision: initialSnapshot.revision || 0,
         state: initialSnapshot
+      });
+      writeEvent(response, "devices-changed", {
+        type: "devices-changed",
+        eventType: "device:initial-snapshot",
+        devices: getDevices()
       });
 
       request.on("close", () => {
@@ -144,6 +155,18 @@ function createLocalNetworkServer({
     }
   }
 
+  function broadcastDevicesChanged(event) {
+    for (const [clientId, response] of clients) {
+      try {
+        writeEvent(response, "devices-changed", event);
+      } catch (error) {
+        clients.delete(clientId);
+        response.destroy();
+        logger.warn(`[Trinity Remote] Client ${clientId} removed after device broadcast error: ${error.message}`);
+      }
+    }
+  }
+
   function start() {
     return new Promise((resolve, reject) => {
       const onError = error => reject(error);
@@ -171,7 +194,7 @@ function createLocalNetworkServer({
     return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
 
-  return { broadcastStateChanged, close, start };
+  return { broadcastDevicesChanged, broadcastStateChanged, close, start };
 }
 
 module.exports = { DEFAULT_HOST, DEFAULT_PORT, createLocalNetworkServer, localAddresses };

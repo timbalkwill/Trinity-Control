@@ -43,9 +43,9 @@ function stateWithTransition(delay = 0) {
 
 function createEngine(delay = 0, { persistState } = {}) {
   const engine = new ProductionEngine({ initialState: stateWithTransition(delay), persistState });
-  engine.registerAdapter("camera", new SimulationCameraController());
-  engine.registerAdapter("videoSwitcher", new SimulationSwitcherController());
-  engine.registerAdapter("lighting", new SimulationLightingController());
+  engine.registerDeviceAdapter(new SimulationCameraController());
+  engine.registerDeviceAdapter(new SimulationSwitcherController());
+  engine.registerDeviceAdapter(new SimulationLightingController());
   return engine;
 }
 

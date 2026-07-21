@@ -3,6 +3,7 @@
 
   let connectionStatus = 'offline';
   const stateSubscribers = new Set();
+  const deviceSubscribers = new Set();
   const statusSubscribers = new Set();
   let hasOpened = false;
 
@@ -23,6 +24,11 @@
     if (!response.ok) throw new Error(`State request failed (${response.status})`);
     return response.json();
   };
+  const fetchDevices = async () => {
+    const response = await fetch('/api/devices', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`Device request failed (${response.status})`);
+    return response.json();
+  };
 
   events.onopen = async () => {
     setConnectionStatus('connected');
@@ -31,7 +37,7 @@
       return;
     }
     try {
-      const latest = await fetchLatestState();
+      const [latest, devices] = await Promise.all([fetchLatestState(), fetchDevices()]);
       const update = {
         type: 'state-changed',
         commandType: 'ReconnectSnapshot',
@@ -39,6 +45,12 @@
         state: latest
       };
       for (const subscriber of stateSubscribers) subscriber(update);
+      const deviceUpdate = {
+        type: 'devices-changed',
+        eventType: 'device:reconnect-snapshot',
+        devices
+      };
+      for (const subscriber of deviceSubscribers) subscriber(deviceUpdate);
     } catch {
       setConnectionStatus(navigator.onLine ? 'reconnecting' : 'offline');
     }
@@ -50,6 +62,10 @@
     const update = JSON.parse(event.data);
     for (const subscriber of stateSubscribers) subscriber(update);
   });
+  events.addEventListener('devices-changed', event => {
+    const update = JSON.parse(event.data);
+    for (const subscriber of deviceSubscribers) subscriber(update);
+  });
   window.addEventListener('offline', () => setConnectionStatus('offline'));
   window.addEventListener('online', () => setConnectionStatus('reconnecting'));
 
@@ -57,6 +73,7 @@
     getInterfaceMode: () => 'operator',
     getCapabilities: () => ({ ...window.TrinityInterface.OPERATOR_CAPABILITIES }),
     getState: fetchLatestState,
+    getDevices: fetchDevices,
     getConnectionStatus: () => connectionStatus,
     onConnectionStatusChanged: subscriber => {
       statusSubscribers.add(subscriber);
@@ -66,6 +83,10 @@
     onStateChanged: subscriber => {
       stateSubscribers.add(subscriber);
       return () => stateSubscribers.delete(subscriber);
+    },
+    onDevicesChanged: subscriber => {
+      deviceSubscribers.add(subscriber);
+      return () => deviceSubscribers.delete(subscriber);
     },
     onActivity: () => () => {},
     onProductionError: () => () => {},

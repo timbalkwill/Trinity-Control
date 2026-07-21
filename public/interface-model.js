@@ -58,7 +58,13 @@
       .map(({ id, label }) => [id, label]);
   }
 
-  function liveViewModel(state) {
+  function deviceForCapability(devices, capability) {
+    return (devices || []).find(device =>
+      (device.supportedCapabilities || []).includes(capability)
+    ) || null;
+  }
+
+  function liveViewModel(state, devices = []) {
     const cues = state?.runOfService || [];
     const index = Number(state?.live?.cueIndex) || 0;
     const current = cues[index] || null;
@@ -71,20 +77,33 @@
       next: cues[index + 1] || null,
       look,
       camera,
-      programPreset: state?.live?.programPreset || null
+      programPreset: state?.live?.programPreset || null,
+      cameraConnectionState: deviceForCapability(devices, 'camera')?.connectionState || 'Unknown'
     };
   }
 
-  function cameraViewModels(state) {
+  function cameraViewModels(state, devices = []) {
+    const cameraDevice = deviceForCapability(devices, 'camera');
     return (state?.cameras || []).map(camera => ({
       id: camera.id,
       name: camera.name,
-      online: camera.online !== false,
+      online: ['Connected', 'Degraded', 'Simulation'].includes(cameraDevice?.connectionState),
+      connectionState: cameraDevice?.connectionState || 'Unknown',
       positions: Array.isArray(camera.savedPositions)
         ? camera.savedPositions
         : Array.isArray(camera.positions)
           ? camera.positions
           : []
+    }));
+  }
+
+  function deviceRegistryViewModels(devices = []) {
+    return devices.map(device => ({
+      ...device,
+      environment: device.connectionState === 'Simulation' ? 'SIMULATION' : 'REAL',
+      capabilitiesLabel: device.supportedCapabilities?.length
+        ? device.supportedCapabilities.join(' · ')
+        : 'None reported'
     }));
   }
 
@@ -94,6 +113,8 @@
     cameraViewModels,
     capabilitiesForMode,
     detectMode,
+    deviceForCapability,
+    deviceRegistryViewModels,
     liveViewModel,
     navigationFor
   };

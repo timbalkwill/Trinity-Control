@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("trinity", {
     return () => {};
   },
   getState: () => ipcRenderer.invoke("state:get"),
+  getDevices: () => ipcRenderer.invoke("devices:get"),
   saveState: s => ipcRenderer.invoke("state:save", s),
   addCueTemplate: id => ipcRenderer.invoke("cue:addTemplate", id),
   moveCue: (from, to) => ipcRenderer.invoke("cue:move", { from, to }),
@@ -29,6 +30,11 @@ contextBridge.exposeInMainWorld("trinity", {
     const listener = (_event, update) => subscriber(update);
     ipcRenderer.on("production:state-changed", listener);
     return () => ipcRenderer.removeListener("production:state-changed", listener);
+  },
+  onDevicesChanged: subscriber => {
+    const listener = (_event, update) => subscriber(update);
+    ipcRenderer.on("devices:changed", listener);
+    return () => ipcRenderer.removeListener("devices:changed", listener);
   },
   onActivity: subscriber => {
     const listener = (_event, activity) => subscriber(activity);

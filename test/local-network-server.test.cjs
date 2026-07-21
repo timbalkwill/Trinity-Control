@@ -34,14 +34,21 @@ function connectEventStream(url) {
     if (error.name !== "AbortError") throw error;
   });
 
+  const dequeue = () => events.length
+    ? Promise.resolve(events.shift())
+    : new Promise(resolve => waiters.push(resolve));
+
   return {
     close: async () => {
       controller.abort();
       await connected;
     },
-    nextEvent: () => events.length
-      ? Promise.resolve(events.shift())
-      : new Promise(resolve => waiters.push(resolve))
+    nextEvent: async eventName => {
+      while (true) {
+        const event = await dequeue();
+        if (!eventName || event.event === eventName) return event;
+      }
+    }
   };
 }
 
@@ -62,11 +69,15 @@ test("a PC state change is broadcast to two browser clients without reload", asy
 
   try {
     const [firstInitial, secondInitial] = await Promise.all([
-      firstClient.nextEvent(),
-      secondClient.nextEvent()
+      firstClient.nextEvent("state-changed"),
+      secondClient.nextEvent("state-changed")
     ]);
     assert.equal(firstInitial.data.state.live.hold, false);
     assert.equal(secondInitial.data.state.live.hold, false);
+    await Promise.all([
+      firstClient.nextEvent("devices-changed"),
+      secondClient.nextEvent("devices-changed")
+    ]);
 
     snapshot = { revision: 1, live: { hold: true } };
     server.broadcastStateChanged({
@@ -77,14 +88,26 @@ test("a PC state change is broadcast to two browser clients without reload", asy
     });
 
     const [firstUpdate, secondUpdate] = await Promise.all([
-      firstClient.nextEvent(),
-      secondClient.nextEvent()
+      firstClient.nextEvent("state-changed"),
+      secondClient.nextEvent("state-changed")
     ]);
     assert.equal(firstUpdate.data.state.live.hold, true);
     assert.equal(secondUpdate.data.state.live.hold, true);
     assert.equal(firstUpdate.data.revision, 1);
     assert.equal(secondUpdate.data.revision, 1);
     assert.equal(messages.filter(message => message.includes("Client connected")).length, 2);
+
+    server.broadcastDevicesChanged({
+      type: "devices-changed",
+      eventType: "device:updated",
+      devices: [{ id: "simulation-camera", connectionState: "Simulation" }]
+    });
+    const [firstDevices, secondDevices] = await Promise.all([
+      firstClient.nextEvent("devices-changed"),
+      secondClient.nextEvent("devices-changed")
+    ]);
+    assert.equal(firstDevices.data.devices[0].connectionState, "Simulation");
+    assert.equal(secondDevices.data.devices[0].connectionState, "Simulation");
   } finally {
     await Promise.all([firstClient.close(), secondClient.close()]);
     await server.close();
@@ -94,6 +117,7 @@ test("a PC state change is broadcast to two browser clients without reload", asy
 test("the state endpoint and static application are available over HTTP", async () => {
   const server = createLocalNetworkServer({
     getSnapshot: () => ({ revision: 7 }),
+    getDevices: () => [{ id: "simulation-camera", connectionState: "Simulation" }],
     publicDirectory: path.join(__dirname, "..", "public"),
     host: "127.0.0.1",
     port: 0,
@@ -105,6 +129,10 @@ test("the state endpoint and static application are available over HTTP", async 
   try {
     const stateResponse = await fetch(`${baseUrl}/api/state`);
     assert.deepEqual(await stateResponse.json(), { revision: 7 });
+    const deviceResponse = await fetch(`${baseUrl}/api/devices`);
+    assert.deepEqual(await deviceResponse.json(), [
+      { id: "simulation-camera", connectionState: "Simulation" }
+    ]);
     const applicationResponse = await fetch(`${baseUrl}/`);
     const application = await applicationResponse.text();
     assert.match(application, /interface-model\.js/);

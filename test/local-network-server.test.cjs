@@ -106,7 +106,10 @@ test("the state endpoint and static application are available over HTTP", async 
     const stateResponse = await fetch(`${baseUrl}/api/state`);
     assert.deepEqual(await stateResponse.json(), { revision: 7 });
     const applicationResponse = await fetch(`${baseUrl}/`);
-    assert.match(await applicationResponse.text(), /remote-client\.js/);
+    const application = await applicationResponse.text();
+    assert.match(application, /interface-model\.js/);
+    assert.match(application, /remote-client\.js/);
+    assert.match(application, /apple-mobile-web-app-capable/);
   } finally {
     await server.close();
   }

@@ -4,6 +4,7 @@
   let connectionStatus = 'offline';
   const stateSubscribers = new Set();
   const statusSubscribers = new Set();
+  let hasOpened = false;
 
   const setConnectionStatus = status => {
     if (connectionStatus === status) return;
@@ -17,7 +18,31 @@
   const events = new EventSource('/api/events');
   setConnectionStatus('reconnecting');
 
-  events.onopen = () => setConnectionStatus('connected');
+  const fetchLatestState = async () => {
+    const response = await fetch('/api/state', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`State request failed (${response.status})`);
+    return response.json();
+  };
+
+  events.onopen = async () => {
+    setConnectionStatus('connected');
+    if (!hasOpened) {
+      hasOpened = true;
+      return;
+    }
+    try {
+      const latest = await fetchLatestState();
+      const update = {
+        type: 'state-changed',
+        commandType: 'ReconnectSnapshot',
+        revision: latest.revision || 0,
+        state: latest
+      };
+      for (const subscriber of stateSubscribers) subscriber(update);
+    } catch {
+      setConnectionStatus(navigator.onLine ? 'reconnecting' : 'offline');
+    }
+  };
   events.onerror = () => setConnectionStatus(
     navigator.onLine ? 'reconnecting' : 'offline'
   );
@@ -29,11 +54,9 @@
   window.addEventListener('online', () => setConnectionStatus('reconnecting'));
 
   window.trinity = {
-    getState: async () => {
-      const response = await fetch('/api/state', { cache: 'no-store' });
-      if (!response.ok) throw new Error(`State request failed (${response.status})`);
-      return response.json();
-    },
+    getInterfaceMode: () => 'operator',
+    getCapabilities: () => ({ ...window.TrinityInterface.OPERATOR_CAPABILITIES }),
+    getState: fetchLatestState,
     getConnectionStatus: () => connectionStatus,
     onConnectionStatusChanged: subscriber => {
       statusSubscribers.add(subscriber);

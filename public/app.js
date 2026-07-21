@@ -4,15 +4,12 @@ let state;
 let page = 'live';
 let configurationTab = 'cameras';
 let connectionStatus = 'offline';
+const interfaceMode = window.TrinityInterface.detectMode(window.trinity);
+const capabilities = window.trinity.getCapabilities?.() ||
+  window.TrinityInterface.capabilitiesForMode(interfaceMode);
+const nav = window.TrinityInterface.navigationFor(capabilities);
 
-const nav = [
-  ['live', 'LIVE'],
-  ['service', 'SERVICE'],
-  ['looks', 'LOOKS'],
-  ['lighting', 'LIGHTING'],
-  ['cameras', 'CAMERAS'],
-  ['configuration', 'CONFIGURATION']
-];
+document.body.classList.toggle('operator-mode', interfaceMode === 'operator');
 
 const byId = (items, id) => items.find(item => item.id === id);
 
@@ -229,6 +226,87 @@ function ensureAppStyles() {
 
     .ready.connection-offline i {
       background: var(--red);
+    }
+
+    .operator-mode {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .operator-mode button,
+    .operator-mode .bottom-nav button {
+      min-height: 44px;
+      touch-action: manipulation;
+    }
+
+    .operator-mode .bottom-nav {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+    }
+
+    .operator-mode .operator-live {
+      height: 100%;
+      overflow: auto;
+      display: grid;
+      align-content: start;
+      gap: 14px;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .operator-mode .operator-hero h1 {
+      margin: 6px 0;
+      font-size: clamp(30px, 6vw, 58px);
+    }
+
+    .operator-mode .operator-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .operator-mode .operator-summary-card {
+      min-height: 116px;
+      display: grid;
+      align-content: center;
+      gap: 7px;
+    }
+
+    .operator-mode .operator-summary-card strong {
+      font-size: clamp(18px, 3vw, 28px);
+    }
+
+    .operator-mode .service-row {
+      min-height: 64px;
+      grid-template-columns: 42px minmax(0, 1fr);
+    }
+
+    .operator-mode .operator-camera-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .operator-mode .operator-camera-card {
+      min-height: 150px;
+      display: grid;
+      align-content: start;
+      gap: 10px;
+    }
+
+    @media (max-width: 760px) {
+      .operator-mode .topbar {
+        grid-template-columns: 1fr auto;
+      }
+
+      .operator-mode .header-logo {
+        display: none;
+      }
+
+      .operator-mode .operator-summary-grid,
+      .operator-mode .operator-camera-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .service-row > div:nth-child(3) {
@@ -989,7 +1067,44 @@ cue.transition = {
   nameInput.select();
 }
 
+function operatorLivePage() {
+  const view = window.TrinityInterface.liveViewModel(state);
+  shell(`
+    <div class="operator-live">
+      <section class="panel operator-hero">
+        <span class="eyebrow">CURRENT SERVICE ITEM</span>
+        <h1>${escapeHtml(view.current?.name || 'No current item')}</h1>
+        <p>${escapeHtml(view.current?.notes || 'No notes for this item.')}</p>
+      </section>
+
+      <div class="operator-summary-grid">
+        <section class="panel operator-summary-card">
+          <span class="eyebrow">NEXT SERVICE ITEM</span>
+          <strong>${escapeHtml(view.next?.name || 'End of service')}</strong>
+        </section>
+        <section class="panel operator-summary-card">
+          <span class="eyebrow">CURRENT STAGE LOOK</span>
+          <strong>${escapeHtml(view.look?.name || 'No stage look')}</strong>
+        </section>
+        <section class="panel operator-summary-card">
+          <span class="eyebrow">PROGRAM CAMERA</span>
+          <strong>${escapeHtml(view.camera?.name || 'No program camera')}</strong>
+          <small>${escapeHtml(view.programPreset || 'No active position')}</small>
+        </section>
+        <section class="panel operator-summary-card">
+          <span class="eyebrow">CONNECTION</span>
+          <strong>${escapeHtml(connectionStatus[0].toUpperCase() + connectionStatus.slice(1))}</strong>
+        </section>
+      </div>
+    </div>
+  `);
+}
+
 function livePage() {
+  if (!capabilities.canOperateService) {
+    operatorLivePage();
+    return;
+  }
   const cue = currentCue();
   const look = currentLook();
   const lighting = activeLighting();
@@ -1407,6 +1522,35 @@ if (
 }
 
 function servicePage() {
+  if (!capabilities.canEditService) {
+    shell(`
+      <div class="page-scroll">
+        <section class="panel">
+          <div class="section-title">
+            <span>RUN OF SERVICE</span>
+            <strong>${state.runOfService.length} items</strong>
+          </div>
+          <div class="service-list">
+            ${state.runOfService.map((cue, index) => `
+              <article class="service-row ${index === state.live.cueIndex ? 'current' : ''}"
+                data-active-service-item="${index === state.live.cueIndex ? 'true' : 'false'}">
+                <strong>${String(index + 1).padStart(2, '0')}</strong>
+                <div>
+                  <b>${escapeHtml(cue.name)}</b>
+                  <small>${escapeHtml(byId(state.productionLooks, cue.productionLookId)?.name || 'No stage look')}</small>
+                </div>
+              </article>
+            `).join('')}
+          </div>
+        </section>
+      </div>
+    `);
+    requestAnimationFrame(() => {
+      document.querySelector('[data-active-service-item="true"]')
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return;
+  }
   const categories = [
     ...new Set(
       state.cueTemplates.map(
@@ -2001,6 +2145,37 @@ function lightingPage() {
 }
 
 function camerasPage() {
+  if (!capabilities.canRecallCamera && !capabilities.canConfigureCameras) {
+    const cameras = window.TrinityInterface.cameraViewModels(state);
+    shell(`
+      <div class="page-scroll">
+        <section class="panel">
+          <div class="section-title">
+            <span>CAMERAS</span>
+            <strong>${cameras.length} cameras</strong>
+          </div>
+          <div class="operator-camera-grid">
+            ${cameras.map(camera => `
+              <article class="edit-card operator-camera-card">
+                <small>${camera.online ? 'AVAILABLE' : 'OFFLINE'}</small>
+                <h2>${escapeHtml(camera.name)}</h2>
+                ${camera.positions.length
+                  ? `<div class="metrics vertical">${camera.positions.map(position => `
+                      <span><b>${escapeHtml(
+                        typeof position === 'string'
+                          ? position
+                          : position.name || position.label || position.id
+                      )}</b></span>
+                    `).join('')}</div>`
+                  : '<p class="empty-state">No saved positions</p>'}
+              </article>
+            `).join('')}
+          </div>
+        </section>
+      </div>
+    `);
+    return;
+  }
   shell(`
     <div class="page-scroll">
       <section class="panel">

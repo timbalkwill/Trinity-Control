@@ -74,6 +74,16 @@ SSE is intentionally one-way: only the PC's Production Engine can commit state. 
 
 The preload bridge keeps request-response methods for compatibility and adds unsubscribe-capable event subscriptions. The renderer requests cue, camera-take, and lighting-override operations; it no longer owns cue-transition timing.
 
+## Interface Capability Model
+
+The Production Console and browser Operator Interface use the same renderer, state mapping, formatting helpers, and page functions. `public/interface-model.js` defines explicit capabilities and derives navigation and read-only view models from them. Pages adapt to capabilities rather than checking whether the runtime is Electron or a browser.
+
+The Production Console receives the complete capability set. It is responsible for live operation, camera recall, service and look editing, lighting control, and system configuration. Its Electron IPC transport and existing desktop behavior remain unchanged.
+
+The browser receives Operator capabilities. It can view only Live, Service, and Cameras. These views consume the authoritative snapshot, update through SSE, and expose no mutation controls. Camera names and saved positions come only from Production Engine state; an empty position collection is shown honestly rather than populated with renderer defaults. Reconnecting browsers fetch a fresh snapshot before continuing the event stream.
+
+A future remote command API should grant narrow command capabilities only after authentication and authorization are defined. It should translate approved requests into the existing Production Engine command path; it must not introduce browser-owned state, direct State Store mutation, or duplicated production rules.
+
 ## Configuration flow
 
 The Production Console includes a dedicated Configuration area with Cameras, Lighting, Video Switcher, Production Defaults, Devices, and System tabs. Camera and lighting records are editable in Phase 2. The other tabs expose the boundaries and current simulated/default status without adding premature hardware behavior.

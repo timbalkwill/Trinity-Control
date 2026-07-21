@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check preload.cjs && node --check public/app.js && node --check src/core/event-bus.cjs && node --check src/core/state-store.cjs && node --check src/core/production-engine.cjs && node --check src/adapters/contracts.cjs && node --check src/adapters/simulation/simulation-camera-controller.cjs && node --check src/adapters/simulation/simulation-switcher-controller.cjs && node --check src/adapters/simulation/simulation-lighting-controller.cjs",
+    "check": "node --check electron-main.cjs && node --check preload.cjs && node --check public/app.js && node --check public/remote-client.js && node --check src/server/local-network-server.cjs && node --check src/core/event-bus.cjs && node --check src/core/state-store.cjs && node --check src/core/production-engine.cjs && node --check src/adapters/contracts.cjs && node --check src/adapters/simulation/simulation-camera-controller.cjs && node --check src/adapters/simulation/simulation-switcher-controller.cjs && node --check src/adapters/simulation/simulation-lighting-controller.cjs",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"

@@ -3,6 +3,7 @@ const root = document.getElementById('app');
 let state;
 let page = 'live';
 let configurationTab = 'cameras';
+let connectionStatus = 'offline';
 
 const nav = [
   ['live', 'LIVE'],
@@ -208,6 +209,26 @@ function ensureAppStyles() {
 
     .ready {
       justify-self: end;
+    }
+
+    .ready.connection-reconnecting {
+      color: var(--amber);
+      background: #33270b;
+      border-color: #705c24;
+    }
+
+    .ready.connection-reconnecting i {
+      background: var(--amber);
+    }
+
+    .ready.connection-offline {
+      color: var(--red);
+      background: #33100f;
+      border-color: #70302d;
+    }
+
+    .ready.connection-offline i {
+      background: var(--red);
     }
 
     .service-row > div:nth-child(3) {
@@ -514,9 +535,13 @@ function shell(content) {
           >
         </div>
 
-        <div class="ready">
+        <div class="ready connection-${escapeHtml(connectionStatus)}">
           <i></i>
-          All Systems Ready
+          ${connectionStatus === 'connected'
+            ? 'Connected'
+            : connectionStatus === 'reconnecting'
+              ? 'Reconnecting'
+              : 'Offline'}
         </div>
       </header>
 
@@ -2305,6 +2330,11 @@ function render() {
 
 (async () => {
   try {
+    connectionStatus = window.trinity.getConnectionStatus?.() || 'connected';
+    window.trinity.onConnectionStatusChanged?.(status => {
+      connectionStatus = status;
+      render();
+    });
     window.trinity.onStateChanged(update => {
       if (!state || update.revision > Number(state.revision || 0)) {
         state = update.state;

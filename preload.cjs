@@ -1,5 +1,10 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("trinity", {
+  getConnectionStatus: () => "connected",
+  onConnectionStatusChanged: subscriber => {
+    subscriber("connected");
+    return () => {};
+  },
   getState: () => ipcRenderer.invoke("state:get"),
   saveState: s => ipcRenderer.invoke("state:save", s),
   addCueTemplate: id => ipcRenderer.invoke("cue:addTemplate", id),

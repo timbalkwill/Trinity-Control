@@ -5,8 +5,11 @@ const { ENGINE_EVENTS, ProductionEngine } = require("./src/core/production-engin
 const { SimulationCameraController } = require("./src/adapters/simulation/simulation-camera-controller.cjs");
 const { SimulationSwitcherController } = require("./src/adapters/simulation/simulation-switcher-controller.cjs");
 const { SimulationLightingController } = require("./src/adapters/simulation/simulation-lighting-controller.cjs");
+const { DEFAULT_PORT, createLocalNetworkServer } = require("./src/server/local-network-server.cjs");
 
 app.setName("Trinity Control Refresh");
+
+let localNetworkServer;
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
@@ -761,6 +764,19 @@ app.whenReady().then(() => {
   engine.registerAdapter("videoSwitcher", new SimulationSwitcherController());
   engine.registerAdapter("lighting", new SimulationLightingController());
 
+  const configuredPort = Number(process.env.TRINITY_REMOTE_PORT);
+  const remotePort = Number.isInteger(configuredPort) && configuredPort >= 0 && configuredPort <= 65535
+    ? configuredPort
+    : DEFAULT_PORT;
+  localNetworkServer = createLocalNetworkServer({
+    getSnapshot: () => engine.getSnapshot(),
+    publicDirectory: path.join(__dirname, "public"),
+    port: remotePort
+  });
+  localNetworkServer.start().catch(error => {
+    console.error(`[Trinity Remote] Server failed to start: ${error.message}`);
+  });
+
   ipcMain.handle("state:get", () => engine.getSnapshot());
   ipcMain.handle("state:save", (_e, state) => engine.replaceSnapshot(migrate(state)));
   ipcMain.handle("cue:addTemplate", async (_e, templateId) => {
@@ -813,6 +829,7 @@ app.whenReady().then(() => {
   });
   engine.subscribe(ENGINE_EVENTS.STATE_CHANGED, event => {
     if (!win.isDestroyed()) win.webContents.send("production:state-changed", event);
+    localNetworkServer.broadcastStateChanged(event);
   });
   engine.subscribe(ENGINE_EVENTS.ACTIVITY, event => {
     if (!win.isDestroyed()) win.webContents.send("production:activity", event);
@@ -821,5 +838,10 @@ app.whenReady().then(() => {
     if (!win.isDestroyed()) win.webContents.send("production:error", event);
   });
   win.loadFile(path.join(__dirname, "public", "index.html"));
+});
+app.on("before-quit", () => {
+  localNetworkServer?.close().catch(error => {
+    console.error(`[Trinity Remote] Server failed to close cleanly: ${error.message}`);
+  });
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

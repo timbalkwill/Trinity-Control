@@ -7,7 +7,7 @@ Trinity Control has one production system with two planned operator interfaces:
 - **Production Console:** the existing Electron renderer on the production computer.
 - **Live Remote:** a future iPad-optimized client.
 
-Both clients issue commands to the same Production Engine and observe the same authoritative state and events. Alpha 6 Phase 1 retains Electron IPC for the Production Console. It intentionally does not add the network transport or authentication required by the Live Remote.
+Both clients observe the same authoritative state and events. The Production Console continues to issue commands through Electron IPC. The initial Live Remote foundation serves the existing web assets and authoritative snapshot over HTTP, then broadcasts committed state changes over Server-Sent Events (SSE). Network clients are read-only until a secured remote command contract is introduced.
 
 ## Production Engine
 
@@ -62,7 +62,15 @@ Adapters translate an engine intent into subsystem-specific work. They do not ow
 5. The engine updates its snapshot, increments the revision, and persists through the existing JSON callback.
 6. The engine publishes state, activity, or error events.
 7. Electron forwards state events through preload to the Production Console.
-8. The future Live Remote will use a network transport around the same commands and events.
+8. The local-network server broadcasts the same committed event to browser clients over SSE.
+
+## Local-network transport
+
+`src/server/local-network-server.cjs` uses Node's built-in HTTP server and binds to `0.0.0.0` on port `4310` by default. `TRINITY_REMOTE_PORT` can select a different port. It serves the existing `public` application, exposes the current authoritative snapshot at `GET /api/state`, and streams state-change events at `GET /api/events`.
+
+`public/remote-client.js` supplies the same state-loading and subscription shape used by the renderer when Electron's preload bridge is absent. It maps browser connectivity to `connected`, `reconnecting`, and `offline`. Electron keeps its existing IPC bridge and reports `connected` locally.
+
+SSE is intentionally one-way: only the PC's Production Engine can commit state. Authentication, remote command authorization, discovery, TLS, and an iPad-specific presentation remain future work. The HTTP server logs its listening addresses and client connection lifecycle.
 
 The preload bridge keeps request-response methods for compatibility and adds unsubscribe-capable event subscriptions. The renderer requests cue, camera-take, and lighting-override operations; it no longer owns cue-transition timing.
 
@@ -102,7 +110,7 @@ Only the existing lighting override is modeled explicitly in Phase 1. Manual cam
 ## Intentionally outside Alpha 6 Phase 1
 
 - Real PTZ, ATEM, QLC+, DMX, graphics, streaming, or audio integrations
-- The iPad server, remote transport, authentication, and discovery
+- Remote command authorization, authentication, discovery, and an iPad-specific interface
 - A complete persistence rewrite
 - Explicit engine commands for every editing operation
 - Camera and lighting record creation/deletion and reference-integrity policy

@@ -7,6 +7,7 @@ const { SimulationLightingController } = require("./src/adapters/simulation/simu
 const { registerCameraAdapters } = require("./src/adapters/camera-adapter-factory.cjs");
 const { DEVICE_EVENTS, DeviceManager } = require("./src/core/device-manager.cjs");
 const { DEFAULT_PORT, createLocalNetworkServer } = require("./src/server/local-network-server.cjs");
+const { startLocalNetworkServer } = require("./src/server/start-local-network-server.cjs");
 
 app.setName("Trinity Control Refresh");
 
@@ -29,7 +30,7 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 
 function defaultState() {
   return {
-    version: "1.0.2-alpha.5.2-refined",
+    version: app.getVersion(),
     schemaVersion: 6,
     cameras: [
       { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true, adapterType: "simulation", protocol: "visca-over-ip", host: "", port: 5678, cameraAddress: 1, connectionTimeoutMs: 1500, healthCheckIntervalMs: 15000, manufacturer: "", model: "", savedPositions: defaultSavedPositions() },
@@ -809,9 +810,7 @@ app.whenReady().then(() => {
     publicDirectory: path.join(__dirname, "public"),
     port: remotePort
   });
-  localNetworkServer.start().catch(error => {
-    console.error(`[Trinity Remote] Server failed to start: ${error.message}`);
-  });
+  void startLocalNetworkServer(localNetworkServer);
 
   ipcMain.handle("state:get", () => engine.getSnapshot());
   ipcMain.handle("devices:get", () => deviceManager.getDevices());
@@ -862,7 +861,12 @@ app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,
     backgroundColor: "#081018", title: "Trinity Control",
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
+    webPreferences: {
+      preload: path.resolve(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
   });
   engine.subscribe(ENGINE_EVENTS.STATE_CHANGED, event => {
     if (!win.isDestroyed()) win.webContents.send("production:state-changed", event);

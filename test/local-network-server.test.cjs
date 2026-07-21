@@ -136,6 +136,7 @@ test("the state endpoint and static application are available over HTTP", async 
     const applicationResponse = await fetch(`${baseUrl}/`);
     const application = await applicationResponse.text();
     assert.match(application, /interface-model\.js/);
+    assert.match(application, /transport-selection\.js/);
     assert.match(application, /remote-client\.js/);
     assert.match(application, /apple-mobile-web-app-capable/);
   } finally {

@@ -1,8 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
-const { ALL_CAPABILITIES } = require("./public/interface-model.js");
 contextBridge.exposeInMainWorld("trinity", {
   getInterfaceMode: () => "production-console",
-  getCapabilities: () => ({ ...ALL_CAPABILITIES }),
   getConnectionStatus: () => "connected",
   onConnectionStatusChanged: subscriber => {
     subscriber("connected");

@@ -1,44 +1,78 @@
 "use strict";
 
 function byId(items, id) {
-  return (items || []).find(item => item.id === id);
+  return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
 }
 
-function effectiveCueResources(state, cue) {
-  const look = byId(state.productionLooks, cue?.productionLookId);
+function existingId(items, preferredId, fallbackId) {
+  if (preferredId && byId(items, preferredId)) return preferredId;
+  if (fallbackId && byId(items, fallbackId)) return fallbackId;
+  return null;
+}
+
+function lookResources(state, look) {
   return {
-    lightingSceneId: cue?.lightingSceneId || look?.lightingSceneId || null,
-    cameraLayoutId: cue?.cameraLayoutId || look?.cameraLayoutId || null
+    lightingSceneId: existingId(state?.lightingScenes, look?.lightingSceneId),
+    cameraLayoutId: existingId(state?.cameraLayouts, look?.cameraLayoutId)
   };
 }
 
+function effectiveCueResources(state, cue) {
+  const look = byId(state?.productionLooks, cue?.productionLookId);
+  return {
+    lightingSceneId: existingId(
+      state?.lightingScenes,
+      cue?.lightingSceneId,
+      look?.lightingSceneId
+    ),
+    cameraLayoutId: existingId(
+      state?.cameraLayouts,
+      cue?.cameraLayoutId,
+      look?.cameraLayoutId
+    )
+  };
+}
+
+function applyResources(state, resources) {
+  const live = state.live && typeof state.live === "object" ? state.live : {};
+  state.live = live;
+  live.lastLightingSceneId = resources.lightingSceneId;
+  live.lightingOverrideId = null;
+
+  const layout = byId(state.cameraLayouts, resources.cameraLayoutId);
+  if (layout) {
+    live.programCamera = layout.programCamera;
+    live.previewCamera = layout.previewCamera;
+    live.programPreset = layout.programPreset;
+    live.previewPreset = layout.previewPreset;
+    if ("tracking" in layout) live.tracking = Boolean(layout.tracking);
+  }
+  return state;
+}
+
+function applyLook(state, lookId) {
+  const look = byId(state?.productionLooks, lookId);
+  if (!look) return state;
+  return applyResources(state, lookResources(state, look));
+}
+
 function executeCue(state, requestedIndex, { now = Date.now } = {}) {
-  const cues = state.runOfService || [];
+  const cues = Array.isArray(state?.runOfService) ? state.runOfService : [];
   if (!cues.length) return state;
 
   const index = Math.max(0, Math.min(Number(requestedIndex) || 0, cues.length - 1));
   const cue = cues[index];
-  const resources = effectiveCueResources(state, cue);
-  const layout = byId(state.cameraLayouts, resources.cameraLayoutId);
+  if (!cue) return state;
 
-  state.live.cueIndex = index;
-  state.live.cueStartedAt = now();
-  state.live.lastLightingSceneId = resources.lightingSceneId;
-  state.live.lightingOverrideId = cue.lightingSceneId || null;
-
-  if (layout) {
-    state.live.programCamera = layout.programCamera;
-    state.live.previewCamera = layout.previewCamera;
-    state.live.programPreset = layout.programPreset;
-    state.live.previewPreset = layout.previewPreset;
-    if ("tracking" in layout) state.live.tracking = Boolean(layout.tracking);
-  }
-
-  state.live.activityLog = [
+  applyResources(state, effectiveCueResources(state, cue));
+  const live = state.live;
+  live.cueIndex = index;
+  live.cueStartedAt = now();
+  live.activityLog = [
     { at: now(), message: `Cue started: ${cue.name || "Cue"}` },
-    ...(state.live.activityLog || [])
+    ...(Array.isArray(live.activityLog) ? live.activityLog : [])
   ].slice(0, 8);
   return state;
 }
 
-module.exports = { effectiveCueResources, executeCue };
+module.exports = { applyLook, effectiveCueResources, executeCue };

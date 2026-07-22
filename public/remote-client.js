@@ -38,6 +38,7 @@
       Promise.reject(new Error('Remote control commands are not enabled in this foundation.'));
 
     const events = new runtime.EventSource('/api/events');
+    runtime.console?.info?.('[Trinity Startup] Browser SSE connection created');
     setConnectionStatus('reconnecting');
 
     const fetchLatestState = async () => {

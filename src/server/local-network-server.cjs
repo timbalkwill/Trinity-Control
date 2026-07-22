@@ -90,7 +90,9 @@ function createLocalNetworkServer({
     const requestUrl = new URL(request.url, "http://localhost");
 
     if (request.method === "GET" && requestUrl.pathname === "/api/state") {
-      sendJson(response, 200, getSnapshot());
+      const snapshot = getSnapshot();
+      logger.info(`[Trinity Remote] Initial state requested (revision ${snapshot.revision || 0})`);
+      sendJson(response, 200, snapshot);
       return;
     }
 
@@ -122,6 +124,7 @@ function createLocalNetworkServer({
         eventType: "device:initial-snapshot",
         devices: getDevices()
       });
+      logger.info(`[Trinity Remote] Initial SSE snapshots sent (${clientId}, revision ${initialSnapshot.revision || 0})`);
 
       request.on("close", () => {
         if (!clients.delete(clientId)) return;

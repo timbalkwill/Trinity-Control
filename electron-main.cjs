@@ -793,12 +793,14 @@ app.whenReady().then(() => {
     deviceManager,
     persistState: state => saveState(state)
   });
+  console.info(`[Trinity Startup] Production engine initialized (revision ${engine.getSnapshot().revision || 0})`);
   cameraAdapterRegistry = registerCameraAdapters({
     cameras: engine.getSnapshot().cameras,
     deviceManager
   });
   engine.registerDeviceAdapter(new SimulationSwitcherController());
   engine.registerDeviceAdapter(new SimulationLightingController());
+  console.info(`[Trinity Startup] Device adapters registered (${deviceManager.getDevices().length} devices)`);
 
   const configuredPort = Number(process.env.TRINITY_REMOTE_PORT);
   const remotePort = Number.isInteger(configuredPort) && configuredPort >= 0 && configuredPort <= 65535
@@ -810,8 +812,6 @@ app.whenReady().then(() => {
     publicDirectory: path.join(__dirname, "public"),
     port: remotePort
   });
-  void startLocalNetworkServer(localNetworkServer);
-
   ipcMain.handle("state:get", () => engine.getSnapshot());
   ipcMain.handle("devices:get", () => deviceManager.getDevices());
   ipcMain.handle("state:save", (_e, state) => engine.replaceSnapshot(migrate(state)));
@@ -889,6 +889,9 @@ app.whenReady().then(() => {
     if (!win.isDestroyed()) win.webContents.send("devices:changed", update);
     localNetworkServer.broadcastDevicesChanged(update);
   });
+  console.info("[Trinity Startup] Engine and device event forwarders subscribed");
+  console.info(`[Trinity Startup] Starting local-network server on port ${remotePort}`);
+  void startLocalNetworkServer(localNetworkServer);
   win.loadFile(path.join(__dirname, "public", "index.html"));
 });
 app.on("before-quit", () => {

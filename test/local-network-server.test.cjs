@@ -138,6 +138,7 @@ test("the state endpoint and static application are available over HTTP", async 
     assert.match(application, /interface-model\.js/);
     assert.match(application, /transport-selection\.js/);
     assert.match(application, /remote-client\.js/);
+    assert.match(application, /startup-synchronizer\.js/);
     assert.match(application, /apple-mobile-web-app-capable/);
   } finally {
     await server.close();

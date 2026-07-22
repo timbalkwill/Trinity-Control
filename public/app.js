@@ -2598,21 +2598,22 @@ function render() {
       connectionStatus = status;
       render();
     });
-    window.trinity.onStateChanged(update => {
+    const applyStateUpdate = update => {
       if (!state || update.revision > Number(state.revision || 0)) {
         state = update.state;
         render();
       }
-    });
-    window.trinity.onDevicesChanged?.(update => {
+    };
+    const applyDevicesUpdate = update => {
       runtimeDevices = update.devices || [];
       render();
-    });
+    };
 
-    [state, runtimeDevices] = await Promise.all([
-      window.trinity.getState(),
-      window.trinity.getDevices?.() || Promise.resolve([])
-    ]);
+    await window.TrinityStartup.synchronize({
+      transport: window.trinity,
+      onState: applyStateUpdate,
+      onDevices: applyDevicesUpdate
+    });
 
     render();
   } catch (error) {

@@ -477,53 +477,6 @@ function cameraCard(camera) {
 
 async function activateCue(index) {
   state = await window.trinity.goCue(index);
-
-  const cue = state.runOfService[index];
-
-  if (!cue) {
-    return state;
-  }
-
-  const layout = cueCameraLayout(cue);
-
-  /*
-   * A cue-specific lightingSceneId becomes an active override.
-   * An empty value causes the Production Look lighting to be used.
-   */
-  state.live.lightingOverrideId =
-    cue.lightingSceneId || '';
-
-  if (layout) {
-    state.live.programCamera =
-      layout.programCamera || state.live.programCamera;
-
-    state.live.programPreset =
-      layout.programPreset || 'Stage Wide';
-
-    state.live.previewCamera =
-      layout.previewCamera || state.live.previewCamera;
-
-    state.live.previewPreset =
-      layout.previewPreset || 'Stage Wide';
-
-    if ('tracking' in layout) {
-      state.live.tracking = Boolean(layout.tracking);
-    }
-  }
-
-  state.live.activityLog = [
-    {
-      at: Date.now(),
-      message:
-        `Cue loaded: ${cue.name}` +
-        `${cue.lightingSceneId ? ' · custom lighting' : ''}` +
-        `${cue.cameraLayoutId ? ' · custom cameras' : ''}`
-    },
-    ...(state.live.activityLog || [])
-  ].slice(0, 8);
-
-  state = await window.trinity.saveState(state);
-
   return state;
 }
 

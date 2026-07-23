@@ -34,6 +34,7 @@ function createOperatorServer({
     ["/operator/", ["operator/index.html", "text/html; charset=utf-8"]],
     ["/operator/index.html", ["operator/index.html", "text/html; charset=utf-8"]],
     ["/operator/operator.js", ["operator/operator.js", "text/javascript; charset=utf-8"]],
+    ["/operator/production-look-view.js", ["production-look-view.js", "text/javascript; charset=utf-8"]],
     ["/operator/operator.css", ["operator/operator.css", "text/css; charset=utf-8"]],
     ["/operator/compact.css", ["operator/compact.css", "text/css; charset=utf-8"]],
     ["/operator/trinity-logo.png", ["assets/trinity-logo.png", "image/png"]]
@@ -92,7 +93,11 @@ function createOperatorServer({
     ["/api/cues/duplicate", body => commands.duplicateCue(body.index)],
     ["/api/cues/insert", body => commands.insertCue(body.index, body.position)],
     ["/api/cues/delete", body => commands.deleteCue(body.index, { confirmActive: body.confirmActive === true })],
-    ["/api/cues/update", body => commands.updateCue(body.index, body.patch || {})]
+    ["/api/cues/update", body => commands.updateCue(body.index, body.patch || {})],
+    ["/api/looks/create", body => commands.createProductionLook(body.look || {})],
+    ["/api/looks/update", body => commands.updateProductionLook(body.lookId, body.patch || {})],
+    ["/api/looks/duplicate", body => commands.duplicateProductionLook(body.lookId)],
+    ["/api/looks/delete", body => commands.deleteProductionLook(body.lookId, { confirmReferences: body.confirmReferences === true })]
   ]);
 
   const server = http.createServer(async (request, response) => {
@@ -158,7 +163,7 @@ function createOperatorServer({
         return json(response, 200, state);
       } catch (error) {
         const status = error.statusCode || (error instanceof TypeError ? 400 : error instanceof RangeError ? 404 : 500);
-        return json(response, status, { error: error.message, code: error.code });
+        return json(response, status, { error: error.message, code: error.code, references: error.references });
       }
     }
     return json(response, 404, { error: "Not found" });

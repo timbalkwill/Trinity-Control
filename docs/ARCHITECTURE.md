@@ -27,6 +27,14 @@ Reordering records the active cue ID before moving the array item and restores `
 
 GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direct jumps beyond two positions require an explicit confirmation flag, while sequential NEXT and BACK remain immediate.
 
+## Production Looks 2.0 foundation
+
+`production-look-operations.cjs` owns the versioned Production Look schema, normalization, validation, resource resolution, summaries, and CRUD operations. Migration is applied in the main process before state reaches either renderer. Electron IPC and narrow HTTP commands both use the serialized operator-command queue, so every edit begins with the latest saved state and publishes only the resulting authoritative snapshot.
+
+`cue-execution-plan.cjs` builds a pure hardware-independent description of the desired cue state. It records the source of lighting and video values, camera assignments, motion intent, future audio/presentation references, and non-fatal missing-resource warnings. `executeCue()` remains the only runtime entry point for GO, NEXT, and BACK; the execution plan does not communicate with hardware or create another execution path.
+
+Cue precedence remains: valid cue override, valid referenced Production Look value, then the existing safe fallback. Updating or deleting a Look never rewrites a cue. A confirmed deletion may leave an intentional missing reference so an operator can repair the cue later.
+
 This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.
 
 ## Browser Operator troubleshooting

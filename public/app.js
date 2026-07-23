@@ -1,7 +1,9 @@
 const root = document.getElementById('app');
 
 let state;
+let operatorServerStatus;
 let page = 'live';
+let cueEditorOpen = false;
 
 const nav = [
   ['live', 'LIVE'],
@@ -74,6 +76,20 @@ const formatClock = timestamp =>
     hour: 'numeric',
     minute: '2-digit'
   });
+
+const formatDuration = seconds => {
+  const value = Math.max(0, Math.floor(Number(seconds) || 0));
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+};
+
+const timing = () => {
+  const now = Date.now();
+  const index = Number(state.live?.cueIndex) || 0;
+  const cueElapsed = Math.max(0, Math.floor((now - Number(state.live?.cueStartedAt || now)) / 1000));
+  const serviceElapsed = Math.max(0, Math.floor((now - Number(state.live?.serviceStartedAt || state.live?.cueStartedAt || now)) / 1000));
+  const remaining = Math.max(0, (Number(state.runOfService[index]?.duration) || 0) - cueElapsed) + state.runOfService.slice(index + 1).reduce((sum, cue) => sum + Math.max(0, Number(cue.duration) || 0), 0);
+  return { cueElapsed, serviceElapsed, remaining, position: state.runOfService.length ? index + 1 : 0, total: state.runOfService.length };
+};
 
 const activityTime = timestamp =>
   new Date(timestamp).toLocaleTimeString([], {
@@ -151,6 +167,8 @@ function ensureAppStyles() {
       gap: 8px;
       flex-wrap: nowrap;
     }
+
+    .drag-handle { touch-action: none; padding: 10px 6px; }
 
     .row-actions button[data-edit] {
       color: #8db6ff;
@@ -476,7 +494,9 @@ function cameraCard(camera) {
 }
 
 async function activateCue(index) {
-  state = await window.trinity.goCue(index);
+  const needsConfirmation = Math.abs(index - (Number(state.live?.cueIndex) || 0)) > 2;
+  if (needsConfirmation && !window.confirm(`Jump to cue ${index + 1}?`)) return state;
+  state = await window.trinity.goCue(index, { confirmJump: needsConfirmation });
   return state;
 }
 
@@ -486,6 +506,7 @@ function openCueEditor(index) {
   if (!cue) {
     return;
   }
+  cueEditorOpen = true;
 
   document
     .querySelector('.cue-editor-backdrop')
@@ -524,6 +545,11 @@ function openCueEditor(index) {
             value="${escapeHtml(cue.name || '')}"
             maxlength="80"
           >
+        </label>
+
+        <label>
+          Duration (seconds)
+          <input id="cue-edit-duration" type="number" min="0" value="${Number(cue.duration) || 0}">
         </label>
 
         <label>
@@ -656,8 +682,10 @@ function openCueEditor(index) {
 
   const notesInput =
     backdrop.querySelector('#cue-edit-notes');
+  const durationInput = backdrop.querySelector('#cue-edit-duration');
 
   const close = () => {
+    cueEditorOpen = false;
     backdrop.remove();
   };
 
@@ -709,22 +737,14 @@ function openCueEditor(index) {
   backdrop.querySelector(
     '.save-cue'
   ).onclick = async () => {
-    cue.name =
-      nameInput.value.trim() || 'Untitled Cue';
-
-    cue.productionLookId =
-      lookSelect.value;
-
-    cue.lightingSceneId =
-      lightingSelect.value || '';
-
-    cue.cameraLayoutId =
-      cameraSelect.value || '';
-
-    cue.notes =
-      notesInput.value.trim();
-
-    state = await window.trinity.saveState(state);
+    state = await window.trinity.updateCue(index, {
+      name: nameInput.value.trim() || 'Untitled Cue',
+      duration: Number(durationInput.value) || 0,
+      productionLookId: lookSelect.value,
+      lightingSceneId: lightingSelect.value || '',
+      cameraLayoutId: cameraSelect.value || '',
+      notes: notesInput.value.trim()
+    });
 
     close();
     render();
@@ -749,6 +769,7 @@ function livePage() {
 
   const activity =
     state.live.activityLog || [];
+  const serviceTiming = timing();
 
   shell(`
     <div class="live-layout refined-live">
@@ -824,7 +845,7 @@ function livePage() {
               </h1>
 
               <p>
-                ${escapeHtml(cue?.notes || '')}
+                ${formatDuration(cue?.duration)} · ${escapeHtml(cue?.notes || 'No notes')}
               </p>
             </div>
 
@@ -842,6 +863,12 @@ function livePage() {
             </div>
 
             <div class="summary-metric">
+              <span>SERVICE / REMAINING</span>
+              <strong id="service-elapsed">${formatDuration(serviceTiming.serviceElapsed)} / ${formatDuration(serviceTiming.remaining)}</strong>
+              <small>${serviceTiming.position} of ${serviceTiming.total || state.runOfService.length}</small>
+            </div>
+
+            <div class="summary-metric">
               <span>NEXT CUE</span>
 
               <strong>
@@ -849,6 +876,7 @@ function livePage() {
                   nextCue?.name || 'End of service'
                 )}
               </strong>
+              <small>${nextCue ? `${formatDuration(nextCue.duration)} · ${escapeHtml(byId(state.productionLooks, nextCue.productionLookId)?.name || 'No look')} · 💡 ${escapeHtml(cueLighting(nextCue)?.name || 'None')} · 📷 ${escapeHtml(cueCameraLayout(nextCue)?.name || 'None')} · ${escapeHtml(nextCue.notes || 'No notes')}` : ''}</small>
             </div>
 
             <div class="summary-metric">
@@ -865,6 +893,7 @@ function livePage() {
               <strong>
                 ${escapeHtml(look?.name || 'None')}
               </strong>
+              <small>📷 ${escapeHtml(cueCameraLayout(cue)?.name || 'None')}</small>
             </div>
           </div>
 
@@ -1022,6 +1051,9 @@ function livePage() {
 
     element.textContent =
       formatElapsed(state.live.cueStartedAt);
+    const serviceElement = document.getElementById('service-elapsed');
+    const snapshot = timing();
+    if (serviceElement) serviceElement.textContent = `${formatDuration(snapshot.serviceElapsed)} / ${formatDuration(snapshot.remaining)}`;
   }, 1000);
 
   document
@@ -1304,6 +1336,10 @@ function servicePage() {
                         EDIT
                       </button>
 
+                      <button data-duplicate="${index}" title="Duplicate cue">COPY</button>
+                      <button data-insert-above="${index}" title="Insert cue above">+↑</button>
+                      <button data-insert-below="${index}" title="Insert cue below">+↓</button>
+
                       <button
                         data-remove="${index}"
                         aria-label="Remove ${escapeHtml(
@@ -1409,14 +1445,28 @@ function servicePage() {
     .querySelectorAll('[data-remove]')
     .forEach(button => {
       button.onclick = async () => {
-        state =
-          await window.trinity.removeCue(
-            Number(button.dataset.remove)
-          );
+        const index = Number(button.dataset.remove);
+        if (state.runOfService.length === 1) {
+          window.alert('The final cue cannot be deleted.');
+          return;
+        }
+        const active = index === state.live.cueIndex;
+        if (active && !window.confirm('Delete the active cue and select the nearest cue?')) return;
+        state = await window.trinity.removeCue(index, { confirmActive: active });
 
         render();
       };
     });
+
+  document.querySelectorAll('[data-duplicate]').forEach(button => {
+    button.onclick = async () => { state = await window.trinity.duplicateCue(Number(button.dataset.duplicate)); render(); };
+  });
+  document.querySelectorAll('[data-insert-above]').forEach(button => {
+    button.onclick = async () => { const index = Number(button.dataset.insertAbove); state = await window.trinity.insertCue(index, 'above'); render(); openCueEditor(index); };
+  });
+  document.querySelectorAll('[data-insert-below]').forEach(button => {
+    button.onclick = async () => { const index = Number(button.dataset.insertBelow); state = await window.trinity.insertCue(index, 'below'); render(); openCueEditor(index + 1); };
+  });
 
   let draggedIndex = null;
 
@@ -1425,6 +1475,38 @@ function servicePage() {
       '[data-cue-index]'
     )
   ];
+
+  document.querySelectorAll('.drag-handle').forEach(handle => {
+    let from = null;
+    handle.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse') return;
+      from = Number(handle.closest('[data-cue-index]').dataset.cueIndex);
+      handle.setPointerCapture(event.pointerId);
+      handle.closest('[data-cue-index]').classList.add('dragging');
+      event.preventDefault();
+    });
+    handle.addEventListener('pointermove', event => {
+      if (from === null) return;
+      rows.forEach(item => item.classList.remove('drop-before', 'drop-after'));
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-cue-index]');
+      if (!target) return;
+      const rect = target.getBoundingClientRect();
+      target.classList.add(event.clientY < rect.top + rect.height / 2 ? 'drop-before' : 'drop-after');
+    });
+    handle.addEventListener('pointerup', async event => {
+      if (from === null) return;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-cue-index]');
+      let to = target ? Number(target.dataset.cueIndex) : from;
+      if (target && event.clientY >= target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2) to += 1;
+      if (from < to) to -= 1;
+      to = Math.max(0, Math.min(to, state.runOfService.length - 1));
+      rows.forEach(item => item.classList.remove('dragging', 'drop-before', 'drop-after'));
+      const original = from;
+      from = null;
+      if (original !== to) state = await window.trinity.moveCue(original, to);
+      render();
+    });
+  });
 
   rows.forEach(row => {
     row.addEventListener(
@@ -1784,6 +1866,18 @@ function lightingPage() {
 function camerasPage() {
   shell(`
     <div class="page-scroll">
+      <section class="panel operator-server-panel">
+        <div class="section-title">
+          <span>BROWSER OPERATOR</span>
+          <strong>${operatorServerStatus?.running ? 'Running' : 'Unavailable'}</strong>
+        </div>
+        <div class="metrics vertical">
+          <span>Port <b>${escapeHtml(operatorServerStatus?.port || 4310)}</b></span>
+          <span>Local <b>${escapeHtml(operatorServerStatus?.localUrl || 'http://localhost:4310')}</b></span>
+          ${(operatorServerStatus?.networkUrls || []).map(url => `<span>Network <b>${escapeHtml(url)}</b></span>`).join('')}
+          ${operatorServerStatus?.error ? `<span>Problem <b>${escapeHtml(operatorServerStatus.error)}</b></span>` : ''}
+        </div>
+      </section>
       <section class="panel">
         <div class="section-title">
           <span>CAMERA LAYOUTS</span>
@@ -1892,10 +1986,38 @@ function render() {
   }
 }
 
+document.addEventListener('keydown', async event => {
+  const tag = event.target?.tagName?.toLowerCase();
+  if (event.isComposing || event.repeat || cueEditorOpen || ['input', 'textarea', 'select'].includes(tag) || event.target?.isContentEditable) {
+    if (event.key === 'Escape' && cueEditorOpen) document.querySelector('.cue-editor-close')?.click();
+    return;
+  }
+  const command = ({ ' ': 'go', Enter: 'go', ArrowRight: 'next', ArrowLeft: 'back', h: 'hold', H: 'hold', Escape: 'escape' })[event.key];
+  if (!command) return;
+  event.preventDefault();
+  if (command === 'escape') return document.querySelector('.cue-editor-close')?.click();
+  if (command === 'hold') state = await window.trinity.toggleHold();
+  else if (command === 'back') state = await window.trinity.previousCue();
+  else state = await window.trinity.nextCue();
+  render();
+});
+
 (async () => {
   try {
-    state =
-      await window.trinity.getState();
+    let pendingState;
+    window.trinity.onStateChanged(nextState => {
+      if (!state) pendingState = nextState;
+      else {
+        state = nextState;
+        render();
+      }
+    });
+    const [initialState, initialServerStatus] = await Promise.all([
+      window.trinity.getState(),
+      window.trinity.getOperatorServerStatus()
+    ]);
+    state = pendingState || initialState;
+    operatorServerStatus = initialServerStatus;
 
     render();
   } catch (error) {

@@ -1,0 +1,25 @@
+.compact-operator { height: 100vh; overflow: hidden; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+.compact-operator .summary { grid-template-columns: 1.35fr 1fr .65fr; }
+.compact-operator .summary h2 { margin: 6px 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; }
+.meta span { background: #1a3041; border-radius: 999px; padding: 5px 8px; font-size: 12px; }
+.compact-controls { grid-template-columns: .75fr 1.5fr .75fr .8fr; }
+.compact-controls .go { font-size: 30px; min-height: 82px; }
+.timing-card { display: grid; align-content: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.active-resources { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.active-resources h2 { margin: 5px 0; }
+.cue-list-panel { min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.cue-list { overflow: auto; }
+@media (orientation: landscape) and (max-height: 900px) {
+  .compact-operator { max-width: none; padding: 10px; gap: 8px; }
+  .topbar, .panel { padding: 11px; }
+  .compact-operator .summary h2 { font-size: 20px; }
+  .compact-operator .summary p { margin: 5px 0; }
+  .compact-controls button { min-height: 68px; }
+  .active-resources h2 { font-size: 18px; }
+}
+@media (max-width: 760px) {
+  .compact-operator { height: auto; min-height: 100vh; overflow: visible; }
+  .compact-operator .summary, .active-resources { grid-template-columns: 1fr; }
+  .cue-list-panel, .cue-list { overflow: visible; }
+}

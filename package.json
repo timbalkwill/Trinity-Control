@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check cue-execution.cjs && node --check preload.cjs && node --check public/app.js",
+    "check": "node --check electron-main.cjs && node --check cue-execution.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/app.js && node --check public/operator/operator.js",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"
@@ -23,6 +23,8 @@
     "files": [
       "electron-main.cjs",
       "cue-execution.cjs",
+      "operator-commands.cjs",
+      "operator-server.cjs",
       "preload.cjs",
       "public/**/*",
       "package.json"

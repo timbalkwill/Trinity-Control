@@ -1,6 +1,7 @@
 const root = document.getElementById('app');
 
 let state;
+let operatorServerStatus;
 let page = 'live';
 
 const nav = [
@@ -1784,6 +1785,18 @@ function lightingPage() {
 function camerasPage() {
   shell(`
     <div class="page-scroll">
+      <section class="panel operator-server-panel">
+        <div class="section-title">
+          <span>BROWSER OPERATOR</span>
+          <strong>${operatorServerStatus?.running ? 'Running' : 'Unavailable'}</strong>
+        </div>
+        <div class="metrics vertical">
+          <span>Port <b>${escapeHtml(operatorServerStatus?.port || 4310)}</b></span>
+          <span>Local <b>${escapeHtml(operatorServerStatus?.localUrl || 'http://localhost:4310')}</b></span>
+          ${(operatorServerStatus?.networkUrls || []).map(url => `<span>Network <b>${escapeHtml(url)}</b></span>`).join('')}
+          ${operatorServerStatus?.error ? `<span>Problem <b>${escapeHtml(operatorServerStatus.error)}</b></span>` : ''}
+        </div>
+      </section>
       <section class="panel">
         <div class="section-title">
           <span>CAMERA LAYOUTS</span>
@@ -1894,8 +1907,20 @@ function render() {
 
 (async () => {
   try {
-    state =
-      await window.trinity.getState();
+    let pendingState;
+    window.trinity.onStateChanged(nextState => {
+      if (!state) pendingState = nextState;
+      else {
+        state = nextState;
+        render();
+      }
+    });
+    const [initialState, initialServerStatus] = await Promise.all([
+      window.trinity.getState(),
+      window.trinity.getOperatorServerStatus()
+    ]);
+    state = pendingState || initialState;
+    operatorServerStatus = initialServerStatus;
 
     render();
   } catch (error) {

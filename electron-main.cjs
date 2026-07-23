@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { createOperatorCommands } = require("./operator-commands.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
+const { normalizeProductionLooks } = require("./production-look-operations.cjs");
 
 app.setName("Trinity Control Refresh");
 
@@ -21,7 +22,7 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 function defaultState() {
   return {
     version: "1.0.2-alpha.5.2-refined",
-    schemaVersion: 5,
+    schemaVersion: 6,
     cameras: [
       { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true },
       { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true },
@@ -696,6 +697,7 @@ function migrate(state) {
       merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
     }
   }
+  merged.productionLooks = normalizeProductionLooks(merged.productionLooks);
     merged.lightingScenes = merged.lightingScenes.map(scene => ({
     category: "Custom",
     favorite: false,
@@ -753,6 +755,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("cue:insert", (_e, { index, position }) => commands.insertCue(index, position));
   ipcMain.handle("cue:remove", (_e, { index, options }) => commands.deleteCue(index, options));
   ipcMain.handle("cue:update", (_e, { index, patch }) => commands.updateCue(index, patch));
+  ipcMain.handle("look:create", (_e, input) => commands.createProductionLook(input));
+  ipcMain.handle("look:update", (_e, { lookId, patch }) => commands.updateProductionLook(lookId, patch));
+  ipcMain.handle("look:duplicate", (_e, lookId) => commands.duplicateProductionLook(lookId));
+  ipcMain.handle("look:delete", (_e, { lookId, options }) => commands.deleteProductionLook(lookId, options));
   ipcMain.handle("live:go", (_e, { index, options }) => commands.goCue(index, options));
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());

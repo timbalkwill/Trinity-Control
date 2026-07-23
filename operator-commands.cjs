@@ -2,6 +2,7 @@
 
 const { executeCue } = require("./cue-execution.cjs");
 const service = require("./service-operations.cjs");
+const looks = require("./production-look-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
   const subscribers = new Set();
@@ -73,6 +74,10 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     insertCue: (index, position) => mutate(state => service.insertCue(state, index, position)),
     deleteCue: (index, options) => mutate(state => service.deleteCue(state, index, options)),
     updateCue: (index, patch) => mutate(state => service.updateCue(state, index, patch)),
+    createProductionLook: input => mutate(state => looks.createProductionLook(state, input)),
+    updateProductionLook: (lookId, patch) => mutate(state => looks.updateProductionLook(state, lookId, patch)),
+    duplicateProductionLook: lookId => mutate(state => looks.duplicateProductionLook(state, lookId)),
+    deleteProductionLook: (lookId, options) => mutate(state => looks.deleteProductionLook(state, lookId, options)),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

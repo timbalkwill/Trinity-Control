@@ -23,7 +23,7 @@
   };
   const cueDetails = cue => {
     if (!cue) return '<div class="muted">End of service</div>';
-    return `<h2>${escapeHtml(cue.name || "Untitled cue")}</h2><div class="meta"><span>${formatTime(cue.duration)}</span><span>${escapeHtml(lookFor(cue)?.name || "No Production Look")}</span><span>💡 ${escapeHtml(lightingFor(cue)?.name || "None")}</span><span>📷 ${escapeHtml(cameraFor(cue)?.name || "None")}</span></div><p class="muted">${escapeHtml(cue.notes || "No notes")}</p>`;
+    return `<h2>${escapeHtml(cue.name || "Untitled cue")}</h2><div class="meta"><span>${formatTime(cue.duration)}</span></div>${window.TrinityLookView.card(state, cue, { compact: true })}<p class="muted">${escapeHtml(cue.notes || "No notes")}</p>`;
   };
 
   async function command(route, body = {}) {

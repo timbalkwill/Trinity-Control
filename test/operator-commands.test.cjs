@@ -94,3 +94,14 @@ test("cue-specific overrides still execute after reorder and duplication", async
   assert.equal(result.live.lastLightingSceneId, "light-manual");
   assert.equal(result.live.programPreset, "Wide");
 });
+
+test("Browser and Electron Production Look commands share authoritative narrow mutations", async () => {
+  const { commands } = harness();
+  let result = await commands.createProductionLook({ name: "New Look", lightingSceneId: "light-cue" });
+  const created = result.productionLooks.at(-1);
+  result = await commands.updateProductionLook(created.id, { description: "Saved centrally" });
+  assert.equal(result.productionLooks.at(-1).description, "Saved centrally");
+  result = await commands.duplicateProductionLook(created.id);
+  assert.notEqual(result.productionLooks.at(-1).id, created.id);
+  assert.equal(result.productionLooks.at(-1).name, "New Look Copy");
+});

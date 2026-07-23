@@ -1,5 +1,7 @@
 "use strict";
 
+const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
+
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
 }
@@ -18,18 +20,10 @@ function lookResources(state, look) {
 }
 
 function effectiveCueResources(state, cue) {
-  const look = byId(state?.productionLooks, cue?.productionLookId);
+  const plan = buildCueExecutionPlan(state, cue);
   return {
-    lightingSceneId: existingId(
-      state?.lightingScenes,
-      cue?.lightingSceneId,
-      look?.lightingSceneId
-    ),
-    cameraLayoutId: existingId(
-      state?.cameraLayouts,
-      cue?.cameraLayoutId,
-      look?.cameraLayoutId
-    )
+    lightingSceneId: plan.lighting.sceneId,
+    cameraLayoutId: plan.video.cameraLayoutId
   };
 }
 

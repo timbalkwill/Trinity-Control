@@ -132,6 +132,16 @@ test("Browser Operator HTTP API and synchronization", async t => {
       response = await post(baseUrl, "/api/cues/update", { index: 2, patch: { notes: "Browser edit" } });
       assert.equal((await response.json()).runOfService[2].notes, "Browser edit");
     });
+    await t.test("narrow Production Look endpoints use shared operations", async () => {
+      let response = await post(baseUrl, "/api/looks/create", { look: { name: "Browser Look", lightingSceneId: "light-cue" } });
+      let payload = await response.json();
+      const look = payload.productionLooks.at(-1);
+      response = await post(baseUrl, "/api/looks/update", { lookId: look.id, patch: { operatorNotes: "Narrow update" } });
+      payload = await response.json();
+      assert.equal(payload.productionLooks.at(-1).operatorNotes, "Narrow update");
+      response = await post(baseUrl, "/api/looks/duplicate", { lookId: look.id });
+      assert.equal((await response.json()).productionLooks.at(-1).name, "Browser Look Copy");
+    });
     await t.test("invalid JSON", async () => {
       const response = await post(baseUrl, "/api/live/go", "{broken");
       assert.equal(response.status, 400);

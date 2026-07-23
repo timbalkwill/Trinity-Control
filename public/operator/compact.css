@@ -3,6 +3,9 @@
 .compact-operator .summary h2 { margin: 6px 0; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; }
 .meta span { background: #1a3041; border-radius: 999px; padding: 5px 8px; font-size: 12px; }
+.look-summary.compact { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.look-summary.compact > * { background: #1a3041; border-radius: 999px; padding: 4px 7px; font-size: 11px; font-style: normal; }
+.look-summary.compact small { display: inline; color: #91a8ba; }
 .compact-controls { grid-template-columns: .75fr 1.5fr .75fr .8fr; }
 .compact-controls .go { font-size: 30px; min-height: 82px; }
 .timing-card { display: grid; align-content: center; gap: 8px; font-variant-numeric: tabular-nums; }

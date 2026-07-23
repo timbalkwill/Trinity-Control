@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { projectBrowserState } = require("./device-operations.cjs");
 
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 4310;
@@ -49,7 +50,7 @@ function createOperatorServer({
   }
 
   function writeEvent(response, state) {
-    response.write(`event: state\ndata: ${JSON.stringify(state)}\n\n`);
+    response.write(`event: state\ndata: ${JSON.stringify(projectBrowserState(state))}\n\n`);
   }
 
   async function readJson(request) {
@@ -117,7 +118,7 @@ function createOperatorServer({
       return json(response, 200, { status: "ok", port: server.address()?.port || port });
     }
     if (request.method === "GET" && pathname === "/api/state") {
-      return json(response, 200, commands.getState());
+      return json(response, 200, projectBrowserState(commands.getState()));
     }
     if (request.method === "GET" && pathname === "/api/events") {
       const clientId = nextClientId++;
@@ -160,7 +161,7 @@ function createOperatorServer({
       try {
         const body = await readJson(request);
         const state = await commandRoutes.get(pathname)(body);
-        return json(response, 200, state);
+        return json(response, 200, projectBrowserState(state));
       } catch (error) {
         const status = error.statusCode || (error instanceof TypeError ? 400 : error instanceof RangeError ? 404 : 500);
         return json(response, status, { error: error.message, code: error.code, references: error.references });

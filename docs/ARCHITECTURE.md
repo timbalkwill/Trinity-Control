@@ -35,6 +35,14 @@ GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direc
 
 Cue precedence remains: valid cue override, valid referenced Production Look value, then the existing safe fallback. Updating or deleting a Look never rewrites a cue. A confirmed deletion may leave an intentional missing reference so an operator can repair the cue later.
 
+## Device configuration foundation
+
+`device-operations.cjs` owns the versioned device collection, deterministic migration, validation, CRUD, ordering, logical-role lookup, reference counting, summaries, and diagnostic stubs. The collection is separate from the legacy camera library so existing camera IDs, layouts, Production Looks, cues, and runtime execution remain unchanged.
+
+Electron Settings mutations use restricted preload IPC and the existing serialized operator-command queue. Browser Operator receives `deviceSummaries` through an explicit projection; full device records, usernames, passwords, credential references, private notes, and system configuration are removed from every HTTP response and SSE event.
+
+Diagnostics deliberately report configuration and adapter readiness only. No device adapter performs network communication, and no stub reports a connected state. Production Look resolution prefers matching device names while retaining the legacy camera library as a compatibility fallback. Execution plans remain pure and `executeCue()` remains authoritative.
+
 This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.
 
 ## Browser Operator troubleshooting

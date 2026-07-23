@@ -28,8 +28,9 @@ function buildCueExecutionPlan(state, cue) {
   const useCueLayout = layout.source === "cue";
   const programCameraId = effectiveLayout?.programCamera || (!useCueLayout ? look?.programCameraId : null) || null;
   const previewCameraId = effectiveLayout?.previewCamera || (!useCueLayout ? look?.previewCameraId : null) || null;
-  if (programCameraId && !byId(state?.cameras, programCameraId)) warnings.push(`Missing program camera: ${programCameraId}`);
-  if (previewCameraId && !byId(state?.cameras, previewCameraId)) warnings.push(`Missing preview camera: ${previewCameraId}`);
+  const knownCamera = id => byId(state?.devices, id) || byId(state?.cameras, id);
+  if (programCameraId && !knownCamera(programCameraId)) warnings.push(`Missing program camera: ${programCameraId}`);
+  if (previewCameraId && !knownCamera(previewCameraId)) warnings.push(`Missing preview camera: ${previewCameraId}`);
   for (const assignment of lookResources.cameraAssignments) {
     if (assignment.cameraId && !assignment.camera) warnings.push(`Missing assigned camera for ${assignment.role}: ${assignment.cameraId}`);
   }

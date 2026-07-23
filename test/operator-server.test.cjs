@@ -9,6 +9,22 @@ const clone = value => JSON.parse(JSON.stringify(value));
 
 function initialState() {
   return {
+    devices: [{
+      id: "main",
+      type: "camera",
+      name: "Main Camera",
+      logicalRole: "main",
+      enabled: true,
+      connectionStatus: "notTested",
+      username: "private-user",
+      password: "private-password",
+      credentialReference: "private-reference",
+      notes: "private-notes",
+      connection: { host: "10.0.0.5", username: "private-user", password: "private-password" },
+      capabilities: {},
+      metadata: {}
+    }],
+    configuration: { privateValue: "hidden" },
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{ id: "look", lightingSceneId: "light-cue", cameraLayoutId: "layout" }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
@@ -96,7 +112,12 @@ test("Browser Operator HTTP API and synchronization", async t => {
     await t.test("state endpoint", async () => {
       const response = await fetch(`${baseUrl}/api/state`);
       assert.equal(response.status, 200);
-      assert.equal((await response.json()).live.cueIndex, 0);
+      const state = await response.json();
+      assert.equal(state.live.cueIndex, 0);
+      assert.equal("devices" in state, false);
+      assert.equal("configuration" in state, false);
+      assert.equal(state.deviceSummaries[0].name, "Main Camera");
+      assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue/);
       assert.equal(response.headers.get("cache-control"), "no-store");
     });
     await t.test("GO command", async () => {
@@ -178,6 +199,8 @@ test("Browser Operator HTTP API and synchronization", async t => {
       await post(baseUrl, "/api/live/go", { index: 0 });
       const update = await events.next();
       assert.equal(update.live.cueIndex, 0);
+      assert.equal("devices" in update, false);
+      assert.doesNotMatch(JSON.stringify(update), /private-password/);
       await events.close();
     });
   } finally {

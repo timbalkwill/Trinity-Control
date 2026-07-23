@@ -105,3 +105,17 @@ test("Browser and Electron Production Look commands share authoritative narrow m
   assert.notEqual(result.productionLooks.at(-1).id, created.id);
   assert.equal(result.productionLooks.at(-1).name, "New Look Copy");
 });
+
+test("device configuration commands share serialized authoritative state", async () => {
+  const { commands } = harness();
+  let result = await commands.createDevice({ id: "camera-four", type: "camera", name: "Fourth", logicalRole: "audience", enabled: false });
+  assert.equal(result.devices[0].id, "camera-four");
+  result = await commands.updateDevice("camera-four", { name: "Audience", enabled: true });
+  assert.equal(result.devices[0].name, "Audience");
+  result = await commands.duplicateDevice("camera-four");
+  assert.notEqual(result.devices[1].id, "camera-four");
+  result = await commands.testDevice("camera-four");
+  assert.notEqual(result.devices[0].metadata.diagnostic.message, "Connected");
+  result = await commands.deleteDevice(result.devices[1].id);
+  assert.equal(result.devices.length, 1);
+});

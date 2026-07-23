@@ -35,3 +35,11 @@ Open **LOOKS** to search, create, duplicate, enable, disable, edit, or delete Pr
 The summary strip shows the selected Look’s lighting, program and preview cameras, preset assignments, motion status, and enabled state. Cue details label inherited values as **From Production Look**, cue-specific selections as **Cue Override**, and empty values as **Not assigned**.
 
 Deleting a Look referenced by service cues requires confirmation and does not silently change those cues. Duplicate Looks receive a new identity and can be edited independently.
+
+## Administrator Settings
+
+Select **⚙ SETTINGS** to leave the live production pages and enter the clearly marked administrator area. **Devices** lists all configured and placeholder devices. Use its filters to focus on a type or enabled state. **Cameras** emphasizes the Main, Left, and Right camera roles while supporting additional cameras and custom role names.
+
+Device and camera changes save immediately. Camera credentials remain behind the Electron preload boundary and are never sent to Browser Operator. Duplicate enabled logical roles display a warning but do not alter references.
+
+**Diagnostics** performs configuration-only stub tests. Results such as **Not configured**, **Disabled**, **Adapter not implemented**, and **Ready for future test** are honest readiness states—not hardware connection results.

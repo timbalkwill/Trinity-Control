@@ -15,13 +15,34 @@ function uniqueId(prefix = "look") {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeCameraAssignmentRole(role) {
+  const value = nullableString(role)?.toLowerCase() || "camera";
+  if (value === "aux") return "auxiliary";
+  if (["program", "preview", "auxiliary"].includes(value)) return value;
+  return value;
+}
+
 function cloneAssignments(assignments) {
   if (!Array.isArray(assignments)) return [];
   return assignments.map(item => ({
-    role: nullableString(item?.role) || "camera",
+    role: normalizeCameraAssignmentRole(item?.role),
     cameraId: nullableString(item?.cameraId),
     presetId: nullableString(item?.presetId)
   }));
+}
+
+function normalizeCameraAssignments(input) {
+  const assignments = cloneAssignments(input.cameraAssignments);
+  for (const [role, cameraId] of [["program", nullableString(input.programCameraId)], ["preview", nullableString(input.previewCameraId)]]) {
+    if (!cameraId) continue;
+    const existing = assignments.find(item => item.role === role);
+    if (existing) {
+      if (!existing.cameraId) existing.cameraId = cameraId;
+    } else {
+      assignments.push({ role, cameraId, presetId: null });
+    }
+  }
+  return assignments;
 }
 
 function normalizeProductionLook(input = {}, { now = Date.now() } = {}) {
@@ -46,7 +67,7 @@ function normalizeProductionLook(input = {}, { now = Date.now() } = {}) {
     previewCameraId: nullableString(input.previewCameraId),
     transitionStyle: nullableString(input.transitionStyle) || "cut",
     transitionDurationMs: finiteNumber(input.transitionDurationMs, 0),
-    cameraAssignments: cloneAssignments(input.cameraAssignments),
+    cameraAssignments: normalizeCameraAssignments(input),
     selectedShotId: nullableString(input.selectedShotId),
     motionProfileId: nullableString(input.motionProfileId),
     motionDurationMs: finiteNumber(input.motionDurationMs, 0),
@@ -125,16 +146,109 @@ function findResource(items, id) {
   return nullableString(id) ? (Array.isArray(items) ? items.find(item => item?.id === id) : undefined) : undefined;
 }
 
+function resolveProductionLookCameraAssignments(state, lookOrId, cue = {}) {
+  const look = typeof lookOrId === "string" ? findResource(state?.productionLooks, lookOrId) : lookOrId;
+  const camera = id => findResource(state?.devices, id) || findResource(state?.cameras, id);
+  const preset = id => findResource(state?.cameraPresets, id);
+  const assignments = cloneAssignments(look?.cameraAssignments);
+  const warnings = [];
+  const cueLayout = findResource(state?.cameraLayouts, cue?.cameraLayoutId);
+  const legacyLayout = findResource(state?.cameraLayouts, look?.cameraLayoutId);
+
+  if (cue?.cameraLayoutId && !cueLayout) warnings.push(`Missing cue camera layout: ${cue.cameraLayoutId}`);
+  if (look?.cameraLayoutId && !legacyLayout) warnings.push(`Missing Production Look camera layout: ${look.cameraLayoutId}`);
+
+  function modern(role) {
+    return assignments.find(item => item.role === role && item.cameraId) || null;
+  }
+
+  function resolveRole(role) {
+    const modernAssignment = modern(role);
+    const candidates = [
+      cueLayout ? { cameraId: role === "program" ? cueLayout.programCamera : cueLayout.previewCamera, presetName: role === "program" ? cueLayout.programPreset : cueLayout.previewPreset, source: "cue" } : null,
+      modernAssignment ? { ...modernAssignment, source: "production-look-assignment" } : null,
+      look?.[`${role}CameraId`] ? { cameraId: look[`${role}CameraId`], source: "legacy-video" } : null,
+      legacyLayout ? { cameraId: role === "program" ? legacyLayout.programCamera : legacyLayout.previewCamera, presetName: role === "program" ? legacyLayout.programPreset : legacyLayout.previewPreset, source: "legacy-layout" } : null
+    ].filter(candidate => candidate?.cameraId);
+
+    for (const candidate of candidates) {
+      const resolvedCamera = camera(candidate.cameraId);
+      if (!resolvedCamera) {
+        warnings.push(`Missing ${role} camera (${candidate.source}): ${candidate.cameraId}`);
+        continue;
+      }
+      const presetId = candidate.presetId || null;
+      const resolvedPreset = preset(presetId);
+      if (presetId && !resolvedPreset) warnings.push(`Missing ${role} preset: ${presetId}`);
+      return {
+        role,
+        cameraDeviceId: candidate.cameraId,
+        cameraName: resolvedCamera.name || null,
+        presetId,
+        presetName: resolvedPreset?.name || candidate.presetName || null,
+        source: candidate.source,
+        missing: Boolean(presetId && !resolvedPreset)
+      };
+    }
+
+    const missingCandidate = candidates[0];
+    return {
+      role,
+      cameraDeviceId: missingCandidate?.cameraId || null,
+      cameraName: null,
+      presetId: missingCandidate?.presetId || null,
+      presetName: null,
+      source: missingCandidate?.source || "unassigned",
+      missing: Boolean(missingCandidate)
+    };
+  }
+
+  const program = resolveRole("program");
+  const preview = resolveRole("preview");
+  const auxiliary = assignments
+    .filter(item => item.role === "auxiliary" && (item.cameraId || item.presetId))
+    .map(item => {
+      const resolvedCamera = camera(item.cameraId);
+      const resolvedPreset = preset(item.presetId);
+      if (item.cameraId && !resolvedCamera) warnings.push(`Missing auxiliary camera: ${item.cameraId}`);
+      if (item.presetId && !resolvedPreset) warnings.push(`Missing auxiliary preset: ${item.presetId}`);
+      return {
+        role: "auxiliary",
+        cameraDeviceId: item.cameraId,
+        cameraName: resolvedCamera?.name || null,
+        presetId: item.presetId,
+        presetName: resolvedPreset?.name || null,
+        source: "production-look-assignment",
+        missing: Boolean((item.cameraId && !resolvedCamera) || (item.presetId && !resolvedPreset))
+      };
+    });
+
+  const resolvedAssignments = [program, preview, ...auxiliary];
+  const sources = [program.source, preview.source].filter(source => source !== "unassigned");
+  return {
+    program,
+    preview,
+    auxiliary,
+    programCameraId: program.cameraName ? program.cameraDeviceId : null,
+    previewCameraId: preview.cameraName ? preview.cameraDeviceId : null,
+    auxiliaryCameraIds: auxiliary.filter(item => item.cameraName && item.cameraDeviceId).map(item => item.cameraDeviceId),
+    cameraAssignments: resolvedAssignments,
+    source: sources.includes("cue") ? "cue" : sources.length ? "production-look" : "fallback",
+    warnings
+  };
+}
+
 function resolveProductionLookResources(state, lookOrId) {
   const look = typeof lookOrId === "string" ? findResource(state?.productionLooks, lookOrId) : lookOrId;
   const layout = findResource(state?.cameraLayouts, look?.cameraLayoutId);
   const camera = id => findResource(state?.devices, id) || findResource(state?.cameras, id);
+  const resolvedCameras = resolveProductionLookCameraAssignments(state, look);
   return {
     look: look || null,
     lightingScene: findResource(state?.lightingScenes, look?.lightingSceneId) || null,
     cameraLayout: layout || null,
-    programCamera: camera(look?.programCameraId || layout?.programCamera) || null,
-    previewCamera: camera(look?.previewCameraId || layout?.previewCamera) || null,
+    programCamera: camera(resolvedCameras.programCameraId) || null,
+    previewCamera: camera(resolvedCameras.previewCameraId) || null,
     cameraAssignments: cloneAssignments(look?.cameraAssignments).map(assignment => ({
       ...assignment,
       camera: camera(assignment.cameraId) || null
@@ -168,6 +282,8 @@ module.exports = {
   duplicateProductionLook,
   normalizeProductionLook,
   normalizeProductionLooks,
+  normalizeCameraAssignmentRole,
+  resolveProductionLookCameraAssignments,
   resolveProductionLookResources,
   summarizeProductionLook,
   updateProductionLook,

@@ -9,6 +9,7 @@ function initialState() {
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{ id: "look", lightingSceneId: "light-cue", cameraLayoutId: "layout" }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
+    cameras: [{ id: "main", name: "Main" }, { id: "left", name: "Left" }],
     runOfService: [
       { id: "one", name: "One", productionLookId: "look" },
       { id: "two", name: "Two", productionLookId: "look" },

@@ -1,6 +1,7 @@
 "use strict";
 
 const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
+const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -56,12 +57,14 @@ function normalizeExecutionSnapshot(input) {
       programCameraName: input.video?.programCameraName || null,
       previewCameraId: input.video?.previewCameraId || null,
       previewCameraName: input.video?.previewCameraName || null,
+      auxiliaryCameraIds: Array.isArray(input.video?.auxiliaryCameraIds) ? [...input.video.auxiliaryCameraIds] : [],
       programPreset: input.video?.programPreset || null,
       previewPreset: input.video?.previewPreset || null,
       transitionStyle: input.video?.transitionStyle || "cut",
       transitionDurationMs: Number(input.video?.transitionDurationMs) || 0,
       source: input.video?.source || "Not assigned"
     },
+    cameraAssignments: Array.isArray(input.cameraAssignments) ? input.cameraAssignments.map(item => ({ ...item })) : [],
     cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
     motion: {
       enabled: input.motion?.enabled === true,
@@ -84,7 +87,7 @@ function createExecutionSnapshot(state, cue, plan, executedAt) {
     },
     video: {
       ...plan.video,
-      source: sourceLabel(plan.video.source, cue?.cameraLayoutId || look?.cameraLayoutId || look?.programCameraId || look?.previewCameraId)
+      source: sourceLabel(plan.video.source, cue?.cameraLayoutId || look?.cameraLayoutId || look?.programCameraId || look?.previewCameraId || look?.cameraAssignments?.some(item => item?.cameraId))
     }
   });
 }
@@ -105,6 +108,7 @@ function applyResources(state, resources) {
   }
   if ("programCameraId" in resources) live.programCamera = resources.programCameraId;
   if ("previewCameraId" in resources) live.previewCamera = resources.previewCameraId;
+  if ("auxiliaryCameraIds" in resources) live.auxiliaryCameras = [...resources.auxiliaryCameraIds];
   if ("programPreset" in resources) live.programPreset = resources.programPreset;
   if ("previewPreset" in resources) live.previewPreset = resources.previewPreset;
   return state;
@@ -113,7 +117,15 @@ function applyResources(state, resources) {
 function applyLook(state, lookId) {
   const look = byId(state?.productionLooks, lookId);
   if (!look) return state;
-  return applyResources(state, lookResources(state, look));
+  const cameras = resolveProductionLookCameraAssignments(state, look);
+  return applyResources(state, {
+    ...lookResources(state, look),
+    programCameraId: cameras.programCameraId,
+    previewCameraId: cameras.previewCameraId,
+    auxiliaryCameraIds: cameras.auxiliaryCameraIds,
+    programPreset: cameras.program.presetName,
+    previewPreset: cameras.preview.presetName
+  });
 }
 
 function executeCue(state, requestedIndex, { now = Date.now } = {}) {
@@ -130,6 +142,7 @@ function executeCue(state, requestedIndex, { now = Date.now } = {}) {
     cameraLayoutId: plan.video.cameraLayoutId,
     programCameraId: plan.video.programCameraId,
     previewCameraId: plan.video.previewCameraId,
+    auxiliaryCameraIds: plan.video.auxiliaryCameraIds,
     programPreset: plan.video.programPreset,
     previewPreset: plan.video.previewPreset
   });

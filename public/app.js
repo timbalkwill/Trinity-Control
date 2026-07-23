@@ -46,6 +46,11 @@ const currentCue = () =>
 const currentLook = () =>
   byId(state.productionLooks, currentCue()?.productionLookId);
 
+const liveCameraTiles = () => {
+  const devices = (state.devices || []).filter(device => device.type === 'camera');
+  return devices.length ? devices : (state.cameras || []);
+};
+
 const cueLightingId = cue =>
   cue?.lightingSceneId ||
   byId(state.productionLooks, cue?.productionLookId)?.lightingSceneId ||
@@ -434,33 +439,34 @@ function shell(content) {
 }
 
 function cameraCard(camera) {
-  const isProgram =
-    state.live.programCamera === camera.id;
-
-  const isPreview =
-    state.live.previewCamera === camera.id;
-
-  const selected = isProgram
-  ? state.live.programPreset
-  : isPreview
-    ? state.live.previewPreset
-    : camera.lastPreset || 'Stage Wide';
+  const snapshot = state.live?.executionSnapshot;
+  const role = window.TrinityLookView.cameraRole(state, camera.id);
+  const isProgram = role === 'program';
+  const isPreview = role === 'preview';
+  const isAuxiliary = role === 'auxiliary';
+  const legacyCamera = byId(state.cameras || [], camera.id);
+  const selected = legacyCamera?.lastPreset || 'Stage Wide';
+  const executedAssignment = (snapshot?.cameraAssignments || []).find(item => item.cameraDeviceId === camera.id);
+  const executedPreset = executedAssignment?.presetName || (isProgram ? snapshot?.video?.programPreset : isPreview ? snapshot?.video?.previewPreset : null);
 
   return `
     <article
       class="camera-monitor
         ${isProgram ? 'program' : ''}
-        ${isPreview ? 'preview' : ''}"
+        ${isPreview ? 'preview' : ''}
+        ${isAuxiliary ? 'auxiliary' : ''}"
       data-take-camera="${camera.id}"
     >
       <div class="monitor-topline">
         <span>
           ${
             isProgram
-              ? '● LIVE'
+              ? '● LIVE / PROGRAM'
               : isPreview
                 ? '● PREVIEW'
-                : 'CAMERA'
+                : isAuxiliary
+                  ? '● AUXILIARY'
+                  : 'CAMERA / IDLE'
           }
         </span>
 
@@ -471,15 +477,16 @@ function cameraCard(camera) {
         <div class="lens">◎</div>
 
         <div>
-          ${isProgram ? 'PROGRAM OUTPUT' : 'LIVE CAMERA VIEW'}
+          ${isProgram ? 'PROGRAM OUTPUT' : isPreview ? 'PREVIEW CAMERA' : isAuxiliary ? 'AUXILIARY CAMERA' : 'CAMERA IDLE'}
         </div>
 
         <small>
-          ${escapeHtml(selected || 'Stage Wide')}
+          Executed preset: ${escapeHtml(executedPreset || 'Not assigned')}
         </small>
       </div>
 
       <div class="camera-controls">
+        <label class="manual-preset-label">Manual preset (future)
         <select
           data-camera-preset="${camera.id}"
           aria-label="Preset for ${escapeHtml(camera.name)}"
@@ -493,6 +500,7 @@ function cameraCard(camera) {
             )
             .join('')}
         </select>
+        </label>
 
         <button
           class="${isProgram ? 'live-button' : ''}"
@@ -934,7 +942,7 @@ function livePage() {
         </div>
 
         <div class="camera-grid">
-          ${state.cameras.map(cameraCard).join('')}
+        ${liveCameraTiles().map(cameraCard).join('')}
         </div>
 
         <div class="panel quick-panel">
@@ -1018,7 +1026,7 @@ function livePage() {
             </div>
 
             <div class="status-grid">
-              ${state.cameras
+              ${liveCameraTiles()
                 .map(
                   camera =>
                     `<div>
@@ -1676,9 +1684,13 @@ function looksPage() {
   const selected = byId(state.productionLooks, selectedLookId);
   const filtered = state.productionLooks.filter(look => `${look.name} ${look.description} ${(look.tags || []).join(' ')}`.toLowerCase().includes(lookSearch.toLowerCase()));
   const options = (items, current, empty = 'Not assigned') => `<option value="">${empty}</option>${items.map(item => `<option value="${item.id}" ${item.id === current ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
+  const cameraOptions = liveCameraTiles();
   const assignment = role => {
-    const item = (selected?.cameraAssignments || []).find(value => value.role === role) || {};
-    return `<div class="assignment-row"><strong>${role.toUpperCase()}</strong><select data-assignment="${role}" data-part="cameraId">${options(state.cameras, item.cameraId)}</select><input data-assignment="${role}" data-part="presetId" value="${escapeHtml(item.presetId || '')}" placeholder="Preset name"></div>`;
+    const item = (selected?.cameraAssignments || []).find(value => {
+      const normalized = String(value?.role || '').trim().toLowerCase();
+      return (normalized === 'aux' ? 'auxiliary' : normalized) === role;
+    }) || {};
+    return `<div class="assignment-row"><strong>${role.toUpperCase()}</strong><select data-assignment="${role}" data-part="cameraId">${options(cameraOptions, item.cameraId)}</select><input data-assignment="${role}" data-part="presetId" value="${escapeHtml(item.presetId || '')}" placeholder="Preset ID"></div>`;
   };
   shell(`<div class="page-scroll"><div class="looks-workspace">
     <aside class="panel look-library"><div class="section-title"><span>PRODUCTION LOOKS 2.0</span><strong>${state.productionLooks.length} looks</strong></div>
@@ -1690,8 +1702,8 @@ function looksPage() {
       <div class="look-sections">
         <fieldset><legend>GENERAL</legend><label>Name<input data-look-field="name" value="${escapeHtml(selected.name)}" required></label><label>Description<textarea data-look-field="description">${escapeHtml(selected.description || '')}</textarea></label><label>Color / label<input type="color" data-look-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label><label>Tags<input data-look-field="tags" data-value-type="tags" value="${escapeHtml((selected.tags || []).join(', '))}" placeholder="worship, sermon"></label><label>Operator notes<textarea data-look-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label></fieldset>
         <fieldset><legend>LIGHTING</legend><label>Lighting scene<select data-look-field="lightingSceneId">${options(state.lightingScenes, selected.lightingSceneId)}</select></label><label>Fade (ms)<input type="number" min="0" data-look-field="lightingFadeMs" value="${selected.lightingFadeMs || 0}"></label><label>Stage wash mode<input data-look-field="stageWashMode" value="${escapeHtml(selected.stageWashMode || '')}" placeholder="Optional"></label><label>Wall wash mode<input data-look-field="wallWashMode" value="${escapeHtml(selected.wallWashMode || '')}" placeholder="Optional"></label></fieldset>
-        <fieldset><legend>VIDEO</legend><label>Legacy camera layout<select data-look-field="cameraLayoutId">${options(state.cameraLayouts, selected.cameraLayoutId)}</select></label><label>Program camera<select data-look-field="programCameraId">${options(state.cameras, selected.programCameraId)}</select></label><label>Preview camera<select data-look-field="previewCameraId">${options(state.cameras, selected.previewCameraId)}</select></label><label>Transition<select data-look-field="transitionStyle"><option value="cut" ${selected.transitionStyle === 'cut' ? 'selected' : ''}>Cut</option><option value="mix" ${selected.transitionStyle === 'mix' ? 'selected' : ''}>Mix</option><option value="dip" ${selected.transitionStyle === 'dip' ? 'selected' : ''}>Dip</option></select></label><label>Transition duration (ms)<input type="number" min="0" data-look-field="transitionDurationMs" value="${selected.transitionDurationMs || 0}"></label></fieldset>
-        <fieldset><legend>CAMERAS</legend>${['program', 'preview', 'auxiliary'].map(assignment).join('')}<label>Selected shot (future)<input data-look-field="selectedShotId" value="${escapeHtml(selected.selectedShotId || '')}" placeholder="Optional shot reference"></label></fieldset>
+        <fieldset><legend>VIDEO</legend><label>Legacy camera layout (compatibility fallback)<select data-look-field="cameraLayoutId">${options(state.cameraLayouts, selected.cameraLayoutId)}</select></label><label>Transition<select data-look-field="transitionStyle"><option value="cut" ${selected.transitionStyle === 'cut' ? 'selected' : ''}>Cut</option><option value="mix" ${selected.transitionStyle === 'mix' ? 'selected' : ''}>Mix</option><option value="dip" ${selected.transitionStyle === 'dip' ? 'selected' : ''}>Dip</option></select></label><label>Transition duration (ms)<input type="number" min="0" data-look-field="transitionDurationMs" value="${selected.transitionDurationMs || 0}"></label><p>Legacy direct camera selections remain preserved in saved Looks. The camera assignments below are authoritative.</p></fieldset>
+        <fieldset><legend>CAMERAS · AUTHORITATIVE</legend>${['program', 'preview', 'auxiliary'].map(assignment).join('')}<label>Selected shot (future)<input data-look-field="selectedShotId" value="${escapeHtml(selected.selectedShotId || '')}" placeholder="Optional shot reference"></label></fieldset>
         <fieldset><legend>MOTION</legend><label class="checkbox-label"><input type="checkbox" data-look-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Enable motion</label><label>Motion profile<input data-look-field="motionProfileId" value="${escapeHtml(selected.motionProfileId || '')}" placeholder="Coming later"></label><label>Duration (ms)<input type="number" min="0" data-look-field="motionDurationMs" value="${selected.motionDurationMs || 0}"></label><label>Speed<input type="number" min="0" step="0.1" data-look-field="motionSpeed" value="${selected.motionSpeed || 1}"></label></fieldset>
         <fieldset class="future-section"><legend>FUTURE INTEGRATIONS</legend><label>Audio scene<input data-look-field="audioSceneId" value="${escapeHtml(selected.audioSceneId || '')}" placeholder="Coming later"></label><label>Presentation cue<input data-look-field="presentationCueId" value="${escapeHtml(selected.presentationCueId || '')}" placeholder="Coming later"></label><p>Hardware communication is not enabled. These references are stored for future QLC+, ATEM, PTZ, Motion Studio, audio, and presentation adapters.</p></fieldset>
       </div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>

@@ -110,6 +110,59 @@ test("executed Production Look snapshot includes inherited live display fields",
   assert.equal(snapshot.executedAt, 5000);
 });
 
+test("modern camera assignments populate authoritative execution snapshot and Live state", () => {
+  const current = state();
+  current.cameraPresets = [{ id: "wide-id", name: "Wide preset" }, { id: "tight-id", name: "Tight preset" }];
+  current.productionLooks[0] = {
+    ...current.productionLooks[0],
+    cameraLayoutId: null,
+    programCameraId: null,
+    previewCameraId: null,
+    cameraAssignments: [
+      { role: "PROGRAM", cameraId: "right", presetId: "tight-id" },
+      { role: "PREVIEW", cameraId: "left", presetId: "wide-id" },
+      { role: "AUX", cameraId: "main", presetId: null }
+    ]
+  };
+  executeCue(current, 0, { now: () => 6000 });
+  assert.equal(current.live.programCamera, "right");
+  assert.equal(current.live.previewCamera, "left");
+  assert.deepEqual(current.live.auxiliaryCameras, ["main"]);
+  assert.equal(current.live.executionSnapshot.video.programCameraName, "Right Camera");
+  assert.equal(current.live.executionSnapshot.video.previewCameraName, "Left Camera");
+  assert.equal(current.live.executionSnapshot.cameraAssignments[0].presetName, "Tight preset");
+  assert.equal(current.live.executionSnapshot.video.source, "From Production Look");
+});
+
+test("Live camera roles are based on stable snapshot IDs and survive library reordering", () => {
+  const current = state();
+  executeCue(current, 1, { now: () => 7000 });
+  require("../public/production-look-view.js");
+  current.cameras.reverse();
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "right"), "program");
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "main"), "preview");
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "left"), "idle");
+});
+
+test("editing camera assignments does not change Live roles until re-execution", () => {
+  const current = state();
+  current.productionLooks[0].cameraAssignments = [
+    { role: "program", cameraId: "main" },
+    { role: "preview", cameraId: "left" }
+  ];
+  executeCue(current, 0, { now: () => 1 });
+  require("../public/production-look-view.js");
+  current.productionLooks[0].cameraAssignments = [
+    { role: "program", cameraId: "right" },
+    { role: "preview", cameraId: "main" }
+  ];
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "main"), "program");
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "right"), "idle");
+  executeCue(current, 0, { now: () => 2 });
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "right"), "program");
+  assert.equal(globalThis.TrinityLookView.cameraRole(current, "main"), "preview");
+});
+
 test("editing inactive or active Looks does not alter executed state until re-execution", () => {
   const current = state();
   current.productionLooks.push({ id: "inactive", name: "Inactive", lightingSceneId: "light-override" });

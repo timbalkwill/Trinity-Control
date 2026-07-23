@@ -6,6 +6,7 @@ const {
   deleteProductionLook,
   duplicateProductionLook,
   normalizeProductionLook,
+  resolveProductionLookCameraAssignments,
   resolveProductionLookResources,
   summarizeProductionLook,
   updateProductionLook,
@@ -16,6 +17,7 @@ const { buildCueExecutionPlan } = require("../cue-execution-plan.cjs");
 function fixture() {
   return {
     cameras: [{ id: "main", name: "Main" }, { id: "left", name: "Left" }],
+    cameraPresets: [{ id: "wide", name: "Wide" }, { id: "tight", name: "Tight" }],
     lightingScenes: [{ id: "warm", name: "Warm" }, { id: "blue", name: "Blue" }],
     cameraLayouts: [{ id: "layout", name: "Layout", programCamera: "main", previewCamera: "left", programPreset: "Wide", previewPreset: "Left" }],
     productionLooks: [],
@@ -42,6 +44,81 @@ test("migration is idempotent and tolerates null fields", () => {
   assert.deepEqual(normalizeProductionLook(migrated), migrated);
   assert.equal(migrated.lightingSceneId, null);
   assert.deepEqual(migrated.tags, []);
+});
+
+test("migration canonicalizes roles and preserves legacy camera selections", () => {
+  const migrated = normalizeProductionLook({
+    id: "one",
+    name: "One",
+    programCameraId: "main",
+    previewCameraId: "left",
+    cameraAssignments: [
+      { role: "PROGRAM", cameraId: "", presetId: "wide" },
+      { role: "Aux", cameraId: "left", presetId: "tight" }
+    ]
+  });
+  assert.deepEqual(migrated.cameraAssignments, [
+    { role: "program", cameraId: "main", presetId: "wide" },
+    { role: "auxiliary", cameraId: "left", presetId: "tight" },
+    { role: "preview", cameraId: "left", presetId: null }
+  ]);
+  assert.deepEqual(normalizeProductionLook(migrated), migrated);
+});
+
+test("modern camera assignments are authoritative over legacy fields and layouts", () => {
+  const state = fixture();
+  const look = {
+    id: "look",
+    cameraLayoutId: "layout",
+    programCameraId: "left",
+    previewCameraId: "main",
+    cameraAssignments: [
+      { role: "PROGRAM", cameraId: "main", presetId: "wide" },
+      { role: "preview", cameraId: "left", presetId: "tight" },
+      { role: "AUX", cameraId: "main" }
+    ]
+  };
+  const resolved = resolveProductionLookCameraAssignments(state, look);
+  assert.equal(resolved.programCameraId, "main");
+  assert.equal(resolved.previewCameraId, "left");
+  assert.deepEqual(resolved.auxiliaryCameraIds, ["main"]);
+  assert.equal(resolved.program.presetName, "Wide");
+  assert.equal(resolved.preview.presetName, "Tight");
+});
+
+test("legacy direct selections and layout remain deterministic fallbacks", () => {
+  const state = fixture();
+  const direct = resolveProductionLookCameraAssignments(state, { programCameraId: "main", previewCameraId: "left", cameraAssignments: [] });
+  assert.equal(direct.program.source, "legacy-video");
+  assert.equal(direct.preview.source, "legacy-video");
+  const layout = resolveProductionLookCameraAssignments(state, { cameraLayoutId: "layout", cameraAssignments: [] });
+  assert.equal(layout.program.source, "legacy-layout");
+  assert.equal(layout.preview.source, "legacy-layout");
+});
+
+test("invalid modern assignments warn and fall through to valid legacy selections", () => {
+  const state = fixture();
+  const resolved = resolveProductionLookCameraAssignments(state, {
+    programCameraId: "main",
+    previewCameraId: "left",
+    cameraAssignments: [{ role: "program", cameraId: "missing" }]
+  });
+  assert.equal(resolved.programCameraId, "main");
+  assert.equal(resolved.previewCameraId, "left");
+  assert.ok(resolved.warnings.some(warning => warning.includes("Missing program camera")));
+});
+
+test("cue camera layout overrides Production Look camera assignments", () => {
+  const state = fixture();
+  const resolved = resolveProductionLookCameraAssignments(state, {
+    cameraAssignments: [
+      { role: "program", cameraId: "left" },
+      { role: "preview", cameraId: "main" }
+    ]
+  }, { cameraLayoutId: "layout" });
+  assert.equal(resolved.programCameraId, "main");
+  assert.equal(resolved.previewCameraId, "left");
+  assert.equal(resolved.program.source, "cue");
 });
 
 test("create, update, duplicate, and delete use isolated objects", () => {

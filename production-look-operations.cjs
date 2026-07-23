@@ -146,7 +146,10 @@ function summarizeProductionLook(state, lookOrId) {
   const resources = resolveProductionLookResources(state, lookOrId);
   const look = resources.look;
   if (!look) return { name: "Not assigned", lighting: "Not assigned", programCamera: "Not assigned", previewCamera: "Not assigned", presets: "No presets", motion: "Off", enabled: false };
-  const presets = resources.cameraAssignments.filter(item => item.presetId).map(item => `${item.role}: ${item.presetId}`).join(", ");
+  const presets = resources.cameraAssignments.filter(item => item.presetId).map(item => {
+    const preset = findResource(state?.cameraPresets, item.presetId);
+    return `${item.role}: ${preset?.name || `Missing: ${item.presetId}`}`;
+  }).join(", ");
   return {
     name: look.name || "Untitled Look",
     lighting: resources.lightingScene?.name || (look.lightingSceneId ? `Missing: ${look.lightingSceneId}` : "Not assigned"),

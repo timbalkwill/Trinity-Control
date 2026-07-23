@@ -43,3 +43,11 @@ Select **⚙ SETTINGS** to leave the live production pages and enter the clearly
 Device and camera changes save immediately. Camera credentials remain behind the Electron preload boundary and are never sent to Browser Operator. Duplicate enabled logical roles display a warning but do not alter references.
 
 **Diagnostics** performs configuration-only stub tests. Results such as **Not configured**, **Disabled**, **Adapter not implemented**, and **Ready for future test** are honest readiness states—not hardware connection results.
+
+## Camera Manager
+
+Open **CAMERAS** for the operational Camera Manager. Main, Left, and Right appear first when configured, with additional cameras afterward. Select a camera to inspect readiness, known program/preview state, current preset, diagnostics, capabilities, and presets.
+
+Use search and category filters to find presets. The star marks favorites. Create, edit, duplicate, reorder, disable, or delete presets from the selected camera. Referenced deletion asks for confirmation and leaves a visible missing reference for later repair.
+
+Capability choices are manual until hardware adapters exist: **Supported**, **Not supported**, **Unknown**, or **Adapter required**. Future control buttons are intentionally disabled. Use **Settings → Cameras** to edit connection details, credentials, model, enable state, or logical role.

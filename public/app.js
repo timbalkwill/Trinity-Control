@@ -10,6 +10,10 @@ let settingsSection = 'devices';
 let selectedDeviceId = null;
 let deviceTypeFilter = '';
 let deviceEnabledFilter = '';
+let selectedManagedCameraId = null;
+let selectedCameraPresetId = null;
+let cameraPresetSearch = '';
+let cameraPresetCategory = '';
 
 const nav = [
   ['live', 'LIVE'],
@@ -1801,108 +1805,94 @@ function lightingPage() {
 }
 
 function camerasPage() {
-  shell(`
-    <div class="page-scroll">
-      <section class="panel operator-server-panel">
-        <div class="section-title">
-          <span>BROWSER OPERATOR</span>
-          <strong>${operatorServerStatus?.running ? 'Running' : 'Unavailable'}</strong>
-        </div>
-        <div class="metrics vertical">
-          <span>Port <b>${escapeHtml(operatorServerStatus?.port || 4310)}</b></span>
-          <span>Local <b>${escapeHtml(operatorServerStatus?.localUrl || 'http://localhost:4310')}</b></span>
-          ${(operatorServerStatus?.networkUrls || []).map(url => `<span>Network <b>${escapeHtml(url)}</b></span>`).join('')}
-          ${operatorServerStatus?.error ? `<span>Problem <b>${escapeHtml(operatorServerStatus.error)}</b></span>` : ''}
-        </div>
+  const roleOrder = { main: 0, left: 1, right: 2 };
+  const cameraPriority = device => device.id === 'main' || device.logicalRole === 'main' || (device.logicalRole === 'center' && /\bmain\b/i.test(device.name)) ? 0 : roleOrder[device.logicalRole] ?? 3;
+  const devices = (state.devices || []).filter(device => device.type === 'camera').sort((a, b) => cameraPriority(a) - cameraPriority(b));
+  if (!selectedManagedCameraId || !devices.some(device => device.id === selectedManagedCameraId)) selectedManagedCameraId = devices[0]?.id || null;
+  const selected = devices.find(device => device.id === selectedManagedCameraId);
+  const managerMetadata = selected?.metadata?.cameraManager || {};
+  const capabilityKeys = [['panTilt','Pan / tilt'],['zoom','Zoom'],['focus','Focus'],['presetRecall','Preset recall'],['presetSave','Preset save'],['tracking','Tracking'],['motion','Motion'],['tally','Tally'],['preview','Preview']];
+  const capabilities = managerMetadata.capabilities || {};
+  const inferredCapability = key => capabilities[key] || (['presetRecall','presetSave'].includes(key) && selected?.presetSupport ? 'supported' : ['tracking'].includes(key) && selected?.trackingEnabled ? 'supported' : ['motion'].includes(key) && selected?.motionEnabled ? 'supported' : selected?.protocol && ['panTilt','zoom'].includes(key) ? 'adapterRequired' : 'unknown');
+  const allPresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === selected?.id);
+  const categories = [...new Set((state.cameraPresets || []).map(preset => preset.category).filter(Boolean))];
+  const presets = allPresets.filter(preset => (!cameraPresetCategory || preset.category === cameraPresetCategory) && (!cameraPresetSearch || `${preset.name} ${preset.category || ''}`.toLowerCase().includes(cameraPresetSearch.toLowerCase())));
+  const currentPreset = allPresets.find(preset => preset.id === managerMetadata.currentPresetId);
+  const diagnostic = selected?.metadata?.diagnostic;
+  const readiness = !selected?.enabled ? 'Disabled' : !deviceConfigured(selected) ? 'Not configured' : diagnostic?.message || 'Adapter not implemented';
+  const selectedPreset = (state.cameraPresets || []).find(preset => preset.id === selectedCameraPresetId);
+  const cameraCard = device => {
+    const devicePresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === device.id);
+    const favorites = devicePresets.filter(preset => preset.favorite && preset.enabled);
+    const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || 'Adapter not implemented';
+    return `<button class="managed-camera-card ${device.id === selected?.id ? 'selected' : ''}" data-managed-camera="${device.id}">
+      <div><span class="role-pill">${escapeHtml(device.logicalRole || 'camera')}</span><strong>${escapeHtml(device.name)}</strong></div>
+      <small>${escapeHtml([device.manufacturer, device.model].filter(Boolean).join(' ') || 'Model not assigned')}</small>
+      <span class="readiness">${escapeHtml(status)}</span>
+      <small>${devicePresets.length} presets · ${favorites.length} favorites</small>
+    </button>`;
+  };
+  const presetRow = (preset, index) => `<div class="preset-row ${preset.enabled ? '' : 'disabled'}">
+    <button class="favorite-button" data-favorite-preset="${preset.id}" title="Favorite">${preset.favorite ? '★' : '☆'}</button>
+    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Uncategorized')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'}</small></div>
+    <button data-edit-preset="${preset.id}">EDIT</button><button data-duplicate-preset="${preset.id}">DUPLICATE</button>
+    <button data-move-preset="${preset.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-preset="${preset.id}" data-direction="1" ${index === presets.length - 1 ? 'disabled' : ''}>↓</button>
+    <button class="danger" data-delete-preset="${preset.id}">DELETE</button>
+  </div>`;
+  const presetEditor = selectedPreset ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
+    <div class="look-editor-header"><div><span class="eyebrow">CAMERA PRESET</span><h1>${escapeHtml(selectedPreset.name)}</h1></div><button id="preset-editor-close">×</button></div>
+    <div class="settings-form">
+      <label>Name<input data-preset-field="name" value="${escapeHtml(selectedPreset.name)}"></label>
+      <label>Preset number<input type="number" min="0" data-preset-field="presetNumber" value="${selectedPreset.presetNumber ?? ''}"></label>
+      <label>Category<input data-preset-field="category" list="preset-categories" value="${escapeHtml(selectedPreset.category || '')}"><datalist id="preset-categories">${['Pastor','Platform','Piano','Choir','Baptistry','Congregation','Wide','Utility'].map(category => `<option value="${category}">`).join('')}</datalist></label>
+      <label class="checkbox-label"><input type="checkbox" data-preset-field="favorite" ${selectedPreset.favorite ? 'checked' : ''}> Favorite</label>
+      <label class="checkbox-label"><input type="checkbox" data-preset-field="enabled" ${selectedPreset.enabled ? 'checked' : ''}> Enabled</label>
+      <label class="wide">Notes<textarea data-preset-field="notes">${escapeHtml(selectedPreset.notes || '')}</textarea></label>
+    </div><div class="settings-editor-actions"><span>Saved immediately. Recall requires a future adapter.</span><button id="preset-editor-done">DONE</button></div>
+  </section></div>` : '';
+
+  shell(`<div class="camera-manager page-scroll">
+    <div class="camera-manager-heading"><div><span class="eyebrow">OPERATIONAL CAMERA MANAGER</span><h1>Cameras</h1><p>Capabilities, presets, readiness, and known operational state. Network settings remain in Settings.</p></div><button id="configure-camera-device">CONFIGURE DEVICE</button></div>
+    <div class="managed-camera-strip">${devices.map(cameraCard).join('')}</div>
+    ${selected ? `<div class="camera-detail-grid">
+      <section class="panel camera-overview"><div class="section-title"><span>OVERVIEW</span><strong>${escapeHtml(selected.name)}</strong></div>
+        <div class="camera-status-hero"><span class="role-pill">${escapeHtml(selected.logicalRole)}</span><b>${escapeHtml(readiness)}</b></div>
+        <div class="metrics vertical"><span>Model <b>${escapeHtml([selected.manufacturer, selected.model].filter(Boolean).join(' ') || 'Not assigned')}</b></span><span>Configured <b>${deviceConfigured(selected) ? 'Yes' : 'No'}</b></span><span>Current preset <b>${escapeHtml(currentPreset?.name || 'Unknown')}</b></span><span>Tracking <b>${escapeHtml(managerMetadata.trackingState || 'Unknown')}</b></span><span>Motion <b>${escapeHtml(managerMetadata.motionState || 'Unknown')}</b></span><span>Output <b>${state.live?.programCamera === selected.id ? 'PROGRAM' : state.live?.previewCamera === selected.id ? 'PREVIEW' : 'Standby'}</b></span></div>
+        <div class="row-actions"><button id="run-camera-diagnostic">RUN DIAGNOSTIC</button><button id="camera-settings-link">SETTINGS → CAMERAS</button></div>
       </section>
-      <section class="panel">
-        <div class="section-title">
-          <span>CAMERA LAYOUTS</span>
-
-          <strong>
-            ${state.cameraLayouts.length}
-            layouts
-          </strong>
-        </div>
-
-        <div class="card-grid">
-          ${state.cameraLayouts
-            .map(
-              layout =>
-                `<article
-                  class="edit-card
-                    ${
-                      layout.favorite
-                        ? 'favorite'
-                        : ''
-                    }"
-                >
-                  <small>
-                    ${escapeHtml(
-                      layout.category || 'Custom'
-                    )}
-                  </small>
-
-                  <h2>
-                    ${escapeHtml(layout.name)}
-                  </h2>
-
-                  <div class="metrics vertical">
-                    <span>
-                      Program
-
-                      <b>
-                        ${escapeHtml(
-                          byId(
-                            state.cameras,
-                            layout.programCamera
-                          )?.name ||
-                          layout.programCamera
-                        )}
-                        ·
-                        ${escapeHtml(
-                          layout.programPreset
-                        )}
-                      </b>
-                    </span>
-
-                    <span>
-                      Preview
-
-                      <b>
-                        ${escapeHtml(
-                          byId(
-                            state.cameras,
-                            layout.previewCamera
-                          )?.name ||
-                          layout.previewCamera
-                        )}
-                        ·
-                        ${escapeHtml(
-                          layout.previewPreset
-                        )}
-                      </b>
-                    </span>
-
-                    <span>
-                      Tracking
-
-                      <b>
-                        ${
-                          layout.tracking
-                            ? 'ON'
-                            : 'OFF'
-                        }
-                      </b>
-                    </span>
-                  </div>
-                </article>`
-            )
-            .join('')}
-        </div>
+      <section class="panel capability-panel"><div class="section-title"><span>CAPABILITIES</span><strong>Manual until adapter support</strong></div>
+        <div class="capability-grid">${capabilityKeys.map(([key,label]) => `<label><span>${label}</span><select data-capability="${key}">${[['unknown','Unknown'],['supported','Supported'],['notSupported','Not supported'],['adapterRequired','Adapter required']].map(([value,name]) => `<option value="${value}" ${inferredCapability(key) === value ? 'selected' : ''}>${name}</option>`).join('')}</select></label>`).join('')}</div>
       </section>
-    </div>
-  `);
+      <section class="panel preset-panel"><div class="section-title"><span>PRESETS</span><strong>${allPresets.length} for ${escapeHtml(selected.name)}</strong></div>
+        <div class="preset-toolbar"><input id="preset-search" value="${escapeHtml(cameraPresetSearch)}" placeholder="Search presets"><select id="preset-category"><option value="">All categories</option>${categories.map(category => `<option ${cameraPresetCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><button id="create-preset">CREATE PRESET</button></div>
+        <div class="preset-list">${presets.length ? presets.map(presetRow).join('') : '<div class="empty-state">No matching presets. Create an operational name such as Pastor Tight or Main Wide.</div>'}</div>
+      </section>
+      <section class="panel future-control"><div class="section-title"><span>FUTURE CONTROL</span><strong>Adapter not implemented</strong></div><div class="future-control-grid"><button disabled>PAN / TILT</button><button disabled>ZOOM</button><button disabled>TRACKING TOGGLE</button><button disabled>RECALL PRESET</button><div class="preview-placeholder">CAMERA PREVIEW<br><small>Adapter not implemented</small></div></div></section>
+    </div>` : '<div class="empty-state">No camera devices configured.</div>'}
+  </div>${presetEditor}`);
+
+  document.querySelectorAll('[data-managed-camera]').forEach(button => button.onclick = () => { selectedManagedCameraId = button.dataset.managedCamera; selectedCameraPresetId = null; render(); });
+  document.getElementById('configure-camera-device')?.addEventListener('click', () => { page = 'settings'; settingsSection = 'cameras'; selectedDeviceId = selected?.id || null; render(); });
+  document.getElementById('camera-settings-link')?.addEventListener('click', () => { page = 'settings'; settingsSection = 'cameras'; selectedDeviceId = selected.id; render(); });
+  document.getElementById('run-camera-diagnostic')?.addEventListener('click', async () => { state = await window.trinity.testDevice(selected.id); render(); });
+  document.getElementById('preset-search')?.addEventListener('input', event => { cameraPresetSearch = event.target.value; render(); });
+  document.getElementById('preset-category')?.addEventListener('change', event => { cameraPresetCategory = event.target.value; render(); });
+  document.getElementById('create-preset')?.addEventListener('click', async () => { state = await window.trinity.createCameraPreset({ name: 'New Preset', cameraDeviceId: selected.id, logicalRole: selected.logicalRole, category: 'Utility', enabled: true }); selectedCameraPresetId = state.cameraPresets.at(-1).id; render(); });
+  document.querySelectorAll('[data-edit-preset]').forEach(button => button.onclick = () => { selectedCameraPresetId = button.dataset.editPreset; render(); });
+  document.querySelectorAll('[data-duplicate-preset]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateCameraPreset(button.dataset.duplicatePreset); render(); });
+  document.querySelectorAll('[data-favorite-preset]').forEach(button => button.onclick = async () => { const preset = byId(state.cameraPresets, button.dataset.favoritePreset); state = await window.trinity.updateCameraPreset(preset.id, { favorite: !preset.favorite }); render(); });
+  document.querySelectorAll('[data-move-preset]').forEach(button => button.onclick = async () => { const preset = byId(state.cameraPresets, button.dataset.movePreset); const ordered = (state.cameraPresets || []).filter(item => item.cameraDeviceId === selected.id); const from = ordered.findIndex(item => item.id === preset.id); state = await window.trinity.reorderCameraPreset(selected.id, from, from + Number(button.dataset.direction)); render(); });
+  document.querySelectorAll('[data-delete-preset]').forEach(button => button.onclick = async () => {
+    const preset = byId(state.cameraPresets, button.dataset.deletePreset);
+    const references = [...(state.productionLooks || []).flatMap(look => (look.cameraAssignments || []).filter(item => item.presetId === preset.id)), ...(state.runOfService || []).filter(cue => [cue.cameraPresetId, cue.presetId].includes(preset.id))];
+    const confirmReferences = references.length ? window.confirm(`${preset.name} has ${references.length} reference${references.length === 1 ? '' : 's'}. Delete and preserve missing references?`) : window.confirm(`Delete ${preset.name}?`);
+    if (!confirmReferences) return;
+    state = await window.trinity.deleteCameraPreset(preset.id, { confirmReferences: references.length > 0 }); render();
+  });
+  document.querySelectorAll('[data-capability]').forEach(select => select.onchange = async () => { const nextCapabilities = { ...(selected.metadata?.cameraManager?.capabilities || {}), [select.dataset.capability]: select.value }; state = await window.trinity.updateDevice(selected.id, { metadata: { ...selected.metadata, cameraManager: { ...managerMetadata, capabilities: nextCapabilities } } }); render(); });
+  document.querySelectorAll('[data-preset-field]').forEach(input => input.onchange = async () => { const field = input.dataset.presetField; let value = input.type === 'checkbox' ? input.checked : input.value; if (field === 'presetNumber') value = value === '' ? null : Number(value); state = await window.trinity.updateCameraPreset(selectedPreset.id, { [field]: value }); render(); });
+  document.getElementById('preset-editor-close')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
+  document.getElementById('preset-editor-done')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
 }
 
 function deviceConfigured(device) {

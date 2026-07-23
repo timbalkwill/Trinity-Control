@@ -48,3 +48,9 @@ No external hardware communication is included yet. Future adapters can consume 
 - presentation cue triggers
 
 Adapters should report execution results separately and must not mutate Production Looks or cue overrides.
+
+## Camera Manager compatibility
+
+Camera assignments continue to reference stable camera device IDs and optional preset IDs. Camera Manager resolves their human-readable names without rewriting the Look. Deleted or unavailable cameras and presets remain visible as missing references.
+
+Editing camera capabilities, operational metadata, or presets does not mutate a Production Look or cue. Cue-specific camera-layout overrides retain precedence, execution-plan generation remains pure, and no preset recall or camera switching is activated by Camera Manager.

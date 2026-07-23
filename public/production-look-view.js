@@ -19,7 +19,8 @@
   function summarize(state, cue) {
     const resources = resolve(state, cue);
     const look = resources.look;
-    const presets = Array.isArray(look?.cameraAssignments) ? look.cameraAssignments.filter(item => item?.presetId).map(item => `${item.role}: ${item.presetId}`).join(", ") : "";
+    const presetLibrary = state?.cameraPresets || state?.cameraPresetSummaries || [];
+    const presets = Array.isArray(look?.cameraAssignments) ? look.cameraAssignments.filter(item => item?.presetId).map(item => `${item.role}: ${byId(presetLibrary, item.presetId)?.name || `Missing: ${item.presetId}`}`).join(", ") : "";
     return { name: look?.name || "Not assigned", lighting: resources.lighting?.name || "Not assigned", programCamera: resources.programCamera?.name || "Not assigned", previewCamera: resources.previewCamera?.name || "Not assigned", presets: presets || "No presets", motion: look?.motionEnabled ? `On · ${look.motionSpeed || 1}x` : "Off", enabled: look?.enabled !== false, lightingSource: resources.lightingSource, cameraSource: resources.cameraSource };
   }
   function card(state, cue, { compact = false } = {}) {

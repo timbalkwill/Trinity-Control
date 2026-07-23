@@ -56,3 +56,9 @@ Diagnostics stores a timestamped stub result per device. Current outcomes are:
 No current diagnostic opens a socket or claims a hardware connection.
 
 Future PTZ, QLC+, ATEM, X32, and presentation adapters should consume validated configuration and report real results without mutating device identity, Production Looks, cues, or execution plans.
+
+## Camera Manager boundary
+
+Device Configuration answers what camera hardware exists and how it connects. Camera Manager uses the same camera device IDs to describe operational capabilities, presets, readiness, and known live state. It never duplicates credential or network editing.
+
+Camera Manager metadata lives under `device.metadata.cameraManager`; presets live in the separate versioned `state.cameraPresets` collection. Editing a capability or preset does not rewrite the camera device identity, Production Looks, or cues.

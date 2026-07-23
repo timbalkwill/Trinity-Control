@@ -119,3 +119,18 @@ test("device configuration commands share serialized authoritative state", async
   result = await commands.deleteDevice(result.devices[1].id);
   assert.equal(result.devices.length, 1);
 });
+
+test("camera preset commands use the same serialized authoritative state", async () => {
+  const { commands } = harness();
+  await commands.createDevice({ id: "main", type: "camera", name: "Main Camera", logicalRole: "main", enabled: true });
+  let result = await commands.createCameraPreset({ id: "preset-one", cameraDeviceId: "main", name: "Pastor Tight", presetNumber: 1, favorite: true });
+  assert.equal(result.cameraPresets[0].name, "Pastor Tight");
+  result = await commands.updateCameraPreset("preset-one", { category: "Pastor" });
+  assert.equal(result.cameraPresets[0].category, "Pastor");
+  result = await commands.duplicateCameraPreset("preset-one");
+  assert.notEqual(result.cameraPresets[1].id, "preset-one");
+  result = await commands.reorderCameraPreset("main", 0, 1);
+  assert.equal(result.cameraPresets[1].id, "preset-one");
+  result = await commands.deleteCameraPreset(result.cameraPresets[0].id);
+  assert.equal(result.cameraPresets.length, 1);
+});

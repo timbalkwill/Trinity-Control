@@ -25,6 +25,7 @@ function initialState() {
       metadata: {}
     }],
     configuration: { privateValue: "hidden" },
+    cameraPresets: [{ id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{ id: "look", lightingSceneId: "light-cue", cameraLayoutId: "layout" }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
@@ -117,7 +118,10 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal("devices" in state, false);
       assert.equal("configuration" in state, false);
       assert.equal(state.deviceSummaries[0].name, "Main Camera");
-      assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue/);
+      assert.equal(state.managedCameras[0].displayName, "Main Camera");
+      assert.equal(state.cameraPresetSummaries[0].name, "Pastor Tight");
+      assert.equal("cameraPresets" in state, false);
+      assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue|private-preset-notes|10\.0\.0\.5/);
       assert.equal(response.headers.get("cache-control"), "no-store");
     });
     await t.test("GO command", async () => {

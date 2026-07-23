@@ -4,6 +4,7 @@ const { executeCue } = require("./cue-execution.cjs");
 const service = require("./service-operations.cjs");
 const looks = require("./production-look-operations.cjs");
 const devices = require("./device-operations.cjs");
+const presets = require("./camera-preset-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
   const subscribers = new Set();
@@ -89,6 +90,11 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
       for (const device of state.devices || []) devices.runDeviceDiagnostic(state, device.id);
     }),
     clearDeviceDiagnostic: deviceId => mutate(state => devices.clearDeviceDiagnostic(state, deviceId)),
+    createCameraPreset: input => mutate(state => presets.createCameraPreset(state, input)),
+    updateCameraPreset: (presetId, patch) => mutate(state => presets.updateCameraPreset(state, presetId, patch)),
+    duplicateCameraPreset: presetId => mutate(state => presets.duplicateCameraPreset(state, presetId)),
+    deleteCameraPreset: (presetId, options) => mutate(state => presets.deleteCameraPreset(state, presetId, options)),
+    reorderCameraPreset: (cameraDeviceId, from, to) => mutate(state => presets.reorderCameraPreset(state, cameraDeviceId, from, to)),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

@@ -1,4 +1,4 @@
-.compact-operator { height: 100vh; overflow: hidden; grid-template-rows: auto auto auto auto minmax(0, 1fr); }
+.compact-operator { height: 100vh; overflow: hidden; grid-template-rows: auto auto auto auto auto minmax(0, 1fr); }
 .compact-operator .summary { grid-template-columns: 1.35fr 1fr .65fr; }
 .compact-operator .summary h2 { margin: 6px 0; }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; }

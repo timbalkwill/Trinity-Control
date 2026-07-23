@@ -1,5 +1,6 @@
 "use strict";
 
+const { buildManagedCameraProjection, summarizeManagedCamera } = require("./camera-manager-operations.cjs");
 const DEVICE_SCHEMA_VERSION = 1;
 const DEVICE_TYPES = new Set(["camera", "lighting", "switcher", "audio", "presentation", "browserOperator"]);
 const EPOCH = "1970-01-01T00:00:00.000Z";
@@ -285,6 +286,7 @@ function browserSafeDeviceSummary(device, state) {
 }
 
 function projectBrowserState(state) {
+  const managedCameras = buildManagedCameraProjection(state).map(summarizeManagedCamera);
   const projected = {
     ...state,
     cameras: (state?.cameras || []).map(camera => ({
@@ -294,9 +296,20 @@ function projectBrowserState(state) {
       online: camera.online,
       enabled: camera.enabled
     })),
-    deviceSummaries: (state?.devices || []).filter(device => device.enabled || device.type === "camera").map(device => browserSafeDeviceSummary(device, state))
+    deviceSummaries: (state?.devices || []).filter(device => device.enabled || device.type === "camera").map(device => browserSafeDeviceSummary(device, state)),
+    managedCameras,
+    cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
+      id: preset.id,
+      name: preset.name,
+      cameraDeviceId: preset.cameraDeviceId,
+      logicalRole: preset.logicalRole,
+      enabled: preset.enabled !== false,
+      favorite: preset.favorite === true,
+      category: preset.category || null
+    }))
   };
   delete projected.devices;
+  delete projected.cameraPresets;
   delete projected.configuration;
   return projected;
 }

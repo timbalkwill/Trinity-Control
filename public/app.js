@@ -14,6 +14,7 @@ let selectedManagedCameraId = null;
 let selectedCameraPresetId = null;
 let cameraPresetSearch = '';
 let cameraPresetCategory = '';
+const suggestedPresetCategories = ['Pastor', 'Platform', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 
 const nav = [
   ['live', 'LIVE'],
@@ -905,6 +906,7 @@ function livePage() {
               <strong>
                 ${escapeHtml(lighting?.name || 'None')}
               </strong>
+              <small>${escapeHtml(currentLookDetails.lightingSource)} · Fade ${currentLookDetails.lightingFadeMs || 0} ms · Stage ${escapeHtml(currentLookDetails.stageWashMode)} · Wall ${escapeHtml(currentLookDetails.wallWashMode)}</small>
             </div>
 
             <div class="summary-metric">
@@ -913,7 +915,8 @@ function livePage() {
               <strong>
                 ${escapeHtml(currentLookDetails.name)}
               </strong>
-              <small>🎥 ${escapeHtml(currentLookDetails.programCamera)} / ${escapeHtml(currentLookDetails.previewCamera)} · 📍 ${escapeHtml(currentLookDetails.presets)} · Motion ${escapeHtml(currentLookDetails.motion)}</small>
+              <small>🎥 ${escapeHtml(currentLookDetails.programCamera)} / ${escapeHtml(currentLookDetails.previewCamera)} (${escapeHtml(currentLookDetails.cameraSource)}) · Layout ${escapeHtml(currentLookDetails.cameraLayout)} · 📍 ${escapeHtml(currentLookDetails.presets)} · Motion ${escapeHtml(currentLookDetails.motion)}</small>
+              ${currentLookDetails.warnings?.length ? `<small class="device-error">⚠ ${escapeHtml(currentLookDetails.warnings.join('; '))}</small>` : ''}
             </div>
           </div>
 
@@ -1815,8 +1818,13 @@ function camerasPage() {
   const capabilities = managerMetadata.capabilities || {};
   const inferredCapability = key => capabilities[key] || (['presetRecall','presetSave'].includes(key) && selected?.presetSupport ? 'supported' : ['tracking'].includes(key) && selected?.trackingEnabled ? 'supported' : ['motion'].includes(key) && selected?.motionEnabled ? 'supported' : selected?.protocol && ['panTilt','zoom'].includes(key) ? 'adapterRequired' : 'unknown');
   const allPresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === selected?.id);
-  const categories = [...new Set((state.cameraPresets || []).map(preset => preset.category).filter(Boolean))];
-  const presets = allPresets.filter(preset => (!cameraPresetCategory || preset.category === cameraPresetCategory) && (!cameraPresetSearch || `${preset.name} ${preset.category || ''}`.toLowerCase().includes(cameraPresetSearch.toLowerCase())));
+  const categoryMap = new Map(suggestedPresetCategories.map(category => [category.toLowerCase(), category]));
+  for (const preset of state.cameraPresets || []) {
+    const category = preset.category || 'Utility';
+    if (!categoryMap.has(category.toLowerCase())) categoryMap.set(category.toLowerCase(), category);
+  }
+  const categories = [...categoryMap.values()];
+  const presets = allPresets.filter(preset => (!cameraPresetCategory || (preset.category || 'Utility').toLowerCase() === cameraPresetCategory.toLowerCase()) && (!cameraPresetSearch || `${preset.name} ${preset.category || 'Utility'}`.toLowerCase().includes(cameraPresetSearch.toLowerCase())));
   const currentPreset = allPresets.find(preset => preset.id === managerMetadata.currentPresetId);
   const diagnostic = selected?.metadata?.diagnostic;
   const readiness = !selected?.enabled ? 'Disabled' : !deviceConfigured(selected) ? 'Not configured' : diagnostic?.message || 'Adapter not implemented';
@@ -1834,7 +1842,7 @@ function camerasPage() {
   };
   const presetRow = (preset, index) => `<div class="preset-row ${preset.enabled ? '' : 'disabled'}">
     <button class="favorite-button" data-favorite-preset="${preset.id}" title="Favorite">${preset.favorite ? '★' : '☆'}</button>
-    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Uncategorized')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'}</small></div>
+    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Utility')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'}</small></div>
     <button data-edit-preset="${preset.id}">EDIT</button><button data-duplicate-preset="${preset.id}">DUPLICATE</button>
     <button data-move-preset="${preset.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-preset="${preset.id}" data-direction="1" ${index === presets.length - 1 ? 'disabled' : ''}>↓</button>
     <button class="danger" data-delete-preset="${preset.id}">DELETE</button>
@@ -1844,7 +1852,8 @@ function camerasPage() {
     <div class="settings-form">
       <label>Name<input data-preset-field="name" value="${escapeHtml(selectedPreset.name)}"></label>
       <label>Preset number<input type="number" min="0" data-preset-field="presetNumber" value="${selectedPreset.presetNumber ?? ''}"></label>
-      <label>Category<input data-preset-field="category" list="preset-categories" value="${escapeHtml(selectedPreset.category || '')}"><datalist id="preset-categories">${['Pastor','Platform','Piano','Choir','Baptistry','Congregation','Wide','Utility'].map(category => `<option value="${category}">`).join('')}</datalist></label>
+      <label>Suggested category<select id="preset-category-editor">${categories.map(category => `<option value="${escapeHtml(category)}" ${(selectedPreset.category || 'Utility').toLowerCase() === category.toLowerCase() ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="__custom__">Custom…</option></select></label>
+      <label>Custom category<input id="preset-custom-category" value="${escapeHtml(selectedPreset.category && !suggestedPresetCategories.some(category => category.toLowerCase() === selectedPreset.category.toLowerCase()) ? selectedPreset.category : '')}" placeholder="Type a custom category"></label>
       <label class="checkbox-label"><input type="checkbox" data-preset-field="favorite" ${selectedPreset.favorite ? 'checked' : ''}> Favorite</label>
       <label class="checkbox-label"><input type="checkbox" data-preset-field="enabled" ${selectedPreset.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Notes<textarea data-preset-field="notes">${escapeHtml(selectedPreset.notes || '')}</textarea></label>
@@ -1877,7 +1886,7 @@ function camerasPage() {
   document.getElementById('run-camera-diagnostic')?.addEventListener('click', async () => { state = await window.trinity.testDevice(selected.id); render(); });
   document.getElementById('preset-search')?.addEventListener('input', event => { cameraPresetSearch = event.target.value; render(); });
   document.getElementById('preset-category')?.addEventListener('change', event => { cameraPresetCategory = event.target.value; render(); });
-  document.getElementById('create-preset')?.addEventListener('click', async () => { state = await window.trinity.createCameraPreset({ name: 'New Preset', cameraDeviceId: selected.id, logicalRole: selected.logicalRole, category: 'Utility', enabled: true }); selectedCameraPresetId = state.cameraPresets.at(-1).id; render(); });
+  document.getElementById('create-preset')?.addEventListener('click', async () => { state = await window.trinity.createCameraPreset({ name: 'New Preset', cameraDeviceId: selected.id, logicalRole: selected.logicalRole, category: null, enabled: true }); selectedCameraPresetId = state.cameraPresets.at(-1).id; render(); });
   document.querySelectorAll('[data-edit-preset]').forEach(button => button.onclick = () => { selectedCameraPresetId = button.dataset.editPreset; render(); });
   document.querySelectorAll('[data-duplicate-preset]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateCameraPreset(button.dataset.duplicatePreset); render(); });
   document.querySelectorAll('[data-favorite-preset]').forEach(button => button.onclick = async () => { const preset = byId(state.cameraPresets, button.dataset.favoritePreset); state = await window.trinity.updateCameraPreset(preset.id, { favorite: !preset.favorite }); render(); });
@@ -1891,6 +1900,17 @@ function camerasPage() {
   });
   document.querySelectorAll('[data-capability]').forEach(select => select.onchange = async () => { const nextCapabilities = { ...(selected.metadata?.cameraManager?.capabilities || {}), [select.dataset.capability]: select.value }; state = await window.trinity.updateDevice(selected.id, { metadata: { ...selected.metadata, cameraManager: { ...managerMetadata, capabilities: nextCapabilities } } }); render(); });
   document.querySelectorAll('[data-preset-field]').forEach(input => input.onchange = async () => { const field = input.dataset.presetField; let value = input.type === 'checkbox' ? input.checked : input.value; if (field === 'presetNumber') value = value === '' ? null : Number(value); state = await window.trinity.updateCameraPreset(selectedPreset.id, { [field]: value }); render(); });
+  document.getElementById('preset-category-editor')?.addEventListener('change', async event => {
+    if (event.target.value === '__custom__') return document.getElementById('preset-custom-category')?.focus();
+    state = await window.trinity.updateCameraPreset(selectedPreset.id, { category: event.target.value });
+    render();
+  });
+  document.getElementById('preset-custom-category')?.addEventListener('change', async event => {
+    const category = event.target.value.trim();
+    if (!category) return;
+    state = await window.trinity.updateCameraPreset(selectedPreset.id, { category });
+    render();
+  });
   document.getElementById('preset-editor-close')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
   document.getElementById('preset-editor-done')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
 }

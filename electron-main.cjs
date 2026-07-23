@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { createOperatorCommands } = require("./operator-commands.cjs");
+const { normalizeExecutionSnapshot } = require("./cue-execution.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 const { normalizeProductionLooks } = require("./production-look-operations.cjs");
 const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.cjs");
@@ -727,6 +728,7 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
   }));
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
+  if (state.live?.executionSnapshot) merged.live.executionSnapshot = normalizeExecutionSnapshot(state.live.executionSnapshot);
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
   if (!state.live?.serviceStartedAt) merged.live.serviceStartedAt = merged.live.cueStartedAt;
   if (!Array.isArray(merged.live.activityLog)) merged.live.activityLog = [];

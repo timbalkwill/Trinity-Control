@@ -99,6 +99,15 @@ test("execution plan applies cue override precedence over Production Look inheri
   assert.equal(overridden.lighting.fadeMs, 750);
 });
 
+test("direct Production Look camera selections retain inherited source", () => {
+  const state = fixture();
+  state.productionLooks.push(normalizeProductionLook({ id: "direct", name: "Direct", programCameraId: "main", previewCameraId: "left" }));
+  const plan = buildCueExecutionPlan(state, { id: "cue", productionLookId: "direct" });
+  assert.equal(plan.video.source, "production-look");
+  assert.equal(plan.video.programCameraName, "Main");
+  assert.equal(plan.video.previewCameraName, "Left");
+});
+
 test("execution plan reports missing resources without throwing", () => {
   const state = fixture();
   state.productionLooks.push(normalizeProductionLook({ id: "look", name: "Look", lightingSceneId: "missing", programCameraId: "gone", motionEnabled: true }));

@@ -34,6 +34,8 @@ Open **LOOKS** to search, create, duplicate, enable, disable, edit, or delete Pr
 
 The summary strip shows the selected Look’s lighting, program and preview cameras, preset assignments, motion status, and enabled state. Cue details label inherited values as **From Production Look**, cue-specific selections as **Cue Override**, and empty values as **Not assigned**.
 
+The Live page shows what was actually executed. Editing a Look or assigning it to a cue does not execute it. If the active cue's Look is edited, Live continues to show the earlier executed values until that cue runs again. Missing saved resources appear as **Missing reference** warnings.
+
 Deleting a Look referenced by service cues requires confirmation and does not silently change those cues. Duplicate Looks receive a new identity and can be edited independently.
 
 ## Administrator Settings
@@ -49,5 +51,7 @@ Device and camera changes save immediately. Camera credentials remain behind the
 Open **CAMERAS** for the operational Camera Manager. Main, Left, and Right appear first when configured, with additional cameras afterward. Select a camera to inspect readiness, known program/preview state, current preset, diagnostics, capabilities, and presets.
 
 Use search and category filters to find presets. The star marks favorites. Create, edit, duplicate, reorder, disable, or delete presets from the selected camera. Referenced deletion asks for confirmation and leaves a visible missing reference for later repair.
+
+Preset category suggestions include Pastor, Platform, Piano, Choir, Baptistry, Congregation, Wide, and Utility. Custom categories remain available and automatically appear in the filter list. Utility is only the display/filter fallback for an uncategorized preset.
 
 Capability choices are manual until hardware adapters exist: **Supported**, **Not supported**, **Unknown**, or **Adapter required**. Future control buttons are intentionally disabled. Use **Settings → Cameras** to edit connection details, credentials, model, enable state, or logical role.

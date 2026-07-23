@@ -54,3 +54,9 @@ Adapters should report execution results separately and must not mutate Producti
 Camera assignments continue to reference stable camera device IDs and optional preset IDs. Camera Manager resolves their human-readable names without rewriting the Look. Deleted or unavailable cameras and presets remain visible as missing references.
 
 Editing camera capabilities, operational metadata, or presets does not mutate a Production Look or cue. Cue-specific camera-layout overrides retain precedence, execution-plan generation remains pure, and no preset recall or camera switching is activated by Camera Manager.
+
+## Executed state versus edited state
+
+When GO, NEXT, BACK, or a confirmed direct jump executes a cue, `executeCue()` stores a normalized hardware-independent `live.executionSnapshot` derived from the pure execution plan. The snapshot records cue and Look identity, resolved lighting and video names, fade and wash modes, layout and preset details, motion intent, source labels, warnings, and execution time.
+
+The Live page and Browser Operator show this executed snapshot for the active cue. Editing any Production Look—including the Look referenced by the active cue—does not change the displayed executed state. The edited values appear only after that cue executes again. This prevents Trinity from implying that hardware changed when no execution occurred.

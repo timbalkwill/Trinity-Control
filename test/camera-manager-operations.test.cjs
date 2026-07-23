@@ -13,12 +13,14 @@ const {
   validateCameraCapabilities
 } = require("../camera-manager-operations.cjs");
 const {
+  SUGGESTED_PRESET_CATEGORIES,
   countCameraPresetReferences,
   createCameraPreset,
   deleteCameraPreset,
   duplicateCameraPreset,
   listPresetsByCamera,
   listPresetsByCategory,
+  listCameraPresetCategories,
   migrateLegacyPresets,
   normalizeCameraPreset,
   reorderCameraPreset,
@@ -123,6 +125,44 @@ test("preset CRUD, favorite, custom category, reorder, and duplicate isolation",
   assert.equal(listPresetsByCamera(current, "main").at(-1).id, "one");
   deleteCameraPreset(current, "copy");
   assert.equal(current.cameraPresets.some(preset => preset.id === "copy"), false);
+});
+
+test("all suggested and used custom preset categories are available", () => {
+  const current = state();
+  current.cameraPresets = [
+    normalizeCameraPreset({ id: "custom", name: "Organ", cameraDeviceId: "main", category: "Organ Loft" }),
+    normalizeCameraPreset({ id: "case", name: "Pastor", cameraDeviceId: "main", category: "pastor" })
+  ];
+  assert.deepEqual(SUGGESTED_PRESET_CATEGORIES, ["Pastor", "Platform", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"]);
+  assert.deepEqual(listCameraPresetCategories(current), [...SUGGESTED_PRESET_CATEGORIES, "Organ Loft"]);
+  assert.equal(listPresetsByCategory(current, "PASTOR").length, 1);
+});
+
+test("custom category saves through serialized data and survives normalization", () => {
+  const current = state();
+  current.cameraPresets = [];
+  createCameraPreset(current, { id: "preset", cameraDeviceId: "main", name: "Organ", category: "Organ Loft" });
+  updateCameraPreset(current, "preset", { category: "Balcony Custom" });
+  const restarted = migrateLegacyPresets(JSON.parse(JSON.stringify(current)));
+  assert.equal(restarted[0].category, "Balcony Custom");
+});
+
+test("legacy categories and capitalization survive repeated migration", () => {
+  const current = state();
+  current.cameras[0].savedPositions = [{ id: "legacy-category", name: "Legacy", number: 7, category: "Special Music" }];
+  const first = migrateLegacyPresets(current);
+  current.cameraPresets = first;
+  const second = migrateLegacyPresets(current);
+  assert.equal(first.find(preset => preset.id === "legacy-category").category, "Special Music");
+  assert.deepEqual(second, first);
+});
+
+test("uncategorized presets use Utility only as a category fallback", () => {
+  const current = state();
+  current.cameraPresets = [normalizeCameraPreset({ id: "uncategorized", name: "Wide", cameraDeviceId: "main", category: null })];
+  assert.equal(current.cameraPresets[0].category, null);
+  assert.equal(listPresetsByCategory(current, "Utility").length, 1);
+  assert.equal(listCameraPresetCategories(current).includes("Utility"), true);
 });
 
 test("preset validation permits nullable numbers and rejects missing camera identity", () => {

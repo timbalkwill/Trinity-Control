@@ -30,12 +30,29 @@ function harness(options = {}) {
 
 test("shared operator commands execute GO, NEXT, BACK, HOLD, and lighting actions", async () => {
   const { commands } = harness();
-  assert.equal((await commands.goCue(2)).live.cueIndex, 2);
-  assert.equal((await commands.previousCue()).live.cueIndex, 1);
-  assert.equal((await commands.nextCue()).live.cueIndex, 2);
+  let result = await commands.goCue(2);
+  assert.equal(result.live.cueIndex, 2);
+  assert.equal(result.live.executionSnapshot.cueId, "three");
+  result = await commands.previousCue();
+  assert.equal(result.live.cueIndex, 1);
+  assert.equal(result.live.executionSnapshot.cueId, "two");
+  result = await commands.nextCue();
+  assert.equal(result.live.cueIndex, 2);
+  assert.equal(result.live.executionSnapshot.cueId, "three");
   assert.equal((await commands.toggleHold()).live.hold, true);
   assert.equal((await commands.setLightingOverride("light-manual")).live.lightingOverrideId, "light-manual");
   assert.equal((await commands.returnToCueLighting()).live.lightingOverrideId, null);
+});
+
+test("Production Look edits do not change executed live snapshot until re-execution", async () => {
+  const { commands } = harness();
+  let result = await commands.goCue(0);
+  const executed = JSON.stringify(result.live.executionSnapshot);
+  result = await commands.updateProductionLook("look", { name: "Edited Look", lightingSceneId: "light-manual" });
+  assert.equal(JSON.stringify(result.live.executionSnapshot), executed);
+  result = await commands.goCue(0);
+  assert.equal(result.live.executionSnapshot.productionLookName, "Edited Look");
+  assert.equal(result.live.executionSnapshot.lighting.sceneId, "light-manual");
 });
 
 test("shared commands serialize writes and publish authoritative saved snapshots", async () => {

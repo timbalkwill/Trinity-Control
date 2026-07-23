@@ -1,11 +1,22 @@
 "use strict";
 
 const CAMERA_PRESET_SCHEMA_VERSION = 1;
+const SUGGESTED_PRESET_CATEGORIES = ["Pastor", "Platform", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"];
 const EPOCH = "1970-01-01T00:00:00.000Z";
 const nullable = value => typeof value === "string" && value.trim() ? value.trim() : null;
 const text = (value, fallback = "") => typeof value === "string" ? value.trim() : fallback;
 const clone = value => JSON.parse(JSON.stringify(value));
 const uniqueId = () => `camera-preset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
+
+function listCameraPresetCategories(state) {
+  const categories = new Map(SUGGESTED_PRESET_CATEGORIES.map(category => [categoryKey(category), category]));
+  for (const preset of state?.cameraPresets || []) {
+    const category = nullable(preset?.category) || "Utility";
+    if (!categories.has(categoryKey(category))) categories.set(categoryKey(category), category);
+  }
+  return [...categories.values()];
+}
 
 function normalizeCameraPreset(input = {}, { cameraDeviceId, logicalRole, id, now } = {}) {
   const createdAt = nullable(input.createdAt) || (now ? new Date(now).toISOString() : EPOCH);
@@ -133,16 +144,18 @@ function reorderCameraPreset(state, cameraDeviceId, from, to) {
 }
 
 const listPresetsByCamera = (state, cameraDeviceId) => (state?.cameraPresets || []).filter(preset => preset.cameraDeviceId === cameraDeviceId);
-const listPresetsByCategory = (state, category) => (state?.cameraPresets || []).filter(preset => preset.category === category);
+const listPresetsByCategory = (state, category) => (state?.cameraPresets || []).filter(preset => categoryKey(preset.category) === categoryKey(category));
 
 module.exports = {
   CAMERA_PRESET_SCHEMA_VERSION,
+  SUGGESTED_PRESET_CATEGORIES,
   countCameraPresetReferences,
   createCameraPreset,
   deleteCameraPreset,
   duplicateCameraPreset,
   listPresetsByCamera,
   listPresetsByCategory,
+  listCameraPresetCategories,
   migrateLegacyPresets,
   normalizeCameraPreset,
   reorderCameraPreset,

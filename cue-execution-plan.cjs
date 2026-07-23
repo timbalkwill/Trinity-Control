@@ -26,6 +26,9 @@ function buildCueExecutionPlan(state, cue) {
 
   const effectiveLayout = byId(state?.cameraLayouts, layout.id);
   const useCueLayout = layout.source === "cue";
+  const videoSource = layout.source !== "fallback"
+    ? layout.source
+    : (look?.programCameraId || look?.previewCameraId || lookResources.cameraAssignments.length) ? "production-look" : "fallback";
   const programCameraId = effectiveLayout?.programCamera || (!useCueLayout ? look?.programCameraId : null) || null;
   const previewCameraId = effectiveLayout?.previewCamera || (!useCueLayout ? look?.previewCameraId : null) || null;
   const knownCamera = id => byId(state?.devices, id) || byId(state?.cameras, id);
@@ -37,17 +40,37 @@ function buildCueExecutionPlan(state, cue) {
 
   return {
     cueId: cue?.id || null,
+    cueName: cue?.name || null,
     productionLookId: look?.id || cue?.productionLookId || null,
-    lighting: { sceneId: lighting.id, fadeMs: Number(look?.lightingFadeMs) || 0, source: lighting.source },
+    productionLookName: look?.name || null,
+    lighting: {
+      sceneId: lighting.id,
+      sceneName: byId(state?.lightingScenes, lighting.id)?.name || null,
+      fadeMs: Number(look?.lightingFadeMs) || 0,
+      stageWashMode: look?.stageWashMode || null,
+      wallWashMode: look?.wallWashMode || null,
+      source: lighting.source
+    },
     video: {
       cameraLayoutId: layout.id,
+      cameraLayoutName: effectiveLayout?.name || null,
       programCameraId,
+      programCameraName: knownCamera(programCameraId)?.name || null,
       previewCameraId,
+      previewCameraName: knownCamera(previewCameraId)?.name || null,
+      programPreset: effectiveLayout?.programPreset || null,
+      previewPreset: effectiveLayout?.previewPreset || null,
       transitionStyle: look?.transitionStyle || "cut",
       transitionDurationMs: Number(look?.transitionDurationMs) || 0,
-      source: layout.source
+      source: videoSource
     },
-    cameras: lookResources.cameraAssignments.map(item => ({ role: item.role, cameraId: item.cameraId, presetId: item.presetId })),
+    cameras: lookResources.cameraAssignments.map(item => ({
+      role: item.role,
+      cameraId: item.cameraId,
+      cameraName: item.camera?.name || null,
+      presetId: item.presetId,
+      presetName: byId(state?.cameraPresets, item.presetId)?.name || null
+    })),
     motion: {
       enabled: look?.motionEnabled === true,
       profileId: look?.motionProfileId || null,

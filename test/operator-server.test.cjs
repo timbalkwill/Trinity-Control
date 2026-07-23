@@ -127,7 +127,10 @@ test("Browser Operator HTTP API and synchronization", async t => {
     await t.test("GO command", async () => {
       const response = await post(baseUrl, "/api/live/go", { index: 2 });
       assert.equal(response.status, 200);
-      assert.equal((await response.json()).live.cueIndex, 2);
+      const state = await response.json();
+      assert.equal(state.live.cueIndex, 2);
+      assert.equal(state.live.executionSnapshot.cueId, "three");
+      assert.equal(state.live.executionSnapshot.productionLookId, "look");
     });
     await t.test("BACK command", async () => {
       const response = await post(baseUrl, "/api/live/back");

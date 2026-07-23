@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
+const { executeCue } = require("./cue-execution.cjs");
 
 app.setName("Trinity Control Refresh");
 
@@ -715,21 +716,6 @@ function addActivity(state, message) {
   state.live.activityLog = [{ at: Date.now(), message }, ...(state.live.activityLog || [])].slice(0, 8);
 }
 
-function applyLook(state, lookId) {
-  const look = state.productionLooks.find(x => x.id === lookId);
-  if (!look) return state;
-  const layout = state.cameraLayouts.find(x => x.id === look.cameraLayoutId);
-  if (layout) {
-    state.live.programCamera = layout.programCamera;
-    state.live.previewCamera = layout.previewCamera;
-    state.live.programPreset = layout.programPreset;
-    state.live.previewPreset = layout.previewPreset;
-  }
-  state.live.lastLightingSceneId = look.lightingSceneId;
-  state.live.lightingOverrideId = null;
-  return state;
-}
-
 app.whenReady().then(() => {
   ipcMain.handle("state:get", () => loadState());
   ipcMain.handle("state:save", (_e, s) => saveState(migrate(s)));
@@ -752,13 +738,13 @@ app.whenReady().then(() => {
     const s = loadState(); s.runOfService.splice(index, 1); s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1)); return saveState(s);
   });
   ipcMain.handle("live:go", (_e, index) => {
-    const s = loadState(); s.live.cueIndex = Math.max(0, Math.min(index, s.runOfService.length - 1)); s.live.cueStartedAt = Date.now(); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); addActivity(s, `Cue started: ${s.runOfService[s.live.cueIndex]?.name || "Cue"}`); return saveState(s);
+    const s = loadState(); return saveState(executeCue(s, index));
   });
   ipcMain.handle("live:next", () => {
-    const s = loadState(); s.live.cueIndex = Math.min(s.runOfService.length - 1, s.live.cueIndex + 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
+    const s = loadState(); return saveState(executeCue(s, s.live.cueIndex + 1));
   });
   ipcMain.handle("live:back", () => {
-    const s = loadState(); s.live.cueIndex = Math.max(0, s.live.cueIndex - 1); applyLook(s, s.runOfService[s.live.cueIndex]?.productionLookId); return saveState(s);
+    const s = loadState(); return saveState(executeCue(s, s.live.cueIndex - 1));
   });
   ipcMain.handle("live:hold", () => { const s = loadState(); s.live.hold = !s.live.hold; return saveState(s); });
   ipcMain.handle("lighting:override", (_e, sceneId) => { const s = loadState(); s.live.lightingOverrideId = sceneId; const scene = s.lightingScenes.find(x => x.id === sceneId); addActivity(s, `Lighting scene: ${scene?.name || sceneId}`); return saveState(s); });

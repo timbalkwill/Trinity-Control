@@ -1,6 +1,7 @@
 "use strict";
 
 const { executeCue } = require("./cue-execution.cjs");
+const service = require("./service-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
   const subscribers = new Set();
@@ -32,7 +33,16 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     getState: () => loadState(),
     replaceState: state => enqueue(() => publish(saveState(normalizeState(state)))),
     updateState: operation => mutate(operation),
-    goCue: index => mutate(state => cueExecutor(state, index)),
+    goCue: (index, { confirmJump = false } = {}) => mutate(state => {
+      const current = Number(state.live?.cueIndex) || 0;
+      if (Math.abs(index - current) > 2 && !confirmJump) {
+        const error = new Error("Jumping more than two cues requires confirmation");
+        error.code = "CONFIRM_CUE_JUMP";
+        error.statusCode = 409;
+        throw error;
+      }
+      cueExecutor(state, index);
+    }),
     nextCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) + 1)),
     previousCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) - 1)),
     toggleHold: () => mutate(state => {
@@ -58,6 +68,11 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
       ].slice(0, 8);
     }),
+    reorderCue: (from, to) => mutate(state => service.reorderCue(state, from, to)),
+    duplicateCue: index => mutate(state => service.duplicateCue(state, index)),
+    insertCue: (index, position) => mutate(state => service.insertCue(state, index, position)),
+    deleteCue: (index, options) => mutate(state => service.deleteCue(state, index, options)),
+    updateCue: (index, patch) => mutate(state => service.updateCue(state, index, patch)),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

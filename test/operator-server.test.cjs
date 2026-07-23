@@ -124,6 +124,14 @@ test("Browser Operator HTTP API and synchronization", async t => {
       const response = await post(baseUrl, "/api/lighting/return-to-cue");
       assert.equal((await response.json()).live.lightingOverrideId, null);
     });
+    await t.test("narrow cue mutation endpoints persist authoritative state", async () => {
+      let response = await post(baseUrl, "/api/cues/reorder", { from: 0, to: 1 });
+      assert.equal(response.status, 200);
+      response = await post(baseUrl, "/api/cues/duplicate", { index: 1 });
+      assert.equal((await response.json()).runOfService.length, 4);
+      response = await post(baseUrl, "/api/cues/update", { index: 2, patch: { notes: "Browser edit" } });
+      assert.equal((await response.json()).runOfService[2].notes, "Browser edit");
+    });
     await t.test("invalid JSON", async () => {
       const response = await post(baseUrl, "/api/live/go", "{broken");
       assert.equal(response.status, 400);

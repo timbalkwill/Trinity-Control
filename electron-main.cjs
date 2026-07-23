@@ -679,6 +679,7 @@ function defaultState() {
       lightingOverrideId: null,
       lastLightingSceneId: null,
       cueStartedAt: Date.now(),
+      serviceStartedAt: Date.now(),
       activityLog: []
     }
   };
@@ -708,6 +709,7 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
   merged.live = { ...fresh.live, ...(state.live || {}) };
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
+  if (!state.live?.serviceStartedAt) merged.live.serviceStartedAt = merged.live.cueStartedAt;
   if (!Array.isArray(merged.live.activityLog)) merged.live.activityLog = [];
   merged.runOfService = merged.runOfService.map((cue, i) => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
@@ -746,19 +748,12 @@ app.whenReady().then(async () => {
     const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return;
     s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
   }));
-  ipcMain.handle("cue:move", (_e, { from, to }) => commands.updateState(s => {
-    if (from < 0 || to < 0 || from >= s.runOfService.length || to >= s.runOfService.length || from === to) return s;
-    const currentCueId = s.runOfService[s.live.cueIndex]?.id;
-    const [item] = s.runOfService.splice(from, 1);
-    s.runOfService.splice(to, 0, item);
-    const currentIndex = s.runOfService.findIndex(cue => cue.id === currentCueId);
-    if (currentIndex >= 0) s.live.cueIndex = currentIndex;
-  }));
-  ipcMain.handle("cue:remove", (_e, index) => commands.updateState(s => {
-    s.runOfService.splice(index, 1);
-    s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1));
-  }));
-  ipcMain.handle("live:go", (_e, index) => commands.goCue(index));
+  ipcMain.handle("cue:move", (_e, { from, to }) => commands.reorderCue(from, to));
+  ipcMain.handle("cue:duplicate", (_e, index) => commands.duplicateCue(index));
+  ipcMain.handle("cue:insert", (_e, { index, position }) => commands.insertCue(index, position));
+  ipcMain.handle("cue:remove", (_e, { index, options }) => commands.deleteCue(index, options));
+  ipcMain.handle("cue:update", (_e, { index, patch }) => commands.updateCue(index, patch));
+  ipcMain.handle("live:go", (_e, { index, options }) => commands.goCue(index, options));
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());
   ipcMain.handle("live:hold", () => commands.toggleHold());

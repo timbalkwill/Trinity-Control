@@ -19,6 +19,14 @@ Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with th
 
 The browser API exposes only state reads, health, SSE state events, and the approved operator commands. It does not expose Electron, filesystem access, arbitrary state replacement, or arbitrary static files. Electron IPC and browser requests call the same serialized command service, which persists state before broadcasting the authoritative snapshot to connected SSE clients.
 
+## Enhanced Order of Service
+
+`service-operations.cjs` owns cue-list mutations, cue validation, timing calculations, and keyboard-command mapping. Electron IPC and Browser Operator HTTP routes call the same serialized `operator-commands.cjs` methods. Each operation loads the latest authoritative state, applies one narrow mutation, saves immediately, and publishes the saved snapshot over SSE. Browser clients never submit a complete state object, which prevents an older browser snapshot from overwriting newer desktop changes.
+
+Reordering records the active cue ID before moving the array item and restores `live.cueIndex` from that ID afterward. Cue duplication preserves lighting and camera override fields. Existing saved services need no cue migration; `live.serviceStartedAt` is added lazily from `cueStartedAt` when absent. Timing indicators are derived read-only from timestamps and cue durations, so their one-second display updates do not execute cues or write state.
+
+GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direct jumps beyond two positions require an explicit confirmation flag, while sequential NEXT and BACK remain immediate.
+
 This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.
 
 ## Browser Operator troubleshooting

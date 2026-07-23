@@ -35,6 +35,7 @@ function createOperatorServer({
     ["/operator/index.html", ["operator/index.html", "text/html; charset=utf-8"]],
     ["/operator/operator.js", ["operator/operator.js", "text/javascript; charset=utf-8"]],
     ["/operator/operator.css", ["operator/operator.css", "text/css; charset=utf-8"]],
+    ["/operator/compact.css", ["operator/compact.css", "text/css; charset=utf-8"]],
     ["/operator/trinity-logo.png", ["assets/trinity-logo.png", "image/png"]]
   ]);
 
@@ -77,7 +78,7 @@ function createOperatorServer({
   const commandRoutes = new Map([
     ["/api/live/go", async body => {
       if (!Number.isInteger(body.index)) throw new TypeError("index must be an integer");
-      return commands.goCue(body.index);
+      return commands.goCue(body.index, { confirmJump: body.confirmJump === true });
     }],
     ["/api/live/next", () => commands.nextCue()],
     ["/api/live/back", () => commands.previousCue()],
@@ -86,7 +87,12 @@ function createOperatorServer({
       if (typeof body.sceneId !== "string" || !body.sceneId) throw new TypeError("sceneId is required");
       return commands.setLightingOverride(body.sceneId);
     }],
-    ["/api/lighting/return-to-cue", () => commands.returnToCueLighting()]
+    ["/api/lighting/return-to-cue", () => commands.returnToCueLighting()],
+    ["/api/cues/reorder", body => commands.reorderCue(body.from, body.to)],
+    ["/api/cues/duplicate", body => commands.duplicateCue(body.index)],
+    ["/api/cues/insert", body => commands.insertCue(body.index, body.position)],
+    ["/api/cues/delete", body => commands.deleteCue(body.index, { confirmActive: body.confirmActive === true })],
+    ["/api/cues/update", body => commands.updateCue(body.index, body.patch || {})]
   ]);
 
   const server = http.createServer(async (request, response) => {
@@ -152,7 +158,7 @@ function createOperatorServer({
         return json(response, 200, state);
       } catch (error) {
         const status = error.statusCode || (error instanceof TypeError ? 400 : error instanceof RangeError ? 404 : 500);
-        return json(response, status, { error: error.message });
+        return json(response, status, { error: error.message, code: error.code });
       }
     }
     return json(response, 404, { error: "Not found" });

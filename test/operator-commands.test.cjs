@@ -66,3 +66,31 @@ test("lighting overrides require an existing scene", async () => {
   const { commands } = harness();
   await assert.rejects(commands.setLightingOverride("missing"), /Unknown lighting scene/);
 });
+
+test("browser and Electron cue edits share serialized state logic", async () => {
+  const { commands } = harness();
+  await commands.reorderCue(0, 2);
+  assert.equal(commands.getState().runOfService[commands.getState().live.cueIndex].id, "one");
+  await commands.duplicateCue(2);
+  assert.equal(commands.getState().runOfService[3].name, "One Copy");
+  await commands.updateCue(3, { notes: "Auto-saved" });
+  assert.equal(commands.getState().runOfService[3].notes, "Auto-saved");
+});
+
+test("large cue jumps require explicit confirmation while NEXT and BACK remain immediate", async () => {
+  const { commands } = harness();
+  await assert.rejects(commands.goCue(3), error => error.code === "CONFIRM_CUE_JUMP");
+  await commands.goCue(3, { confirmJump: true });
+  await commands.previousCue();
+  assert.equal(commands.getState().live.cueIndex, 1);
+});
+
+test("cue-specific overrides still execute after reorder and duplication", async () => {
+  const { commands } = harness();
+  await commands.updateCue(0, { lightingSceneId: "light-manual", cameraLayoutId: "layout" });
+  await commands.reorderCue(0, 1);
+  await commands.duplicateCue(1);
+  const result = await commands.goCue(2);
+  assert.equal(result.live.lastLightingSceneId, "light-manual");
+  assert.equal(result.live.programPreset, "Wide");
+});

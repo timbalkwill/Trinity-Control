@@ -4,6 +4,11 @@ const fs = require("fs");
 const { createOperatorCommands } = require("./operator-commands.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 const { normalizeProductionLooks } = require("./production-look-operations.cjs");
+const {
+  defaultCameras,
+  defaultPlaceholders,
+  normalizeDeviceCollection
+} = require("./device-operations.cjs");
 
 app.setName("Trinity Control Refresh");
 
@@ -22,12 +27,14 @@ function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(
 function defaultState() {
   return {
     version: "1.0.2-alpha.5.2-refined",
-    schemaVersion: 6,
+    schemaVersion: 7,
+    deviceSchemaVersion: 1,
     cameras: [
-      { id: "main", name: "Main PTZ", role: "main", online: true, enabled: true },
-      { id: "left", name: "Left PTZ", role: "left", online: true, enabled: true },
-      { id: "right", name: "Right PTZ", role: "right", online: true, enabled: true }
+      { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
+      { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
+      { id: "right", name: "Right Camera", role: "right", online: true, enabled: true }
     ],
+    devices: [...defaultCameras(), ...defaultPlaceholders()],
     lightingScenes: [
       {
             "id": "light-preservice",
@@ -698,6 +705,8 @@ function migrate(state) {
     }
   }
   merged.productionLooks = normalizeProductionLooks(merged.productionLooks);
+  merged.devices = normalizeDeviceCollection(state.devices, { legacyCameras: merged.cameras });
+  merged.deviceSchemaVersion = 1;
     merged.lightingScenes = merged.lightingScenes.map(scene => ({
     category: "Custom",
     favorite: false,
@@ -759,6 +768,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("look:update", (_e, { lookId, patch }) => commands.updateProductionLook(lookId, patch));
   ipcMain.handle("look:duplicate", (_e, lookId) => commands.duplicateProductionLook(lookId));
   ipcMain.handle("look:delete", (_e, { lookId, options }) => commands.deleteProductionLook(lookId, options));
+  ipcMain.handle("device:create", (_e, input) => commands.createDevice(input));
+  ipcMain.handle("device:update", (_e, { deviceId, patch }) => commands.updateDevice(deviceId, patch));
+  ipcMain.handle("device:duplicate", (_e, deviceId) => commands.duplicateDevice(deviceId));
+  ipcMain.handle("device:delete", (_e, { deviceId, options }) => commands.deleteDevice(deviceId, options));
+  ipcMain.handle("device:reorder", (_e, { from, to }) => commands.reorderDevice(from, to));
+  ipcMain.handle("device:test", (_e, deviceId) => commands.testDevice(deviceId));
+  ipcMain.handle("device:testAll", () => commands.testAllDevices());
+  ipcMain.handle("device:clearDiagnostic", (_e, deviceId) => commands.clearDeviceDiagnostic(deviceId));
   ipcMain.handle("live:go", (_e, { index, options }) => commands.goCue(index, options));
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());

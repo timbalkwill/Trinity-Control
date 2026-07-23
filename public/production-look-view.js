@@ -4,12 +4,14 @@
   function resolve(state, cue) {
     const look = byId(state?.productionLooks, cue?.productionLookId);
     const layout = byId(state?.cameraLayouts, cue?.cameraLayoutId || look?.cameraLayoutId);
+    const deviceCameras = state?.devices || state?.deviceSummaries || [];
+    const camera = id => byId(deviceCameras, id) || byId(state?.cameras, id);
     return {
       look,
       layout,
       lighting: byId(state?.lightingScenes, cue?.lightingSceneId || look?.lightingSceneId),
-      programCamera: byId(state?.cameras, look?.programCameraId || layout?.programCamera),
-      previewCamera: byId(state?.cameras, look?.previewCameraId || layout?.previewCamera),
+      programCamera: camera(look?.programCameraId || layout?.programCamera),
+      previewCamera: camera(look?.previewCameraId || layout?.previewCamera),
       lightingSource: cue?.lightingSceneId ? "Cue Override" : look?.lightingSceneId ? "From Production Look" : "Not assigned",
       cameraSource: cue?.cameraLayoutId ? "Cue Override" : (look?.cameraLayoutId || look?.programCameraId || look?.previewCameraId) ? "From Production Look" : "Not assigned"
     };

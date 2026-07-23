@@ -3,6 +3,7 @@
 const { executeCue } = require("./cue-execution.cjs");
 const service = require("./service-operations.cjs");
 const looks = require("./production-look-operations.cjs");
+const devices = require("./device-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
   const subscribers = new Set();
@@ -78,6 +79,16 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     updateProductionLook: (lookId, patch) => mutate(state => looks.updateProductionLook(state, lookId, patch)),
     duplicateProductionLook: lookId => mutate(state => looks.duplicateProductionLook(state, lookId)),
     deleteProductionLook: (lookId, options) => mutate(state => looks.deleteProductionLook(state, lookId, options)),
+    createDevice: input => mutate(state => devices.createDevice(state, input)),
+    updateDevice: (deviceId, patch) => mutate(state => devices.updateDevice(state, deviceId, patch)),
+    duplicateDevice: deviceId => mutate(state => devices.duplicateDevice(state, deviceId)),
+    deleteDevice: (deviceId, options) => mutate(state => devices.deleteDevice(state, deviceId, options)),
+    reorderDevice: (from, to) => mutate(state => devices.reorderDevice(state, from, to)),
+    testDevice: deviceId => mutate(state => devices.runDeviceDiagnostic(state, deviceId)),
+    testAllDevices: () => mutate(state => {
+      for (const device of state.devices || []) devices.runDeviceDiagnostic(state, device.id);
+    }),
+    clearDeviceDiagnostic: deviceId => mutate(state => devices.clearDeviceDiagnostic(state, deviceId)),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

@@ -128,15 +128,16 @@ function findResource(items, id) {
 function resolveProductionLookResources(state, lookOrId) {
   const look = typeof lookOrId === "string" ? findResource(state?.productionLooks, lookOrId) : lookOrId;
   const layout = findResource(state?.cameraLayouts, look?.cameraLayoutId);
+  const camera = id => findResource(state?.devices, id) || findResource(state?.cameras, id);
   return {
     look: look || null,
     lightingScene: findResource(state?.lightingScenes, look?.lightingSceneId) || null,
     cameraLayout: layout || null,
-    programCamera: findResource(state?.cameras, look?.programCameraId || layout?.programCamera) || null,
-    previewCamera: findResource(state?.cameras, look?.previewCameraId || layout?.previewCamera) || null,
+    programCamera: camera(look?.programCameraId || layout?.programCamera) || null,
+    previewCamera: camera(look?.previewCameraId || layout?.previewCamera) || null,
     cameraAssignments: cloneAssignments(look?.cameraAssignments).map(assignment => ({
       ...assignment,
-      camera: findResource(state?.cameras, assignment.cameraId) || null
+      camera: camera(assignment.cameraId) || null
     }))
   };
 }

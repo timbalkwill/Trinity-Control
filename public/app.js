@@ -6,13 +6,18 @@ let page = 'live';
 let cueEditorOpen = false;
 let selectedLookId = null;
 let lookSearch = '';
+let settingsSection = 'devices';
+let selectedDeviceId = null;
+let deviceTypeFilter = '';
+let deviceEnabledFilter = '';
 
 const nav = [
   ['live', 'LIVE'],
   ['service', 'SERVICE'],
   ['looks', 'LOOKS'],
   ['lighting', 'LIGHTING'],
-  ['cameras', 'CAMERAS']
+  ['cameras', 'CAMERAS'],
+  ['settings', '⚙ SETTINGS']
 ];
 
 const byId = (items, id) => items.find(item => item.id === id);
@@ -1900,6 +1905,145 @@ function camerasPage() {
   `);
 }
 
+function deviceConfigured(device) {
+  if (device.type === 'browserOperator') return true;
+  if (device.type === 'camera') return Boolean(device.ipAddress && device.protocol);
+  return Boolean(device.connection?.host || device.metadata?.configured);
+}
+
+function deviceStatusLabel(value) {
+  return ({
+    notTested: 'Not tested',
+    notConfigured: 'Not configured',
+    stub: 'Adapter not implemented'
+  })[value] || value || 'Not tested';
+}
+
+function settingsPage() {
+  const sections = [
+    ['devices', 'Devices'],
+    ['cameras', 'Cameras'],
+    ['lighting', 'Lighting'],
+    ['video', 'Video'],
+    ['audio', 'Audio'],
+    ['presentation', 'Presentation'],
+    ['network', 'Network'],
+    ['diagnostics', 'Diagnostics']
+  ];
+  const devices = state.devices || [];
+  const filtered = devices.filter(device =>
+    (!deviceTypeFilter || device.type === deviceTypeFilter) &&
+    (!deviceEnabledFilter || String(device.enabled) === deviceEnabledFilter)
+  );
+  const cameras = devices.filter(device => device.type === 'camera');
+  const roleWarnings = cameras.filter(camera => camera.enabled && cameras.some(other => other.id !== camera.id && other.enabled && other.logicalRole === camera.logicalRole));
+  const selected = byId(devices, selectedDeviceId) || null;
+  const summary = device => {
+    const diagnostic = device.metadata?.diagnostic;
+    return `<article class="device-card ${device.enabled ? '' : 'disabled'}">
+      <div class="device-card-head"><span class="device-type">${escapeHtml(device.type)}</span><strong>${escapeHtml(device.name)}</strong></div>
+      ${device.logicalRole ? `<span class="role-pill">${escapeHtml(device.logicalRole)}</span>` : ''}
+      <div class="device-facts"><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span></div>
+      <small>${escapeHtml([device.manufacturer, device.model].filter(Boolean).join(' ') || 'Manufacturer/model not assigned')}</small>
+      <small>${escapeHtml(device.ipAddress || device.connection?.host || 'No host assigned')}</small>
+      <small>${device.lastCheckedAt ? `Last checked ${escapeHtml(new Date(device.lastCheckedAt).toLocaleString())}` : 'Never tested'}</small>
+      ${device.lastError ? `<p class="device-error">${escapeHtml(device.lastError)}</p>` : ''}
+      ${diagnostic ? `<p class="diagnostic-result">${escapeHtml(diagnostic.message)}</p>` : ''}
+      <div class="row-actions"><button data-configure-device="${device.id}">CONFIGURE</button><button data-toggle-device="${device.id}">${device.enabled ? 'DISABLE' : 'ENABLE'}</button><button data-duplicate-device="${device.id}">DUPLICATE</button><button class="danger" data-delete-device="${device.id}">DELETE</button></div>
+    </article>`;
+  };
+  const cameraCard = (camera, index) => {
+    const legacy = byId(state.cameras, camera.id);
+    return `<article class="device-card camera-config-card ${camera.enabled ? '' : 'disabled'}">
+      <div class="device-card-head"><span class="role-pill">${escapeHtml(camera.logicalRole)}</span><strong>${escapeHtml(camera.name)}</strong></div>
+      <div class="device-facts"><span>${camera.enabled ? 'Enabled' : 'Disabled'}</span><span>${deviceConfigured(camera) ? 'Configured' : 'Not configured'}</span><span>${escapeHtml(deviceStatusLabel(camera.connectionStatus))}</span></div>
+      <small>${escapeHtml([camera.manufacturer, camera.model].filter(Boolean).join(' ') || 'Manufacturer/model not assigned')}</small>
+      <small>${escapeHtml(camera.ipAddress || 'No IP address')} · ${escapeHtml(camera.protocol || 'No protocol')}</small>
+      <small>Tracking ${camera.trackingEnabled ? 'Yes' : 'No'} · Motion ${camera.motionEnabled ? 'Yes' : 'No'} · Presets ${camera.presetSupport ? (legacy?.savedPositions?.length || 'Supported') : 'No'}</small>
+      <div class="row-actions"><button data-configure-device="${camera.id}">EDIT</button><button data-test-device="${camera.id}">TEST CONNECTION</button><button data-move-device="${camera.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-device="${camera.id}" data-direction="1" ${index === cameras.length - 1 ? 'disabled' : ''}>↓</button></div>
+    </article>`;
+  };
+  const editor = selected ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
+    <div class="look-editor-header"><div><span class="eyebrow">DEVICE CONFIGURATION</span><h1>${escapeHtml(selected.name)}</h1></div><button id="device-editor-close">×</button></div>
+    <div class="settings-form">
+      <label>Name<input data-device-field="name" value="${escapeHtml(selected.name)}"></label>
+      ${selected.type === 'camera' ? `<label>Logical role<input data-device-field="logicalRole" list="camera-roles" value="${escapeHtml(selected.logicalRole || '')}"><datalist id="camera-roles">${['main','left','right','audience','pastor','choir'].map(role => `<option value="${role}">`).join('')}</datalist></label>` : ''}
+      <label>Manufacturer<input data-device-field="manufacturer" value="${escapeHtml(selected.manufacturer || '')}"></label>
+      <label>Model<input data-device-field="model" value="${escapeHtml(selected.model || '')}"></label>
+      <label>IP address / host<input data-device-field="ipAddress" value="${escapeHtml(selected.ipAddress || selected.connection?.host || '')}"></label>
+      <label>Port<input type="number" min="0" max="65535" data-device-field="port" value="${selected.port ?? ''}"></label>
+      <label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}" placeholder="visca-over-ip"></label>
+      <label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label>
+      <label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>
+      ${selected.type === 'camera' ? `<label class="checkbox-label"><input type="checkbox" data-device-field="trackingEnabled" ${selected.trackingEnabled ? 'checked' : ''}> Tracking enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="presetSupport" ${selected.presetSupport ? 'checked' : ''}> Preset support</label>` : ''}
+      <label class="checkbox-label"><input type="checkbox" data-device-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label>
+      <label class="wide">Notes<textarea data-device-field="notes">${escapeHtml(selected.notes || '')}</textarea></label>
+    </div>
+    <div class="settings-editor-actions"><span>Changes save immediately. Hardware adapters are not enabled.</span><button data-test-device="${selected.id}">TEST CONNECTION</button><button id="device-editor-done">DONE</button></div>
+  </section></div>` : '';
+
+  let body;
+  if (settingsSection === 'devices') {
+    body = `<div class="settings-heading"><div><span class="eyebrow">ADMINISTRATOR AREA</span><h1>Devices</h1><p>System configuration is separated from live service operation.</p></div><button id="add-device">ADD DEVICE</button></div>
+      <div class="device-filters"><select id="device-type-filter"><option value="">All types</option>${['camera','lighting','switcher','audio','presentation','browserOperator'].map(type => `<option value="${type}" ${deviceTypeFilter === type ? 'selected' : ''}>${type}</option>`).join('')}</select><select id="device-enabled-filter"><option value="">Enabled and disabled</option><option value="true" ${deviceEnabledFilter === 'true' ? 'selected' : ''}>Enabled</option><option value="false" ${deviceEnabledFilter === 'false' ? 'selected' : ''}>Disabled</option></select></div>
+      <div class="device-grid">${filtered.map(summary).join('')}</div>`;
+  } else if (settingsSection === 'cameras') {
+    body = `<div class="settings-heading"><div><span class="eyebrow">CAMERA COLLECTION</span><h1>Cameras</h1><p>Suggested roles are optional. Custom logical roles are supported.</p></div><button id="add-camera">ADD CAMERA</button></div>
+      ${roleWarnings.length ? `<div class="settings-warning">Duplicate enabled logical role: ${escapeHtml([...new Set(roleWarnings.map(camera => camera.logicalRole))].join(', '))}. Assignments remain unchanged.</div>` : ''}
+      <div class="device-grid">${cameras.map(cameraCard).join('')}</div>`;
+  } else if (settingsSection === 'diagnostics') {
+    body = `<div class="settings-heading"><div><span class="eyebrow">STUB ADAPTER STATUS</span><h1>Diagnostics</h1><p>Results are configuration checks only; no hardware connection is attempted.</p></div><button id="run-all-tests">RUN ALL TESTS</button></div>
+      <div class="diagnostic-table">${devices.map(device => { const result = device.metadata?.diagnostic; return `<div><strong>${escapeHtml(device.name)}</strong><span>${escapeHtml(device.type)}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span><span>${escapeHtml(result?.message || 'Not tested')}</span><button data-test-device="${device.id}">TEST</button><button data-clear-diagnostic="${device.id}">CLEAR</button></div>`; }).join('')}</div>`;
+  } else {
+    body = `<div class="coming-later"><span class="eyebrow">${escapeHtml(settingsSection.toUpperCase())}</span><h1>Coming later</h1><p>This Settings section is reserved for a future hardware-independent configuration adapter.</p></div>`;
+  }
+
+  shell(`<div class="settings-layout"><aside class="settings-nav"><div class="settings-admin-label">⚠ ADMINISTRATOR SETTINGS</div>${sections.map(([id,label]) => `<button class="${settingsSection === id ? 'active' : ''}" data-settings-section="${id}">${label}</button>`).join('')}</aside><section class="settings-content page-scroll">${body}</section></div>${editor}`);
+  document.querySelectorAll('[data-settings-section]').forEach(button => button.onclick = () => { settingsSection = button.dataset.settingsSection; selectedDeviceId = null; render(); });
+  const typeFilter = document.getElementById('device-type-filter');
+  if (typeFilter) typeFilter.onchange = () => { deviceTypeFilter = typeFilter.value; render(); };
+  const enabledFilter = document.getElementById('device-enabled-filter');
+  if (enabledFilter) enabledFilter.onchange = () => { deviceEnabledFilter = enabledFilter.value; render(); };
+  document.getElementById('add-device')?.addEventListener('click', async () => {
+    const type = window.prompt('Device type: camera, lighting, switcher, audio, presentation, or browserOperator', 'camera');
+    if (!['camera','lighting','switcher','audio','presentation','browserOperator'].includes(type)) return window.alert('Choose a supported device type.');
+    state = await window.trinity.createDevice({ type, name: type === 'camera' ? 'New Camera' : 'New Device', logicalRole: type === 'camera' ? 'camera' : null, enabled: false });
+    selectedDeviceId = state.devices.at(-1).id;
+    render();
+  });
+  document.getElementById('add-camera')?.addEventListener('click', async () => { state = await window.trinity.createDevice({ type: 'camera', name: 'New Camera', logicalRole: 'camera', enabled: false, presetSupport: true }); selectedDeviceId = state.devices.at(-1).id; render(); });
+  document.querySelectorAll('[data-configure-device]').forEach(button => button.onclick = () => { selectedDeviceId = button.dataset.configureDevice; render(); });
+  document.querySelectorAll('[data-toggle-device]').forEach(button => button.onclick = async () => { const device = byId(state.devices, button.dataset.toggleDevice); state = await window.trinity.updateDevice(device.id, { enabled: !device.enabled }); render(); });
+  document.querySelectorAll('[data-duplicate-device]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateDevice(button.dataset.duplicateDevice); render(); });
+  document.querySelectorAll('[data-delete-device]').forEach(button => button.onclick = async () => {
+    const device = byId(state.devices, button.dataset.deleteDevice);
+    const references = [...state.productionLooks.flatMap(look => [look.programCameraId, look.previewCameraId, ...(look.cameraAssignments || []).map(item => item.cameraId)].filter(id => id === device.id)), ...state.cameraLayouts.flatMap(layout => [layout.programCamera, layout.previewCamera].filter(id => id === device.id))];
+    if (references.length && !window.confirm(`${device.name} has ${references.length} reference${references.length === 1 ? '' : 's'}. Delete it without clearing references?`)) return;
+    state = await window.trinity.deleteDevice(device.id, { confirmReferences: references.length > 0 }); selectedDeviceId = null; render();
+  });
+  document.querySelectorAll('[data-move-device]').forEach(button => button.onclick = async () => {
+    const deviceIndex = state.devices.findIndex(device => device.id === button.dataset.moveDevice);
+    const cameraPositions = state.devices.map((device,index) => device.type === 'camera' ? index : -1).filter(index => index >= 0);
+    const position = cameraPositions.indexOf(deviceIndex);
+    const target = cameraPositions[position + Number(button.dataset.direction)];
+    if (target !== undefined) state = await window.trinity.reorderDevice(deviceIndex, target);
+    render();
+  });
+  document.querySelectorAll('[data-test-device]').forEach(button => button.onclick = async () => { state = await window.trinity.testDevice(button.dataset.testDevice); render(); });
+  document.querySelectorAll('[data-clear-diagnostic]').forEach(button => button.onclick = async () => { state = await window.trinity.clearDeviceDiagnostic(button.dataset.clearDiagnostic); render(); });
+  document.getElementById('run-all-tests')?.addEventListener('click', async () => { state = await window.trinity.testAllDevices(); render(); });
+  document.getElementById('device-editor-close')?.addEventListener('click', () => { selectedDeviceId = null; render(); });
+  document.getElementById('device-editor-done')?.addEventListener('click', () => { selectedDeviceId = null; render(); });
+  document.querySelectorAll('[data-device-field]').forEach(input => input.onchange = async () => {
+    const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null;
+    state = await window.trinity.updateDevice(selected.id, { [input.dataset.deviceField]: value });
+    const updated = byId(state.devices, selected.id);
+    const duplicates = state.devices.filter(device => device.id !== updated.id && device.type === 'camera' && device.enabled && updated.enabled && device.logicalRole === updated.logicalRole);
+    if (duplicates.length) window.alert(`Warning: logical role "${updated.logicalRole}" is also used by ${duplicates.map(device => device.name).join(', ')}.`);
+    render();
+  });
+}
+
 function render() {
   if (!state) {
     return;
@@ -1913,6 +2057,8 @@ function render() {
     looksPage();
   } else if (page === 'lighting') {
     lightingPage();
+  } else if (page === 'settings') {
+    settingsPage();
   } else {
     camerasPage();
   }

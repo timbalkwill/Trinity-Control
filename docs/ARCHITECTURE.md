@@ -4,8 +4,28 @@ The refresh build keeps the stable Electron main/preload boundary while replacin
 
 - `electron-main.cjs`: persistent state, migrations, and IPC commands.
 - `cue-execution.cjs`: authoritative cue resource resolution and execution for GO, NEXT, and BACK.
+- `operator-commands.cjs`: serialized, authoritative operator commands shared by Electron IPC and browser requests.
+- `operator-server.cjs`: local HTTP server, explicit JSON API, whitelisted browser assets, and Server-Sent Event state broadcasts.
 - `preload.cjs`: restricted renderer API.
 - `public/app.js`: pages and operator interactions.
 - `public/styles.css`: responsive production-console layout.
+- `public/operator/`: touch-oriented Browser Operator interface for iPad Safari.
 
 The app uses a separate product name and application ID so it does not overwrite Alpha 4 data.
+
+## Browser Operator
+
+Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with the Electron application. Browse to `http://<Mac-LAN-IP>:4310/operator/` from a trusted device on the same local network. `/` redirects to the Operator page.
+
+The browser API exposes only state reads, health, SSE state events, and the approved operator commands. It does not expose Electron, filesystem access, arbitrary state replacement, or arbitrary static files. Electron IPC and browser requests call the same serialized command service, which persists state before broadcasting the authoritative snapshot to connected SSE clients.
+
+This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.
+
+## Browser Operator troubleshooting
+
+- **Server not running:** Open the Cameras page in the desktop app and check the Browser Operator status. Review the Terminal log for a port or firewall error.
+- **Wrong Mac IP:** Use a Network URL shown in the Cameras page. The address can change when the Mac reconnects to Wi-Fi.
+- **Different Wi-Fi networks:** Confirm the Mac and iPad are connected to the same network and subnet.
+- **Guest Wi-Fi or client isolation:** Guest networks commonly prevent devices from reaching each other. Use the trusted production network or disable client isolation.
+- **macOS firewall:** Allow incoming connections for Trinity Control when macOS prompts, or review Firewall settings in System Settings.
+- **Port 4310 already in use:** Quit the other application using port 4310, then restart Trinity Control. Trinity does not silently choose another port because operator bookmarks depend on it.

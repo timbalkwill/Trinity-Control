@@ -1,9 +1,19 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const fs = require("fs");
-const { executeCue } = require("./cue-execution.cjs");
+const { createOperatorCommands } = require("./operator-commands.cjs");
+const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 
 app.setName("Trinity Control Refresh");
+
+let mainWindow;
+let operatorServer;
+let operatorServerStatus = {
+  running: false,
+  port: DEFAULT_PORT,
+  localUrl: `http://localhost:${DEFAULT_PORT}`,
+  networkUrls: []
+};
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
@@ -712,49 +722,69 @@ function loadState() {
 }
 function saveState(state) { fs.writeFileSync(dataPath(), JSON.stringify(state, null, 2)); return state; }
 
-function addActivity(state, message) {
-  state.live.activityLog = [{ at: Date.now(), message }, ...(state.live.activityLog || [])].slice(0, 8);
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1366, height: 900, minWidth: 1024, minHeight: 700,
+    backgroundColor: "#081018", title: "Trinity Control",
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
+  });
+  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.loadFile(path.join(__dirname, "public", "index.html"));
 }
 
-app.whenReady().then(() => {
-  ipcMain.handle("state:get", () => loadState());
-  ipcMain.handle("state:save", (_e, s) => saveState(migrate(s)));
-  ipcMain.handle("cue:addTemplate", (_e, templateId) => {
-    const s = loadState(); const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return s;
-    s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
-    return saveState(s);
+app.whenReady().then(async () => {
+  const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
+  commands.subscribe(state => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("operator:state-changed", state);
+    }
   });
-  ipcMain.handle("cue:move", (_e, { from, to }) => {
-    const s = loadState();
+  ipcMain.handle("state:get", () => commands.getState());
+  ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
+  ipcMain.handle("operator-server:status", () => operatorServerStatus);
+  ipcMain.handle("cue:addTemplate", (_e, templateId) => commands.updateState(s => {
+    const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return;
+    s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
+  }));
+  ipcMain.handle("cue:move", (_e, { from, to }) => commands.updateState(s => {
     if (from < 0 || to < 0 || from >= s.runOfService.length || to >= s.runOfService.length || from === to) return s;
     const currentCueId = s.runOfService[s.live.cueIndex]?.id;
     const [item] = s.runOfService.splice(from, 1);
     s.runOfService.splice(to, 0, item);
     const currentIndex = s.runOfService.findIndex(cue => cue.id === currentCueId);
     if (currentIndex >= 0) s.live.cueIndex = currentIndex;
-    return saveState(s);
-  });
-  ipcMain.handle("cue:remove", (_e, index) => {
-    const s = loadState(); s.runOfService.splice(index, 1); s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1)); return saveState(s);
-  });
-  ipcMain.handle("live:go", (_e, index) => {
-    const s = loadState(); return saveState(executeCue(s, index));
-  });
-  ipcMain.handle("live:next", () => {
-    const s = loadState(); return saveState(executeCue(s, s.live.cueIndex + 1));
-  });
-  ipcMain.handle("live:back", () => {
-    const s = loadState(); return saveState(executeCue(s, s.live.cueIndex - 1));
-  });
-  ipcMain.handle("live:hold", () => { const s = loadState(); s.live.hold = !s.live.hold; return saveState(s); });
-  ipcMain.handle("lighting:override", (_e, sceneId) => { const s = loadState(); s.live.lightingOverrideId = sceneId; const scene = s.lightingScenes.find(x => x.id === sceneId); addActivity(s, `Lighting scene: ${scene?.name || sceneId}`); return saveState(s); });
-  ipcMain.handle("lighting:returnToCue", () => { const s = loadState(); s.live.lightingOverrideId = null; addActivity(s, "Returned to cue lighting"); return saveState(s); });
+  }));
+  ipcMain.handle("cue:remove", (_e, index) => commands.updateState(s => {
+    s.runOfService.splice(index, 1);
+    s.live.cueIndex = Math.min(s.live.cueIndex, Math.max(0, s.runOfService.length - 1));
+  }));
+  ipcMain.handle("live:go", (_e, index) => commands.goCue(index));
+  ipcMain.handle("live:next", () => commands.nextCue());
+  ipcMain.handle("live:back", () => commands.previousCue());
+  ipcMain.handle("live:hold", () => commands.toggleHold());
+  ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
+  ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());
 
-  const win = new BrowserWindow({
-    width: 1366, height: 900, minWidth: 1024, minHeight: 700,
-    backgroundColor: "#081018", title: "Trinity Control",
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
+  operatorServer = createOperatorServer({
+    commands,
+    assetsDirectory: path.join(__dirname, "public")
   });
-  win.loadFile(path.join(__dirname, "public", "index.html"));
+  try {
+    operatorServerStatus = await operatorServer.start();
+  } catch (error) {
+    operatorServerStatus = { ...operatorServerStatus, error: error.message };
+    console.error(`[Trinity Operator] Server failed to start on port ${DEFAULT_PORT}: ${error.message}`);
+  }
+  createWindow();
+});
+app.on("activate", () => { if (!mainWindow) createWindow(); });
+app.on("before-quit", event => {
+  if (!operatorServer) return;
+  event.preventDefault();
+  const server = operatorServer;
+  operatorServer = null;
+  server.close()
+    .catch(error => console.error(`[Trinity Operator] Server failed to close cleanly: ${error.message}`))
+    .finally(() => app.quit());
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

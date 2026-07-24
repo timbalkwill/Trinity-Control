@@ -51,6 +51,16 @@ All camera records—including the initial Main, Left, and Right records—use t
 
 Shot Library adds `state.shots` between camera presets and Production Looks. `shot-operations.cjs` owns versioned migration, CRUD, ordering, filtering, reference counts, pure target resolution, readiness summaries, and deterministic defaults. The dependency chain is Device → Camera Manager → Camera Preset → Shot → Production Look → Cue → `executeCue()` → `live.executionSnapshot`.
 
+## Live camera preparation
+
+`camera-preparation-operations.cjs` owns the desktop Live workflow's persistent per-camera preparation and tracking state. Each configured camera has an independent static-or-motion selection, preparation status, optional frozen prepared assignment, tracking support/activity, and deterministic simulated motion-run metadata. Static and motion selections are mutually exclusive.
+
+The renderer uses narrow preload commands. `operator-commands.cjs` serializes preparation, tracking, and Make Live mutations before persistence and publication to Electron and SSE subscribers. The renderer never replaces the full application state for these actions.
+
+`executeCue()` remains the only cue-execution path and `live.executionSnapshot` remains the immutable record of what the cue executed. A manual Make Live action changes `live.programCamera`, `live.previewCamera`, and `live.activeCameraAssignment`; it does not rebuild or mutate the cue snapshot. The older PROGRAM/PREVIEW TAKE LIVE swap remains supported for compatibility and continues preserving complete frozen assignment details.
+
+Motion preparation currently uses Shot Library entries assigned to the camera. A Shot's linked camera preset is treated as its starting preset. The current data model has no explicit ending preset or path geometry, so simulation records an immediate deterministic completion without inventing a physical end position.
+
 Shot mutations use the serialized main-process command queue and restricted preload bridge. Execution plans resolve Shot intent without mutation; Browser Operator receives only safe summaries and frozen executed assignments, never private Shot metadata.
 
 `state.cameraPresets` is the versioned preset collection. `camera-preset-operations.cjs` owns deterministic legacy migration, validation, narrow CRUD, per-camera ordering, category/favorite queries, and reference-aware deletion. Browser clients receive safe `managedCameras` and `cameraPresetSummaries`, never device configuration or full preset records.

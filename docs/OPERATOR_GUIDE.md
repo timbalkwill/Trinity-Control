@@ -65,3 +65,17 @@ A Shot can target a specific camera or fall back to a logical role, then optiona
 In **LOOKS**, choose a Shot for PROGRAM, PREVIEW, or AUXILIARY. Explicit camera and preset values are compatibility fallbacks. GO/NEXT/BACK freeze the resolved Shot in Live and Browser Operator. Editing a Shot does not alter what Live says was executed; run the cue again to apply it.
 
 Deleting a referenced Shot requires confirmation and leaves the reference visible for repair. Camera and preset deletion counts Shot references and likewise preserves the Shot.
+## Simplified Live camera workflow
+
+The desktop Live page keeps the cue list, three camera cards, GO/BACK, and favorite lighting controls visible together.
+
+For each camera:
+
+1. Choose **Static** for a saved preset or **Motion** for a Shot assigned to that camera.
+2. Choose the preset or motion from the camera-specific list. Preparing an off-air camera does not affect PROGRAM.
+3. Press **Make Live** to put that camera on air. A static choice remains still. A prepared motion begins once when the camera becomes live and completes without automatically switching cameras or returning to its start.
+4. On tracking-capable cameras, use **Start Tracking** and **Stop Tracking**. Tracking remains active when the camera moves on or off air. While tracking is active, preparation controls are disabled, but Make Live remains available.
+
+Preparation and tracking survive page navigation and normal application restart. GO and BACK continue using the shared cue executor. Cue execution does not clear tracking or prevent subsequent manual camera preparation.
+
+The current motion simulation uses the Shot's linked camera preset as a starting point when one exists. Shots do not yet define a distinct ending preset or physical motion path, and Trinity does not send PTZ or switcher commands in this workflow.

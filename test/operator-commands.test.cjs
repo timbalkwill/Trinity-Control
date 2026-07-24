@@ -84,6 +84,28 @@ test("TAKE LIVE persists and publishes through the serialized authoritative comm
   assert.equal(reloadCommands.getState().live.executionSnapshot.video.programCameraId, "left");
 });
 
+test("camera preparation and Make Live share serialized authoritative state", async () => {
+  const current = initialState();
+  current.devices = [
+    { id: "main", type: "camera", name: "Main", logicalRole: "main", enabled: true },
+    { id: "left", type: "camera", name: "Left", logicalRole: "left", enabled: true }
+  ];
+  current.cameraPresets = [{ id: "left-tight", name: "Left Tight", cameraDeviceId: "left", enabled: true }];
+  let persisted = clone(current);
+  const commands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); }
+  });
+  const published = [];
+  commands.subscribe(state => published.push(state));
+  await commands.setCameraMode("left", "static");
+  await commands.prepareCamera("left", "left-tight");
+  const result = await commands.makeCameraLive("left");
+  assert.equal(result.live.programCamera, "left");
+  assert.equal(result.live.cameraPreparations.find(item => item.cameraId === "left").selectedPresetId, "left-tight");
+  assert.equal(published.at(-1).live.programCamera, "left");
+});
+
 test("shared browser and Electron commands use the injected authoritative cue executor", async () => {
   const calls = [];
   const { commands } = harness({

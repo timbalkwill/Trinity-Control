@@ -1,6 +1,7 @@
 "use strict";
 
 const { buildManagedCameraProjection, summarizeManagedCamera } = require("./camera-manager-operations.cjs");
+const { cameraPreparationSummaries } = require("./camera-preparation-operations.cjs");
 const DEVICE_SCHEMA_VERSION = 1;
 const DEVICE_TYPES = new Set(["camera", "lighting", "switcher", "audio", "presentation", "browserOperator"]);
 const EPOCH = "1970-01-01T00:00:00.000Z";
@@ -321,6 +322,15 @@ function projectBrowserState(state) {
     ...state,
     live: {
       ...(state?.live || {}),
+      cameraPreparations: cameraPreparationSummaries(state),
+      activeCameraAssignment: state?.live?.activeCameraAssignment ? {
+        cameraName: state.live.activeCameraAssignment.cameraName || null,
+        mode: state.live.activeCameraAssignment.mode || "static",
+        presetName: state.live.activeCameraAssignment.presetName || null,
+        motionName: state.live.activeCameraAssignment.motionName || null,
+        trackingActive: state.live.activeCameraAssignment.trackingActive === true,
+        preparationStatus: state.live.activeCameraAssignment.preparationStatus || "idle"
+      } : null,
       executionSnapshot: executionSnapshot ? {
         ...executionSnapshot,
         cameraAssignments: (executionSnapshot.cameraAssignments || []).map(safeAssignment),

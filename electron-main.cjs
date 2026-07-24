@@ -8,6 +8,7 @@ const { normalizeProductionLooks } = require("./production-look-operations.cjs")
 const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.cjs");
 const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
+const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
@@ -36,6 +37,7 @@ function defaultState() {
     cameraManagerSchemaVersion: CAMERA_MANAGER_SCHEMA_VERSION,
     cameraPresetSchemaVersion: CAMERA_PRESET_SCHEMA_VERSION,
     shotSchemaVersion: SHOT_SCHEMA_VERSION,
+    cameraPreparationSchemaVersion: CAMERA_PREPARATION_SCHEMA_VERSION,
     cameras: [
       { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
       { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
@@ -737,6 +739,7 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
   if (!state.live?.serviceStartedAt) merged.live.serviceStartedAt = merged.live.cueStartedAt;
   if (!Array.isArray(merged.live.activityLog)) merged.live.activityLog = [];
+  migrateCameraPreparations(merged);
   merged.runOfService = merged.runOfService.map((cue, i) => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
@@ -746,7 +749,7 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
 
 function loadState() {
   try { return migrate(JSON.parse(fs.readFileSync(dataPath(), "utf8"))); }
-  catch { const s = defaultState(); saveState(s); return s; }
+  catch { const s = migrate(defaultState()); saveState(s); return s; }
 }
 function saveState(state) { fs.writeFileSync(dataPath(), JSON.stringify(state, null, 2)); return state; }
 
@@ -805,6 +808,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());
   ipcMain.handle("live:take", () => commands.takeLive());
+  ipcMain.handle("live:cameraMode", (_e, { cameraId, mode }) => commands.setCameraMode(cameraId, mode));
+  ipcMain.handle("live:prepareCamera", (_e, { cameraId, selectionId }) => commands.prepareCamera(cameraId, selectionId));
+  ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
+  ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
   ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
   ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());

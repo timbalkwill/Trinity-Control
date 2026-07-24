@@ -31,7 +31,10 @@ function initialState() {
       connectionStatus: "notTested", capabilities: {}, metadata: {}
     }],
     configuration: { privateValue: "hidden" },
-    cameraPresets: [{ id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" }],
+    cameraPresets: [
+      { id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" },
+      { id: "left-wide", name: "Left Wide", cameraDeviceId: "left", enabled: true, favorite: false, category: "Wide" }
+    ],
     shots: [{ id: "shot-right", name: "Pastor Tight", cameraDeviceId: "right", logicalCameraRole: "right", operatorNotes: "private-shot-notes", framingNotes: "private-framing-notes", trackingPreferred: true, motionEnabled: false, enabled: true }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{
@@ -177,6 +180,23 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(state.live.executionSnapshot.cameraAssignments.find(item => item.role === "program").cameraDeviceId, "left");
       const reloaded = await (await fetch(`${baseUrl}/api/state`)).json();
       assert.equal(reloaded.live.executionSnapshot.video.programCameraId, "left");
+    });
+    await t.test("camera preparation and Make Live broadcast through SSE", async () => {
+      const events = connectEvents(`${baseUrl}/api/events`);
+      await events.next();
+      let response = await post(baseUrl, "/api/live/camera-mode", { cameraId: "left", mode: "static" });
+      assert.equal(response.status, 200);
+      await events.next();
+      response = await post(baseUrl, "/api/live/prepare-camera", { cameraId: "left", selectionId: "left-wide" });
+      assert.equal(response.status, 200);
+      await events.next();
+      response = await post(baseUrl, "/api/live/make-camera-live", { cameraId: "left" });
+      const payload = await response.json();
+      assert.equal(payload.live.programCamera, "left");
+      const update = await events.next();
+      assert.equal(update.live.programCamera, "left");
+      assert.equal(update.live.cameraPreparations.find(item => item.cameraId === "left").presetName, "Left Wide");
+      await events.close();
     });
     await t.test("lighting override", async () => {
       const response = await post(baseUrl, "/api/lighting/override", { sceneId: "light-manual" });

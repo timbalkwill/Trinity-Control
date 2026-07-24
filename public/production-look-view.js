@@ -9,8 +9,8 @@
 
   function cameraRole(state, cameraId) {
     const snapshot = state?.live?.executionSnapshot;
-    const programCameraId = snapshot?.video?.programCameraId ?? state?.live?.programCamera;
-    const previewCameraId = snapshot?.video?.previewCameraId ?? state?.live?.previewCamera;
+    const programCameraId = state?.live?.programCamera ?? snapshot?.video?.programCameraId;
+    const previewCameraId = state?.live?.previewCamera ?? snapshot?.video?.previewCameraId;
     const auxiliaryCameraIds = snapshot?.video?.auxiliaryCameraIds || state?.live?.auxiliaryCameras || [];
     if (programCameraId === cameraId) return "program";
     if (previewCameraId === cameraId) return "preview";

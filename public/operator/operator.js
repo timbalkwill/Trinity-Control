@@ -12,7 +12,15 @@
   const lightingFor = cue => byId(state?.lightingScenes, cue?.lightingSceneId || lookFor(cue)?.lightingSceneId);
   const cameraFor = cue => byId(state?.cameraLayouts, cue?.cameraLayoutId || lookFor(cue)?.cameraLayoutId);
   const activeLighting = () => byId(state?.lightingScenes, state?.live?.lightingOverrideId || state?.live?.lastLightingSceneId) || lightingFor(currentCue());
-  const executedAssignment = cameraId => (state?.live?.executionSnapshot?.cameraAssignments || []).find(item => item.cameraDeviceId === cameraId);
+  const executedAssignment = cameraId => {
+    const frozen = (state?.live?.executionSnapshot?.cameraAssignments || []).find(item => item.cameraDeviceId === cameraId);
+    const preparation = (state?.live?.cameraPreparations || []).find(item => item.cameraId === cameraId);
+    return {
+      ...(frozen || {}),
+      role: state?.live?.programCamera === cameraId ? "program" : state?.live?.previewCamera === cameraId ? "preview" : frozen?.role,
+      tracking: preparation ? { mode: preparation.trackingActive ? "active" : "off", preferred: preparation.trackingActive } : frozen?.tracking
+    };
+  };
   const formatTime = seconds => { const value = Math.max(0, Math.floor(Number(seconds) || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; };
   const timing = () => {
     const now = Date.now();
@@ -52,7 +60,7 @@
       ${errorMessage ? `<div class="error">${escapeHtml(errorMessage)}</div>` : ""}
       <section class="summary"><div class="panel current-card"><div class="eyebrow">CURRENT · ${currentIndex() + 1} of ${state.runOfService.length}</div>${cueDetails(cue)}</div><div class="panel next-card"><div class="eyebrow">NEXT</div>${cueDetails(next)}</div><div class="panel timing-card"><div class="eyebrow">SERVICE PROGRESS</div><strong>Service ${formatTime(times.elapsedService)}</strong><strong>Cue ${formatTime(times.elapsedCue)}</strong><strong>Remaining ${formatTime(times.remaining)}</strong></div></section>
       <section class="controls compact-controls"><button data-command="back">BACK</button><button class="go" data-command="go">GO</button><button data-command="next">NEXT</button><button class="hold ${state.live?.hold ? "active" : ""}" data-command="hold">${state.live?.hold ? "RELEASE HOLD" : "HOLD"}</button></section>
-      <section class="panel active-resources"><div><div class="eyebrow">CURRENT LIGHTING</div><h2>${escapeHtml(activeLighting()?.name || "None")}</h2></div><div><div class="eyebrow">CURRENT PROGRAM SHOT</div><h2>${escapeHtml(state.live?.executionSnapshot?.video?.programShotName || "None")}</h2><small>${escapeHtml(state.live?.executionSnapshot?.video?.programCameraName || cameraFor(cue)?.name || "No camera")}</small></div></section>
+      <section class="panel active-resources"><div><div class="eyebrow">CURRENT LIGHTING</div><h2>${escapeHtml(activeLighting()?.name || "None")}</h2></div><div><div class="eyebrow">CURRENT PROGRAM CAMERA</div><h2>${escapeHtml(state.live?.activeCameraAssignment?.cameraName || state.live?.executionSnapshot?.video?.programCameraName || "None")}</h2><small>${escapeHtml(state.live?.activeCameraAssignment?.motionName || state.live?.activeCameraAssignment?.presetName || state.live?.executionSnapshot?.video?.programShotName || "No preparation")}</small></div></section>
       <section class="panel"><div class="eyebrow">CAMERA READINESS</div><div class="camera-safe-summaries">${(state.managedCameras || []).map(camera => { const assignment = executedAssignment(camera.cameraDeviceId); const tracking = assignment?.tracking ? (assignment.tracking.preferred ? "Preferred" : assignment.tracking.mode || "Off") : camera.trackingState || "Unknown"; const motion = assignment?.motion ? (assignment.motion.enabled ? "On" : "Off") : camera.motionState || "Unknown"; return `<div><strong>${escapeHtml(camera.displayName)}</strong><span>${escapeHtml(camera.logicalRole || "camera")} · ${escapeHtml(camera.readiness || "Unknown")}</span><small>${assignment?.role?.toUpperCase() || (camera.programState ? "PROGRAM" : camera.previewState ? "PREVIEW" : "Standby")} · Shot ${escapeHtml(assignment?.shotName || "None")} · Preset ${escapeHtml(assignment?.presetName || camera.currentPresetName || "Unknown")} · Tracking ${escapeHtml(tracking)} · Motion ${escapeHtml(motion)}${assignment?.warnings?.length ? ` · ${escapeHtml(assignment.warnings.join("; "))}` : camera.warning ? ` · ${escapeHtml(camera.warning)}` : ""}</small></div>`; }).join("") || '<span class="muted">No camera summaries available</span>'}</div></section>
       <section class="panel cue-list-panel"><div class="eyebrow">ORDER OF SERVICE</div><div class="cue-list">${(state.runOfService || []).map((item, index) => `<div class="cue ${index === currentIndex() ? "current" : ""}"><span class="cue-number">${index + 1}</span><div><strong>${escapeHtml(item.name)}</strong><small>${formatTime(item.duration)} · ${escapeHtml(lookFor(item)?.name || "No look")} · ${escapeHtml(item.notes || "")}</small></div><button class="go-cue" data-go="${index}">GO</button></div>`).join("")}</div></section>
     </div>`;

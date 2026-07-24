@@ -361,3 +361,90 @@
   font-size: 10px;
   letter-spacing: .05em;
 }
+
+/* Simplified three-camera Live workflow */
+.simple-live-layout{height:100%;min-height:0;display:grid;grid-template-columns:minmax(250px,.55fr) minmax(0,2.45fr);gap:12px}
+.simple-cue-panel{min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;padding:12px}
+.simple-cue-panel .cue-item{grid-template-columns:26px minmax(0,1fr);padding:8px 9px}
+.simple-cue-panel .cue-item strong,.simple-cue-panel .cue-item small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.simple-cue-controls{display:grid;grid-template-columns:1fr 1.5fr;gap:8px;padding-top:10px;border-top:1px solid var(--line)}
+.simple-cue-controls button{min-height:58px;font-size:16px}
+.simple-cue-controls .go-control{background:var(--green);color:#06150f;font-size:20px}
+.simple-live-main{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:12px}
+.simple-camera-grid{height:100%;min-height:0;align-items:stretch}
+.simple-camera-card{min-width:0;background:#0c1721;border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;grid-template-rows:auto minmax(190px,1fr) auto auto auto auto;gap:9px}
+.simple-camera-card.live{border-color:var(--green);box-shadow:0 0 0 1px var(--green),0 0 24px #48e0a022}
+.simple-camera-card header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.simple-camera-card header strong{font-size:16px}
+.simple-camera-card header span{font-size:11px;font-weight:900;letter-spacing:.12em;color:var(--muted)}
+.simple-camera-card.live header span{color:var(--green)}
+.simple-camera-preview{min-height:190px;aspect-ratio:16/9;background:radial-gradient(circle at center,#1a3447,#020609 72%);border-radius:12px;display:grid;place-content:center;text-align:center;gap:6px}
+.simple-camera-card.live .simple-camera-preview{box-shadow:inset 0 0 0 3px var(--green)}
+.simple-camera-preview .lens{font-size:44px;color:#6b879c}
+.prepared-summary{min-height:36px;display:flex;justify-content:space-between;gap:8px;align-items:center}
+.prepared-summary small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preparation-status{border-radius:999px;padding:4px 7px;background:#172838;color:var(--muted);font-size:10px;font-weight:900;white-space:nowrap}
+.preparation-status.ready,.preparation-status.complete{background:#0b3325;color:var(--green)}
+.preparation-status.running,.preparation-status.preparing{background:#463310;color:var(--amber)}
+.preparation-status.error{background:#461c1c;color:#ffaaa6}
+.camera-mode-selector{display:grid;grid-template-columns:1fr 1fr;gap:5px;background:#071019;border-radius:11px;padding:4px}
+.camera-mode-selector button{padding:8px;border:0;background:transparent;color:var(--muted)}
+.camera-mode-selector button.selected{background:#24415a;color:var(--text)}
+.camera-preparation-selector{display:grid;gap:4px;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.08em}
+.camera-preparation-selector select{width:100%;min-width:0}
+.camera-live-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;min-height:48px}
+.tracking-button.active{background:var(--amber);color:#261800}
+.tracking-space{display:block}
+.make-live-button{background:#173149}
+.make-live-button.is-live{background:var(--green);color:#06150f}
+.simple-lighting-panel{padding:10px 12px;margin:0}
+.simple-lighting-panel .section-title{margin-bottom:7px}
+.simple-lighting-panel .quick-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+.simple-lighting-panel .quick-grid button{min-height:44px;padding:7px}
+@media(max-width:1120px){.simple-live-layout{grid-template-columns:220px minmax(0,1fr)}.simple-camera-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.simple-camera-card{grid-template-rows:auto minmax(130px,1fr) auto auto auto auto}.simple-camera-preview{min-height:130px}.camera-live-actions{grid-template-columns:1fr}.simple-lighting-panel .quick-grid{grid-template-columns:repeat(4,1fr)}}
+
+/* Keep the three-camera booth layout contained at all supported desktop sizes. */
+.bottom-nav{grid-template-columns:repeat(7,minmax(0,1fr))}
+.bottom-nav button{min-width:0}
+.simple-live-layout{width:100%;min-width:0;grid-template-columns:clamp(210px,16vw,260px) minmax(0,1fr);overflow:hidden}
+.simple-cue-panel{min-width:0;overflow:hidden}
+.simple-live-main{min-width:0;gap:10px;overflow:hidden}
+.simple-camera-grid{width:100%;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;overflow:hidden}
+.simple-camera-card{width:100%;min-height:0;overflow:hidden;padding:9px;grid-template-rows:repeat(6,auto);align-content:start;gap:7px}
+.simple-camera-card header{min-width:0}
+.simple-camera-card header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.simple-camera-preview{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 / 9}
+.simple-camera-preview>img,.simple-camera-preview>video,.simple-camera-preview>canvas{width:100%;height:100%;object-fit:cover}
+.prepared-summary{min-width:0}
+.camera-mode-selector{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}
+.camera-mode-selector button{width:100%;min-width:0}
+.camera-preparation-selector{min-width:0}
+.camera-preparation-selector select{max-width:100%}
+.camera-live-actions{width:100%;min-width:0;grid-template-columns:minmax(0,1fr) minmax(100px,.45fr);gap:7px}
+.camera-live-actions>*{min-width:0}
+.camera-live-actions button{width:100%;min-width:0;padding:8px 7px;white-space:normal;line-height:1.15}
+.simple-lighting-panel{min-width:0;overflow:hidden}
+.simple-lighting-panel .quick-grid{min-width:0}
+.simple-lighting-panel .quick-grid button{min-width:0}
+
+@media(max-width:1450px){
+  .content{padding:10px}
+  .simple-live-layout{grid-template-columns:clamp(200px,15vw,230px) minmax(0,1fr);gap:9px}
+  .simple-camera-grid{gap:8px}
+  .simple-camera-card{padding:8px;gap:6px}
+  .camera-live-actions{grid-template-columns:minmax(0,1fr) minmax(92px,.45fr);gap:5px}
+  .camera-live-actions button{font-size:11px}
+  .bottom-nav{gap:7px;padding:10px}
+}
+
+@media(max-height:820px){
+  .simple-camera-card{grid-template-rows:repeat(6,auto)}
+  .simple-camera-preview{min-height:0}
+  .simple-camera-preview .lens{font-size:34px}
+  .simple-cue-panel{padding:9px}
+  .simple-cue-controls{gap:6px;padding-top:7px}
+  .simple-cue-controls button{min-height:48px}
+  .simple-lighting-panel{padding:7px 10px}
+  .simple-lighting-panel .section-title{margin-bottom:5px}
+  .simple-lighting-panel .quick-grid button{min-height:38px;padding:5px}
+}

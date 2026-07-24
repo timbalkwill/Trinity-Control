@@ -1,5 +1,7 @@
 "use strict";
 
+const { synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
+
 function commandError(message, code) {
   const error = new Error(message);
   error.code = code;
@@ -73,6 +75,7 @@ function takeLive(state, { now = Date.now } = {}) {
   live.programPreset = preview.presetName || null;
   live.previewCamera = program?.cameraDeviceId || null;
   live.previewPreset = program?.presetName || null;
+  synchronizeLiveCameraFromSnapshot(state);
   live.activityLog = [
     { at: now(), message: `TAKE LIVE: ${preview.shotName || preview.cameraName || preview.cameraDeviceId}` },
     ...(Array.isArray(live.activityLog) ? live.activityLog : [])

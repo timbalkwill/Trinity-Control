@@ -40,6 +40,10 @@ contextBridge.exposeInMainWorld("trinity", {
   nextCue: () => ipcRenderer.invoke("live:next"),
   previousCue: () => ipcRenderer.invoke("live:back"),
   takeLive: () => ipcRenderer.invoke("live:take"),
+  setCameraMode: (cameraId, mode) => ipcRenderer.invoke("live:cameraMode", { cameraId, mode }),
+  prepareCamera: (cameraId, selectionId) => ipcRenderer.invoke("live:prepareCamera", { cameraId, selectionId }),
+  setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
+  makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
   lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
   returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue")

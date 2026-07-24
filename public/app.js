@@ -795,7 +795,7 @@ function openCueEditor(index) {
   nameInput.select();
 }
 
-function livePage() {
+function legacyLivePage() {
   const cue = currentCue();
   const look = currentLook();
   const lighting = activeLighting();
@@ -1198,6 +1198,147 @@ if (
       render();
     };
   }
+}
+
+function cameraPreparation(cameraId) {
+  return (state.live?.cameraPreparations || []).find(item => item.cameraId === cameraId) || {
+    cameraId,
+    selectedMode: 'static',
+    selectedPresetId: null,
+    selectedMotionId: null,
+    preparationStatus: 'idle',
+    tracking: { supported: false, active: false }
+  };
+}
+
+function CameraModeSelector(camera, preparation) {
+  const disabled = preparation.tracking?.active ? 'disabled' : '';
+  return `<div class="camera-mode-selector" role="group" aria-label="Preparation mode for ${escapeHtml(camera.name)}">
+    <button data-camera-mode="${camera.id}" data-mode="static" class="${preparation.selectedMode === 'static' ? 'selected' : ''}" ${disabled}>STATIC</button>
+    <button data-camera-mode="${camera.id}" data-mode="motion" class="${preparation.selectedMode === 'motion' ? 'selected' : ''}" ${disabled}>MOTION</button>
+  </div>`;
+}
+
+function CameraPreparationSelector(camera, preparation) {
+  const disabled = preparation.tracking?.active ? 'disabled' : '';
+  const choices = preparation.selectedMode === 'motion'
+    ? (state.shots || []).filter(shot => shot.enabled !== false && (shot.cameraDeviceId === camera.id || (!shot.cameraDeviceId && shot.logicalCameraRole === camera.logicalRole)))
+    : (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
+  const selected = preparation.selectedMode === 'motion' ? preparation.selectedMotionId : preparation.selectedPresetId;
+  return `<label class="camera-preparation-selector">
+    <span>${preparation.selectedMode === 'motion' ? 'Motion' : 'Preset'}</span>
+    <select data-camera-preparation="${camera.id}" ${disabled}>
+      <option value="">Choose ${preparation.selectedMode === 'motion' ? 'motion' : 'preset'}…</option>
+      ${choices.map(choice => `<option value="${escapeHtml(choice.id)}" ${choice.id === selected ? 'selected' : ''}>${escapeHtml(choice.name)}</option>`).join('')}
+    </select>
+  </label>`;
+}
+
+function TrackingButton(camera, preparation) {
+  if (!preparation.tracking?.supported) return '<span class="tracking-space" aria-hidden="true"></span>';
+  return `<button data-camera-tracking="${camera.id}" data-active="${preparation.tracking.active ? 'true' : 'false'}" class="tracking-button ${preparation.tracking.active ? 'active' : ''}">
+    ${preparation.tracking.active ? 'STOP TRACKING' : 'START TRACKING'}
+  </button>`;
+}
+
+function MakeLiveButton(camera, isLive) {
+  return `<button data-make-camera-live="${camera.id}" class="make-live-button ${isLive ? 'is-live' : ''}">
+    ${isLive ? '● LIVE' : 'MAKE LIVE'}
+  </button>`;
+}
+
+function CameraLiveCard(camera) {
+  const preparation = cameraPreparation(camera.id);
+  const isLive = state.live?.programCamera === camera.id;
+  const statusLabels = {
+    idle: 'Not prepared',
+    preparing: 'Preparing',
+    ready: 'Ready',
+    running: 'Motion Running',
+    complete: 'Complete',
+    error: preparation.errorMessage || 'Error'
+  };
+  const preparedName = preparation.selectedMode === 'motion'
+    ? preparation.preparedAssignment?.motionName
+    : preparation.preparedAssignment?.presetName;
+  return `<article class="simple-camera-card ${isLive ? 'live' : ''}" data-camera-card="${camera.id}">
+    <header><strong>${escapeHtml(camera.name)}</strong><span>${isLive ? '● LIVE' : 'OFF AIR'}</span></header>
+    <div class="simple-camera-preview">
+      <div class="lens">◎</div>
+      <strong>${isLive ? 'PROGRAM' : 'CAMERA PREVIEW'}</strong>
+    </div>
+    <div class="prepared-summary">
+      <span class="preparation-status ${preparation.preparationStatus}">${escapeHtml(statusLabels[preparation.preparationStatus] || 'Idle')}</span>
+      <small>${escapeHtml(preparedName || (preparation.selectedMode === 'motion' ? 'No motion selected' : 'No preset selected'))}</small>
+    </div>
+    ${CameraModeSelector(camera, preparation)}
+    ${CameraPreparationSelector(camera, preparation)}
+    <div class="camera-live-actions">
+      ${TrackingButton(camera, preparation)}
+      ${MakeLiveButton(camera, isLive)}
+    </div>
+  </article>`;
+}
+
+function livePage() {
+  const favorites = (state.lightingScenes || []).filter(scene => scene.favorite).slice(0, 6);
+  const cameras = liveCameraTiles().slice(0, 3);
+  shell(`<div class="simple-live-layout">
+    <aside class="panel simple-cue-panel">
+      <div class="section-title"><span>ORDER OF SERVICE</span><strong>${state.runOfService.length} cues</strong></div>
+      <div class="cue-scroll">
+        ${state.runOfService.map((cue, index) => `<button class="cue-item ${index === state.live.cueIndex ? 'current' : index < state.live.cueIndex ? 'completed' : ''}" data-go-cue="${index}">
+          <span class="cue-number">${index === state.live.cueIndex ? '▶' : index + 1}</span>
+          <div><strong>${escapeHtml(cue.name)}</strong><small>${escapeHtml(cue.notes || '')}</small></div>
+        </button>`).join('')}
+      </div>
+      <div class="simple-cue-controls">
+        <button data-live-back>BACK</button>
+        <button class="go-control" data-live-go>GO</button>
+      </div>
+    </aside>
+    <section class="simple-live-main">
+      <div class="camera-grid simple-camera-grid">${cameras.map(CameraLiveCard).join('')}</div>
+      <section class="panel quick-panel simple-lighting-panel">
+        <div class="section-title"><span>FAVORITE LIGHTING</span><strong>${escapeHtml(activeLighting()?.name || 'None')}</strong></div>
+        <div class="quick-grid">
+          ${favorites.map(scene => `<button data-lighting="${scene.id}" class="${state.live.lightingOverrideId === scene.id ? 'selected' : ''}">${escapeHtml(scene.name)}</button>`).join('')}
+          <button class="danger" data-lighting="light-blackout">⏻ BLACKOUT</button>
+        </div>
+        ${state.live.lightingOverrideId ? '<button id="return-lighting" class="return-button">Return to cue lighting</button>' : ''}
+      </section>
+    </section>
+  </div>`);
+
+  document.querySelectorAll('[data-go-cue]').forEach(button => {
+    button.onclick = async () => { state = await activateCue(Number(button.dataset.goCue)); render(); };
+  });
+  document.querySelector('[data-live-go]').onclick = async () => { state = await window.trinity.nextCue(); render(); };
+  document.querySelector('[data-live-back]').onclick = async () => { state = await window.trinity.previousCue(); render(); };
+  document.querySelectorAll('[data-camera-mode]').forEach(button => {
+    button.onclick = async () => { state = await window.trinity.setCameraMode(button.dataset.cameraMode, button.dataset.mode); render(); };
+  });
+  document.querySelectorAll('[data-camera-preparation]').forEach(select => {
+    select.onchange = async () => {
+      if (!select.value) return;
+      try { state = await window.trinity.prepareCamera(select.dataset.cameraPreparation, select.value); render(); }
+      catch (error) { window.alert(error.message); }
+    };
+  });
+  document.querySelectorAll('[data-camera-tracking]').forEach(button => {
+    button.onclick = async () => {
+      state = await window.trinity.setCameraTracking(button.dataset.cameraTracking, button.dataset.active !== 'true');
+      render();
+    };
+  });
+  document.querySelectorAll('[data-make-camera-live]').forEach(button => {
+    button.onclick = async () => { state = await window.trinity.makeCameraLive(button.dataset.makeCameraLive); render(); };
+  });
+  document.querySelectorAll('[data-lighting]').forEach(button => {
+    button.onclick = async () => { state = await window.trinity.lightingOverride(button.dataset.lighting); render(); };
+  });
+  const returnButton = document.getElementById('return-lighting');
+  if (returnButton) returnButton.onclick = async () => { state = await window.trinity.returnToCueLighting(); render(); };
 }
 
 function servicePage() {

@@ -2,6 +2,7 @@
 
 const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
 const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
+const { synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -156,6 +157,7 @@ function executeCue(state, requestedIndex, { now = Date.now } = {}) {
   live.activeCueId = cue.id || null;
   live.activeProductionLookId = plan.productionLookId;
   live.executionSnapshot = createExecutionSnapshot(state, cue, plan, executedAt);
+  synchronizeLiveCameraFromSnapshot(state);
   live.cueStartedAt = executedAt;
   live.activityLog = [
     { at: executedAt, message: `Cue started: ${cue.name || "Cue"}` },

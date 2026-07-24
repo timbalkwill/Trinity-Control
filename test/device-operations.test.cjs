@@ -64,6 +64,29 @@ test("an explicitly empty device collection remains empty", () => {
   assert.deepEqual(normalizeDeviceCollection([], { legacyCameras: [{ id: "legacy", name: "Legacy Camera" }] }), []);
 });
 
+test("deleted default cameras are not silently recreated by migration", () => {
+  const current = state();
+  deleteDevice(current, "main");
+  deleteDevice(current, "left");
+  deleteDevice(current, "right");
+  const restarted = normalizeDeviceCollection(
+    JSON.parse(JSON.stringify(current.devices)),
+    { legacyCameras: current.cameras }
+  );
+  assert.deepEqual(listDevicesByType({ devices: restarted }, "camera"), []);
+});
+
+test("deleted user-created cameras stay deleted across migration", () => {
+  const current = state();
+  createDevice(current, { type: "camera", name: "Balcony", logicalRole: "balcony" }, { id: "balcony" });
+  deleteDevice(current, "balcony");
+  const restarted = normalizeDeviceCollection(
+    JSON.parse(JSON.stringify(current.devices)),
+    { legacyCameras: current.cameras }
+  );
+  assert.equal(getDeviceById({ devices: restarted }, "balcony"), null);
+});
+
 test("partial malformed legacy collections are tolerated without replacement", () => {
   const devices = normalizeDeviceCollection([{ id: "custom", type: "camera", name: "Custom", logicalRole: "balcony", enabled: true }, null, "bad"]);
   assert.deepEqual(devices.map(device => device.id), ["custom"]);
@@ -112,11 +135,14 @@ test("reference-aware deletion counts Looks, layouts, assignments, and cues", ()
   current.productionLooks.push({ id: "look", name: "Look", programCameraId: "main", cameraAssignments: [{ role: "pastor", cameraId: "main" }] });
   current.cameraLayouts.push({ id: "layout", name: "Layout", previewCamera: "main" });
   current.runOfService.push({ id: "cue", name: "Cue", cameraId: "main" });
-  assert.equal(countDeviceReferences(current, "main").length, 4);
-  assert.throws(() => deleteDevice(current, "main"), error => error.code === "CONFIRM_DEVICE_DELETE" && error.references.length === 4);
+  current.cameraPresets = [{ id: "preset", name: "Pastor Tight", cameraDeviceId: "main" }];
+  assert.equal(countDeviceReferences(current, "main").length, 5);
+  assert.throws(() => deleteDevice(current, "main"), error => error.code === "CONFIRM_DEVICE_DELETE" && error.references.length === 5);
   deleteDevice(current, "main", { confirmReferences: true });
   assert.equal(current.productionLooks[0].programCameraId, "main");
   assert.equal(current.runOfService[0].cameraId, "main");
+  assert.equal(current.cameraLayouts[0].previewCamera, "main");
+  assert.equal(current.cameraPresets[0].cameraDeviceId, "main");
 });
 
 test("browser projection excludes credentials, usernames, notes, and configuration", () => {

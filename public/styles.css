@@ -344,3 +344,20 @@
   border: 0;
   box-shadow: inset 0 0 0 2px var(--amber);
 }
+
+.camera-monitor.auxiliary .video-placeholder {
+  border: 0;
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.camera-monitor.auxiliary .monitor-topline span {
+  color: var(--blue);
+}
+
+.manual-preset-label {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: .05em;
+}

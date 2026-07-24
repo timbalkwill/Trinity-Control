@@ -23,10 +23,25 @@ function initialState() {
       connection: { host: "10.0.0.5", username: "private-user", password: "private-password" },
       capabilities: {},
       metadata: {}
+    }, {
+      id: "left", type: "camera", name: "Left Camera", logicalRole: "left", enabled: true,
+      connectionStatus: "notTested", capabilities: {}, metadata: {}
+    }, {
+      id: "right", type: "camera", name: "Right Camera", logicalRole: "right", enabled: true,
+      connectionStatus: "notTested", capabilities: {}, metadata: {}
     }],
     configuration: { privateValue: "hidden" },
+    cameraPresets: [{ id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
-    productionLooks: [{ id: "look", lightingSceneId: "light-cue", cameraLayoutId: "layout" }],
+    productionLooks: [{
+      id: "look",
+      lightingSceneId: "light-cue",
+      cameraLayoutId: "layout",
+      cameraAssignments: [
+        { role: "PROGRAM", cameraId: "right" },
+        { role: "PREVIEW", cameraId: "left" }
+      ]
+    }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
     runOfService: [
       { id: "one", name: "One", productionLookId: "look" },
@@ -117,13 +132,23 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal("devices" in state, false);
       assert.equal("configuration" in state, false);
       assert.equal(state.deviceSummaries[0].name, "Main Camera");
-      assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue/);
+      assert.equal(state.managedCameras[0].displayName, "Main Camera");
+      assert.equal(state.cameraPresetSummaries[0].name, "Pastor Tight");
+      assert.equal("cameraPresets" in state, false);
+      assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue|private-preset-notes|10\.0\.0\.5/);
       assert.equal(response.headers.get("cache-control"), "no-store");
     });
     await t.test("GO command", async () => {
       const response = await post(baseUrl, "/api/live/go", { index: 2 });
       assert.equal(response.status, 200);
-      assert.equal((await response.json()).live.cueIndex, 2);
+      const state = await response.json();
+      assert.equal(state.live.cueIndex, 2);
+      assert.equal(state.live.executionSnapshot.cueId, "three");
+      assert.equal(state.live.executionSnapshot.productionLookId, "look");
+      assert.equal(state.live.executionSnapshot.video.programCameraName, "Right Camera");
+      assert.equal(state.live.executionSnapshot.video.previewCameraName, "Left Camera");
+      assert.equal(state.live.executionSnapshot.cameraAssignments[0].cameraDeviceId, "right");
+      assert.doesNotMatch(JSON.stringify(state.live.executionSnapshot), /private-user|private-password|private-reference/);
     });
     await t.test("BACK command", async () => {
       const response = await post(baseUrl, "/api/live/back");

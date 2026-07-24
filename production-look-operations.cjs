@@ -1,5 +1,7 @@
 "use strict";
 
+const { resolveShotTarget } = require("./shot-operations.cjs");
+
 const PRODUCTION_LOOK_SCHEMA_VERSION = 2;
 
 function nullableString(value) {
@@ -26,8 +28,9 @@ function cloneAssignments(assignments) {
   if (!Array.isArray(assignments)) return [];
   return assignments.map(item => ({
     role: normalizeCameraAssignmentRole(item?.role),
-    cameraId: nullableString(item?.cameraId),
-    presetId: nullableString(item?.presetId)
+    cameraId: nullableString(item?.cameraId || item?.cameraDeviceId),
+    presetId: nullableString(item?.presetId || item?.cameraPresetId),
+    shotId: nullableString(item?.shotId)
   }));
 }
 
@@ -39,7 +42,7 @@ function normalizeCameraAssignments(input) {
     if (existing) {
       if (!existing.cameraId) existing.cameraId = cameraId;
     } else {
-      assignments.push({ role, cameraId, presetId: null });
+      assignments.push({ role, cameraId, presetId: null, shotId: null });
     }
   }
   return assignments;
@@ -159,13 +162,29 @@ function resolveProductionLookCameraAssignments(state, lookOrId, cue = {}) {
   if (look?.cameraLayoutId && !legacyLayout) warnings.push(`Missing Production Look camera layout: ${look.cameraLayoutId}`);
 
   function modern(role) {
-    return assignments.find(item => item.role === role && item.cameraId) || null;
+    return assignments.find(item => item.role === role && (item.cameraId || item.presetId || item.shotId)) || null;
+  }
+
+  function resolveAssignmentShot(assignment, role) {
+    const shotId = assignment?.shotId || (role === "program" ? look?.selectedShotId : null);
+    if (!shotId) return null;
+    const resolved = resolveShotTarget(state, shotId);
+    warnings.push(...resolved.warnings.map(warning => `${role} Shot: ${warning}`));
+    return resolved;
   }
 
   function resolveRole(role) {
     const modernAssignment = modern(role);
+    const resolvedShot = resolveAssignmentShot(modernAssignment, role);
     const candidates = [
       cueLayout ? { cameraId: role === "program" ? cueLayout.programCamera : cueLayout.previewCamera, presetName: role === "program" ? cueLayout.programPreset : cueLayout.previewPreset, source: "cue" } : null,
+      resolvedShot?.cameraDeviceId && resolvedShot.shot?.enabled !== false ? {
+        cameraId: resolvedShot.cameraDeviceId,
+        presetId: resolvedShot.preset?.enabled === false ? modernAssignment?.presetId || null : resolvedShot.preset?.id || modernAssignment?.presetId || null,
+        presetName: resolvedShot.preset?.enabled === false ? null : resolvedShot.preset?.name || null,
+        shot: resolvedShot,
+        source: "production-look-shot"
+      } : null,
       modernAssignment ? { ...modernAssignment, source: "production-look-assignment" } : null,
       look?.[`${role}CameraId`] ? { cameraId: look[`${role}CameraId`], source: "legacy-video" } : null,
       legacyLayout ? { cameraId: role === "program" ? legacyLayout.programCamera : legacyLayout.previewCamera, presetName: role === "program" ? legacyLayout.programPreset : legacyLayout.previewPreset, source: "legacy-layout" } : null
@@ -180,14 +199,21 @@ function resolveProductionLookCameraAssignments(state, lookOrId, cue = {}) {
       const presetId = candidate.presetId || null;
       const resolvedPreset = preset(presetId);
       if (presetId && !resolvedPreset) warnings.push(`Missing ${role} preset: ${presetId}`);
+      const presetMismatch = resolvedPreset?.cameraDeviceId && resolvedPreset.cameraDeviceId !== candidate.cameraId;
+      if (presetMismatch) warnings.push(`Preset camera mismatch for ${role}: ${resolvedPreset.name || presetId}`);
       return {
         role,
         cameraDeviceId: candidate.cameraId,
         cameraName: resolvedCamera.name || null,
-        presetId,
-        presetName: resolvedPreset?.name || candidate.presetName || null,
+        presetId: presetMismatch ? null : presetId,
+        presetName: presetMismatch ? null : resolvedPreset?.name || candidate.presetName || null,
+        shotId: candidate.shot?.shotId || modernAssignment?.shotId || (role === "program" ? look?.selectedShotId : null),
+        shotName: candidate.shot?.shotName || null,
+        tracking: candidate.shot?.tracking || null,
+        motion: candidate.shot?.motion || null,
         source: candidate.source,
-        missing: Boolean(presetId && !resolvedPreset)
+        missing: Boolean((presetId && !resolvedPreset) || presetMismatch || candidate.shot?.warnings?.length),
+        warnings: candidate.shot?.warnings || []
       };
     }
 
@@ -198,28 +224,41 @@ function resolveProductionLookCameraAssignments(state, lookOrId, cue = {}) {
       cameraName: null,
       presetId: missingCandidate?.presetId || null,
       presetName: null,
+      shotId: modernAssignment?.shotId || (role === "program" ? look?.selectedShotId : null),
+      shotName: resolvedShot?.shotName || null,
+      tracking: resolvedShot?.tracking || null,
+      motion: resolvedShot?.motion || null,
       source: missingCandidate?.source || "unassigned",
-      missing: Boolean(missingCandidate)
+      missing: Boolean(missingCandidate || resolvedShot),
+      warnings: resolvedShot?.warnings || []
     };
   }
 
   const program = resolveRole("program");
   const preview = resolveRole("preview");
   const auxiliary = assignments
-    .filter(item => item.role === "auxiliary" && (item.cameraId || item.presetId))
+    .filter(item => item.role === "auxiliary" && (item.cameraId || item.presetId || item.shotId))
     .map(item => {
-      const resolvedCamera = camera(item.cameraId);
-      const resolvedPreset = preset(item.presetId);
+      const resolvedShot = resolveAssignmentShot(item, "auxiliary");
+      const cameraId = resolvedShot?.cameraDeviceId || item.cameraId;
+      const presetId = resolvedShot?.preset?.enabled === false ? item.presetId : resolvedShot?.preset?.id || item.presetId;
+      const resolvedCamera = camera(cameraId);
+      const resolvedPreset = preset(presetId);
       if (item.cameraId && !resolvedCamera) warnings.push(`Missing auxiliary camera: ${item.cameraId}`);
-      if (item.presetId && !resolvedPreset) warnings.push(`Missing auxiliary preset: ${item.presetId}`);
+      if (presetId && !resolvedPreset) warnings.push(`Missing auxiliary preset: ${presetId}`);
       return {
         role: "auxiliary",
-        cameraDeviceId: item.cameraId,
+        cameraDeviceId: cameraId,
         cameraName: resolvedCamera?.name || null,
-        presetId: item.presetId,
+        presetId,
         presetName: resolvedPreset?.name || null,
-        source: "production-look-assignment",
-        missing: Boolean((item.cameraId && !resolvedCamera) || (item.presetId && !resolvedPreset))
+        shotId: resolvedShot?.shotId || item.shotId,
+        shotName: resolvedShot?.shotName || null,
+        tracking: resolvedShot?.tracking || null,
+        motion: resolvedShot?.motion || null,
+        source: resolvedShot?.cameraDeviceId ? "production-look-shot" : "production-look-assignment",
+        missing: Boolean((cameraId && !resolvedCamera) || (presetId && !resolvedPreset) || resolvedShot?.warnings?.length),
+        warnings: resolvedShot?.warnings || []
       };
     });
 

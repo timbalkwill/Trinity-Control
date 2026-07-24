@@ -14,7 +14,14 @@ let selectedManagedCameraId = null;
 let selectedCameraPresetId = null;
 let cameraPresetSearch = '';
 let cameraPresetCategory = '';
+let selectedShotId = null;
+let shotSearch = '';
+let shotCategory = '';
+let shotCamera = '';
+let shotFavorite = '';
+let shotEnabled = '';
 const suggestedPresetCategories = ['Pastor', 'Platform', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
+const suggestedShotCategories = ['Pastor', 'Platform', 'Music', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 
 const nav = [
   ['live', 'LIVE'],
@@ -22,6 +29,7 @@ const nav = [
   ['looks', 'LOOKS'],
   ['lighting', 'LIGHTING'],
   ['cameras', 'CAMERAS'],
+  ['shots', 'SHOTS'],
   ['settings', '⚙ SETTINGS']
 ];
 
@@ -448,6 +456,9 @@ function cameraCard(camera) {
   const selected = legacyCamera?.lastPreset || 'Stage Wide';
   const executedAssignment = (snapshot?.cameraAssignments || []).find(item => item.cameraDeviceId === camera.id);
   const executedPreset = executedAssignment?.presetName || (isProgram ? snapshot?.video?.programPreset : isPreview ? snapshot?.video?.previewPreset : null);
+  const executedShot = executedAssignment?.shotName || (isProgram ? snapshot?.video?.programShotName : isPreview ? snapshot?.video?.previewShotName : null);
+  const tracking = executedAssignment?.tracking?.preferred ? 'Preferred' : executedAssignment?.tracking?.mode || 'Off';
+  const motion = executedAssignment?.motion?.enabled ? 'On' : 'Off';
 
   return `
     <article
@@ -481,7 +492,10 @@ function cameraCard(camera) {
         </div>
 
         <small>
-          Executed preset: ${escapeHtml(executedPreset || 'Not assigned')}
+          Shot: ${escapeHtml(executedShot || 'Not assigned')}<br>
+          Preset: ${escapeHtml(executedPreset || 'Not assigned')}<br>
+          Tracking: ${escapeHtml(tracking)} · Motion: ${escapeHtml(motion)}
+          ${executedAssignment?.warnings?.length ? `<br>⚠ ${escapeHtml(executedAssignment.warnings.join('; '))}` : ''}
         </small>
       </div>
 
@@ -1690,7 +1704,9 @@ function looksPage() {
       const normalized = String(value?.role || '').trim().toLowerCase();
       return (normalized === 'aux' ? 'auxiliary' : normalized) === role;
     }) || {};
-    return `<div class="assignment-row"><strong>${role.toUpperCase()}</strong><select data-assignment="${role}" data-part="cameraId">${options(cameraOptions, item.cameraId)}</select><input data-assignment="${role}" data-part="presetId" value="${escapeHtml(item.presetId || '')}" placeholder="Preset ID"></div>`;
+    const shotOptions = options(state.shots || [], item.shotId, 'No Shot');
+    const presetOptions = options(state.cameraPresets || [], item.presetId, 'No explicit preset');
+    return `<div class="assignment-row"><strong>${role.toUpperCase()}</strong><label>Shot<select data-assignment="${role}" data-part="shotId">${shotOptions}</select></label><label>Explicit camera fallback<select data-assignment="${role}" data-part="cameraId">${options(cameraOptions, item.cameraId)}</select></label><label>Explicit preset fallback<select data-assignment="${role}" data-part="presetId">${presetOptions}</select></label></div>`;
   };
   shell(`<div class="page-scroll"><div class="looks-workspace">
     <aside class="panel look-library"><div class="section-title"><span>PRODUCTION LOOKS 2.0</span><strong>${state.productionLooks.length} looks</strong></div>
@@ -1703,7 +1719,7 @@ function looksPage() {
         <fieldset><legend>GENERAL</legend><label>Name<input data-look-field="name" value="${escapeHtml(selected.name)}" required></label><label>Description<textarea data-look-field="description">${escapeHtml(selected.description || '')}</textarea></label><label>Color / label<input type="color" data-look-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label><label>Tags<input data-look-field="tags" data-value-type="tags" value="${escapeHtml((selected.tags || []).join(', '))}" placeholder="worship, sermon"></label><label>Operator notes<textarea data-look-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label></fieldset>
         <fieldset><legend>LIGHTING</legend><label>Lighting scene<select data-look-field="lightingSceneId">${options(state.lightingScenes, selected.lightingSceneId)}</select></label><label>Fade (ms)<input type="number" min="0" data-look-field="lightingFadeMs" value="${selected.lightingFadeMs || 0}"></label><label>Stage wash mode<input data-look-field="stageWashMode" value="${escapeHtml(selected.stageWashMode || '')}" placeholder="Optional"></label><label>Wall wash mode<input data-look-field="wallWashMode" value="${escapeHtml(selected.wallWashMode || '')}" placeholder="Optional"></label></fieldset>
         <fieldset><legend>VIDEO</legend><label>Legacy camera layout (compatibility fallback)<select data-look-field="cameraLayoutId">${options(state.cameraLayouts, selected.cameraLayoutId)}</select></label><label>Transition<select data-look-field="transitionStyle"><option value="cut" ${selected.transitionStyle === 'cut' ? 'selected' : ''}>Cut</option><option value="mix" ${selected.transitionStyle === 'mix' ? 'selected' : ''}>Mix</option><option value="dip" ${selected.transitionStyle === 'dip' ? 'selected' : ''}>Dip</option></select></label><label>Transition duration (ms)<input type="number" min="0" data-look-field="transitionDurationMs" value="${selected.transitionDurationMs || 0}"></label><p>Legacy direct camera selections remain preserved in saved Looks. The camera assignments below are authoritative.</p></fieldset>
-        <fieldset><legend>CAMERAS · AUTHORITATIVE</legend>${['program', 'preview', 'auxiliary'].map(assignment).join('')}<label>Selected shot (future)<input data-look-field="selectedShotId" value="${escapeHtml(selected.selectedShotId || '')}" placeholder="Optional shot reference"></label></fieldset>
+        <fieldset><legend>CAMERAS · AUTHORITATIVE</legend><p>Shot → explicit assignment → legacy fields/layout. Shot edits apply only when a cue executes again.</p>${['program', 'preview', 'auxiliary'].map(assignment).join('')}<button type="button" id="open-shot-library">OPEN SHOT LIBRARY</button></fieldset>
         <fieldset><legend>MOTION</legend><label class="checkbox-label"><input type="checkbox" data-look-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Enable motion</label><label>Motion profile<input data-look-field="motionProfileId" value="${escapeHtml(selected.motionProfileId || '')}" placeholder="Coming later"></label><label>Duration (ms)<input type="number" min="0" data-look-field="motionDurationMs" value="${selected.motionDurationMs || 0}"></label><label>Speed<input type="number" min="0" step="0.1" data-look-field="motionSpeed" value="${selected.motionSpeed || 1}"></label></fieldset>
         <fieldset class="future-section"><legend>FUTURE INTEGRATIONS</legend><label>Audio scene<input data-look-field="audioSceneId" value="${escapeHtml(selected.audioSceneId || '')}" placeholder="Coming later"></label><label>Presentation cue<input data-look-field="presentationCueId" value="${escapeHtml(selected.presentationCueId || '')}" placeholder="Coming later"></label><p>Hardware communication is not enabled. These references are stored for future QLC+, ATEM, PTZ, Motion Studio, audio, and presentation adapters.</p></fieldset>
       </div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>
@@ -1720,9 +1736,10 @@ function looksPage() {
     savePatch({ [input.dataset.lookField]: value });
   });
   document.querySelectorAll('[data-assignment]').forEach(input => input.onchange = () => {
-    const assignments = ['program', 'preview', 'auxiliary'].map(role => ({ role, cameraId: document.querySelector(`[data-assignment="${role}"][data-part="cameraId"]`).value || null, presetId: document.querySelector(`[data-assignment="${role}"][data-part="presetId"]`).value || null }));
+    const assignments = ['program', 'preview', 'auxiliary'].map(role => ({ role, shotId: document.querySelector(`[data-assignment="${role}"][data-part="shotId"]`).value || null, cameraId: document.querySelector(`[data-assignment="${role}"][data-part="cameraId"]`).value || null, presetId: document.querySelector(`[data-assignment="${role}"][data-part="presetId"]`).value || null }));
     savePatch({ cameraAssignments: assignments });
   });
+  document.getElementById('open-shot-library').onclick = () => { page = 'shots'; render(); };
   document.getElementById('look-duplicate').onclick = async () => { state = await window.trinity.duplicateProductionLook(selected.id); selectedLookId = state.productionLooks.at(-1).id; render(); };
   document.getElementById('look-toggle').onclick = () => savePatch({ enabled: selected.enabled === false });
   document.getElementById('look-delete').onclick = async () => {
@@ -1843,18 +1860,19 @@ function camerasPage() {
   const selectedPreset = (state.cameraPresets || []).find(preset => preset.id === selectedCameraPresetId);
   const cameraCard = device => {
     const devicePresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === device.id);
+    const deviceShots = (state.shots || []).filter(shot => shot.cameraDeviceId === device.id || (!shot.cameraDeviceId && shot.logicalCameraRole === device.logicalRole));
     const favorites = devicePresets.filter(preset => preset.favorite && preset.enabled);
     const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || 'Adapter not implemented';
     return `<button class="managed-camera-card ${device.id === selected?.id ? 'selected' : ''}" data-managed-camera="${device.id}">
       <div><span class="role-pill">${escapeHtml(device.logicalRole || 'camera')}</span><strong>${escapeHtml(device.name)}</strong></div>
       <small>${escapeHtml([device.manufacturer, device.model].filter(Boolean).join(' ') || 'Model not assigned')}</small>
       <span class="readiness">${escapeHtml(status)}</span>
-      <small>${devicePresets.length} presets · ${favorites.length} favorites</small>
+      <small>${devicePresets.length} presets · ${favorites.length} favorites · ${deviceShots.length} Shots</small>
     </button>`;
   };
   const presetRow = (preset, index) => `<div class="preset-row ${preset.enabled ? '' : 'disabled'}">
     <button class="favorite-button" data-favorite-preset="${preset.id}" title="Favorite">${preset.favorite ? '★' : '☆'}</button>
-    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Utility')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'}</small></div>
+    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Utility')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'} · ${(state.shots || []).filter(shot => shot.cameraPresetId === preset.id).length} Shots</small></div>
     <button data-edit-preset="${preset.id}">EDIT</button><button data-duplicate-preset="${preset.id}">DUPLICATE</button>
     <button data-move-preset="${preset.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-preset="${preset.id}" data-direction="1" ${index === presets.length - 1 ? 'disabled' : ''}>↓</button>
     <button class="danger" data-delete-preset="${preset.id}">DELETE</button>
@@ -1910,7 +1928,7 @@ function camerasPage() {
   document.querySelectorAll('[data-move-preset]').forEach(button => button.onclick = async () => { const preset = byId(state.cameraPresets, button.dataset.movePreset); const ordered = (state.cameraPresets || []).filter(item => item.cameraDeviceId === selected.id); const from = ordered.findIndex(item => item.id === preset.id); state = await window.trinity.reorderCameraPreset(selected.id, from, from + Number(button.dataset.direction)); render(); });
   document.querySelectorAll('[data-delete-preset]').forEach(button => button.onclick = async () => {
     const preset = byId(state.cameraPresets, button.dataset.deletePreset);
-    const references = [...(state.productionLooks || []).flatMap(look => (look.cameraAssignments || []).filter(item => item.presetId === preset.id)), ...(state.runOfService || []).filter(cue => [cue.cameraPresetId, cue.presetId].includes(preset.id))];
+    const references = [...(state.productionLooks || []).flatMap(look => (look.cameraAssignments || []).filter(item => item.presetId === preset.id)), ...(state.runOfService || []).filter(cue => [cue.cameraPresetId, cue.presetId].includes(preset.id)), ...(state.shots || []).filter(shot => shot.cameraPresetId === preset.id)];
     const confirmReferences = references.length ? window.confirm(`${preset.name} has ${references.length} reference${references.length === 1 ? '' : 's'}. Delete and preserve missing references?`) : window.confirm(`Delete ${preset.name}?`);
     if (!confirmReferences) return;
     state = await window.trinity.deleteCameraPreset(preset.id, { confirmReferences: references.length > 0 }); render();
@@ -1932,6 +1950,110 @@ function camerasPage() {
   document.getElementById('preset-editor-done')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
 }
 
+function shotResolution(shot) {
+  const cameras = (state.devices || []).filter(device => device.type === 'camera');
+  const requested = byId(cameras, shot.cameraDeviceId);
+  const byRole = cameras.find(camera => camera.logicalRole === shot.logicalCameraRole && camera.enabled);
+  const camera = requested?.enabled ? requested : byRole || requested || null;
+  const requestedPreset = byId(state.cameraPresets || [], shot.cameraPresetId);
+  const preset = requestedPreset?.cameraDeviceId === camera?.id ? requestedPreset : null;
+  let readiness = 'Ready';
+  if (!camera) readiness = 'Missing camera';
+  else if (!camera.enabled) readiness = 'Camera disabled';
+  else if (shot.cameraPresetId && !requestedPreset) readiness = 'Missing preset';
+  else if (requestedPreset && requestedPreset.cameraDeviceId !== camera.id) readiness = 'Preset/camera mismatch';
+  else if (preset && !preset.enabled) readiness = 'Preset disabled';
+  else if (!camera.ipAddress || !camera.protocol) readiness = 'Configuration incomplete';
+  return { camera, preset, readiness };
+}
+
+function shotReferenceSummary(shotId) {
+  const counts = { 'Production Looks': 0, Cues: 0, Templates: 0, 'Motion Studio': 0 };
+  for (const look of state.productionLooks || []) {
+    if (look.selectedShotId === shotId) counts['Production Looks'] += 1;
+    counts['Production Looks'] += (look.cameraAssignments || []).filter(item => item.shotId === shotId).length;
+  }
+  counts.Cues = (state.runOfService || []).filter(cue => [cue.shotId, cue.selectedShotId].includes(shotId)).length;
+  counts.Templates = (state.cueTemplates || []).filter(template => [template.shotId, template.selectedShotId].includes(shotId)).length;
+  counts['Motion Studio'] = (state.motionStudioReferences || []).filter(item => item.shotId === shotId).length;
+  return { counts, total: Object.values(counts).reduce((sum, count) => sum + count, 0) };
+}
+
+function shotsPage() {
+  const shots = state.shots || [];
+  if (!selectedShotId || !byId(shots, selectedShotId)) selectedShotId = shots[0]?.id || null;
+  const selected = byId(shots, selectedShotId);
+  const categories = new Map(suggestedShotCategories.map(category => [category.toLowerCase(), category]));
+  for (const shot of shots) {
+    const category = shot.category || 'Utility';
+    if (!categories.has(category.toLowerCase())) categories.set(category.toLowerCase(), category);
+  }
+  const cameras = (state.devices || []).filter(device => device.type === 'camera');
+  const filtered = shots.filter(shot =>
+    (!shotSearch || `${shot.name} ${shot.description || ''} ${shot.subject || ''} ${shot.framingType || ''} ${(shot.tags || []).join(' ')}`.toLowerCase().includes(shotSearch.toLowerCase())) &&
+    (!shotCategory || (shot.category || 'Utility').toLowerCase() === shotCategory.toLowerCase()) &&
+    (!shotCamera || shot.cameraDeviceId === shotCamera || shot.logicalCameraRole === shotCamera) &&
+    (!shotFavorite || String(shot.favorite) === shotFavorite) &&
+    (!shotEnabled || String(shot.enabled) === shotEnabled)
+  );
+  const options = (items, current, empty) => `<option value="">${empty}</option>${items.map(item => `<option value="${item.id}" ${item.id === current ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
+  const card = shot => {
+    const resolved = shotResolution(shot);
+    const index = shots.indexOf(shot);
+    return `<article class="shot-card ${shot.id === selectedShotId ? 'selected' : ''} ${shot.enabled ? '' : 'disabled'}" data-select-shot="${shot.id}">
+      <div><span>${shot.favorite ? '★' : escapeHtml(shot.icon || '◎')}</span><strong>${escapeHtml(shot.name)}</strong><em>${escapeHtml(resolved.readiness)}</em></div>
+      <small>${escapeHtml(shot.category || 'Utility')} · ${escapeHtml([shot.subject, shot.framingType].filter(Boolean).join(' · ') || 'Framing not assigned')}</small>
+      <small>Camera: ${escapeHtml(resolved.camera?.name || 'Not assigned')} · Preset: ${escapeHtml(resolved.preset?.name || (shot.cameraPresetId ? 'Missing preset' : 'Not assigned'))}</small>
+      <small>Tracking: ${shot.trackingPreferred ? 'Preferred' : escapeHtml(shot.trackingMode || 'Off')} · Motion: ${shot.motionEnabled ? 'On' : 'Off'}</small>
+      <span class="shot-order-controls"><button data-move-shot="${shot.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-shot="${shot.id}" data-direction="1" ${index === shots.length - 1 ? 'disabled' : ''}>↓</button></span>
+    </article>`;
+  };
+  const resolved = selected ? shotResolution(selected) : null;
+  const references = selected ? shotReferenceSummary(selected.id) : null;
+  const textField = (label, name, value = '') => `<label>${label}<input data-shot-field="${name}" value="${escapeHtml(value ?? '')}"></label>`;
+  const editor = selected ? `<div class="shot-editor">
+    <div class="shot-editor-heading"><div><span class="eyebrow">SHOT DETAILS</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(resolved.readiness)}</p></div><div class="row-actions"><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
+    <div class="shot-section-grid">
+      <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label><label>Color<input type="color" data-shot-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label>${textField('Icon','icon',selected.icon)}</fieldset>
+      <fieldset><legend>CAMERA TARGET</legend><label>Specific camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select></label>${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}<label>Camera preset<select data-shot-field="cameraPresetId">${options(state.cameraPresets || [], selected.cameraPresetId, 'No preset')}</select></label><div class="resolved-shot"><strong>${escapeHtml(resolved.camera?.name || 'No camera resolved')}</strong><span>${escapeHtml(resolved.preset?.name || 'No preset resolved')}</span><em>${escapeHtml(resolved.readiness)}</em></div></fieldset>
+      <fieldset><legend>FRAMING</legend>${textField('Subject','subject',selected.subject)}${textField('Framing type','framingType',selected.framingType)}${textField('Composition','composition',selected.composition)}${textField('Orientation','orientation',selected.orientation)}${textField('Safe area','safeArea',selected.safeArea)}<label>Framing notes<textarea data-shot-field="framingNotes">${escapeHtml(selected.framingNotes || '')}</textarea></label></fieldset>
+      <fieldset><legend>TRACKING</legend>${textField('Tracking mode','trackingMode',selected.trackingMode)}<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Tracking preferred</label>${textField('Tracking subject','trackingSubject',selected.trackingSubject)}<label>Tracking notes<textarea data-shot-field="trackingNotes">${escapeHtml(selected.trackingNotes || '')}</textarea></label></fieldset>
+      <fieldset><legend>MOTION</legend><label class="checkbox-label"><input type="checkbox" data-shot-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion intended</label>${textField('Motion profile (future)','motionProfileId',selected.motionProfileId)}<label>Duration (ms)<input type="number" min="0" data-shot-field="motionDurationMs" value="${selected.motionDurationMs || 0}"></label><label>Speed<input type="number" min="0" step="0.1" data-shot-field="motionSpeed" value="${selected.motionSpeed || 1}"></label><label>Motion notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label></fieldset>
+      <fieldset><legend>OPERATOR</legend><label>Operator notes<textarea data-shot-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label>${textField('Thumbnail reference','thumbnailReference',selected.thumbnailReference)}<div class="thumbnail-placeholder">SHOT THUMBNAIL<br><small>Preview adapter not implemented</small></div><p>${escapeHtml(resolved.readiness)}. Hardware connection is not reported.</p></fieldset>
+    </div>
+    <section class="danger-zone shot-danger-zone"><div><span class="eyebrow">ACTIONS · DANGER ZONE</span><strong>Delete ${escapeHtml(selected.name)}</strong><p>${references.total} saved reference${references.total === 1 ? '' : 's'} will remain as missing Shot references.</p><ul>${Object.entries(references.counts).map(([label,count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><button class="danger" id="shot-delete-danger">DELETE SHOT</button></section>
+  </div>` : '<div class="empty-state">Create a Shot to begin.</div>';
+
+  shell(`<div class="shot-library page-scroll"><aside class="panel shot-sidebar"><div class="section-title"><span>SHOT LIBRARY</span><strong>${shots.length} reusable Shots</strong></div><div class="shot-filters"><input id="shot-search" value="${escapeHtml(shotSearch)}" placeholder="Search Shots"><select id="shot-category"><option value="">All categories</option>${[...categories.values()].map(category => `<option ${shotCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><select id="shot-camera"><option value="">All cameras / roles</option>${cameras.map(camera => `<option value="${camera.id}" ${shotCamera === camera.id ? 'selected' : ''}>${escapeHtml(camera.name)}</option>`).join('')}${[...new Set(cameras.map(camera => camera.logicalRole).filter(Boolean))].map(role => `<option value="${escapeHtml(role)}" ${shotCamera === role ? 'selected' : ''}>Role: ${escapeHtml(role)}</option>`).join('')}</select><select id="shot-favorite"><option value="">All favorites</option><option value="true" ${shotFavorite === 'true' ? 'selected' : ''}>Favorites only</option></select><select id="shot-enabled"><option value="">Enabled and disabled</option><option value="true" ${shotEnabled === 'true' ? 'selected' : ''}>Enabled</option><option value="false" ${shotEnabled === 'false' ? 'selected' : ''}>Disabled</option></select><button id="shot-new">NEW SHOT</button></div><div class="shot-list">${filtered.map(card).join('') || '<div class="empty-state">No matching Shots.</div>'}</div></aside><main class="panel">${editor}</main></div>`);
+
+  document.getElementById('shot-search').oninput = event => { shotSearch = event.target.value; shotsPage(); document.getElementById('shot-search')?.focus(); };
+  document.getElementById('shot-category').onchange = event => { shotCategory = event.target.value; render(); };
+  document.getElementById('shot-camera').onchange = event => { shotCamera = event.target.value; render(); };
+  document.getElementById('shot-favorite').onchange = event => { shotFavorite = event.target.value; render(); };
+  document.getElementById('shot-enabled').onchange = event => { shotEnabled = event.target.value; render(); };
+  document.getElementById('shot-new').onclick = async () => { state = await window.trinity.createShot({ name: 'New Shot', enabled: true }); selectedShotId = state.shots.at(-1).id; render(); };
+  document.querySelectorAll('[data-select-shot]').forEach(cardElement => cardElement.onclick = event => { if (event.target.closest('[data-move-shot]')) return; selectedShotId = cardElement.dataset.selectShot; render(); });
+  document.querySelectorAll('[data-move-shot]').forEach(button => button.onclick = async event => { event.stopPropagation(); const from = state.shots.findIndex(shot => shot.id === button.dataset.moveShot); state = await window.trinity.reorderShot(from, from + Number(button.dataset.direction)); render(); });
+  if (!selected) return;
+  const save = async patch => { try { state = await window.trinity.updateShot(selected.id, patch); render(); } catch (error) { window.alert(error.message); render(); } };
+  document.querySelectorAll('[data-shot-field]').forEach(input => input.onchange = () => {
+    let value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value || null;
+    if (input.dataset.shotField === 'tags') value = input.value.split(',').map(tag => tag.trim()).filter(Boolean);
+    save({ [input.dataset.shotField]: value });
+  });
+  document.getElementById('shot-duplicate').onclick = async () => { state = await window.trinity.duplicateShot(selected.id); selectedShotId = state.shots.at(-1).id; render(); };
+  document.getElementById('shot-toggle').onclick = () => save({ enabled: !selected.enabled });
+  const remove = async () => {
+    const referenceSummary = shotReferenceSummary(selected.id);
+    if (!window.confirm(`Delete ${selected.name}?\n\n${Object.entries(referenceSummary.counts).map(([label,count]) => `${label}: ${count}`).join('\n')}\nTotal: ${referenceSummary.total}\n\nReferences will remain saved as missing Shot references.`)) return;
+    state = await window.trinity.deleteShot(selected.id, { confirmReferences: true });
+    selectedShotId = state.shots[0]?.id || null;
+    render();
+  };
+  document.getElementById('shot-delete').onclick = remove;
+  document.getElementById('shot-delete-danger').onclick = remove;
+}
+
 function deviceConfigured(device) {
   if (device.type === 'browserOperator') return true;
   if (device.type === 'camera') return Boolean(device.ipAddress && device.protocol);
@@ -1951,7 +2073,8 @@ function cameraReferenceCounts(deviceId) {
     'Production Looks': 0,
     'Camera layouts': 0,
     'Cues': 0,
-    'Camera presets': 0
+    'Camera presets': 0,
+    Shots: 0
   };
   for (const look of state.productionLooks || []) {
     if (look.programCameraId === deviceId) counts['Production Looks'] += 1;
@@ -1965,6 +2088,7 @@ function cameraReferenceCounts(deviceId) {
     if (cue.cameraId === deviceId || cue.programCameraId === deviceId || cue.previewCameraId === deviceId) counts.Cues += 1;
   }
   counts['Camera presets'] = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === deviceId).length;
+  counts.Shots = (state.shots || []).filter(shot => shot.cameraDeviceId === deviceId).length;
   return counts;
 }
 
@@ -2136,6 +2260,8 @@ function render() {
     looksPage();
   } else if (page === 'lighting') {
     lightingPage();
+  } else if (page === 'shots') {
+    shotsPage();
   } else if (page === 'settings') {
     settingsPage();
   } else {

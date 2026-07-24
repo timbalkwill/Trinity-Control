@@ -49,6 +49,10 @@ Camera Manager is a computed operational projection over camera records in `stat
 
 All camera records—including the initial Main, Left, and Right records—use the same create, rename, duplicate, enable/disable, and reference-aware delete operations. Deletion removes only the camera device. Production Looks, layouts, cues, and presets retain their stable camera IDs as visible missing references so an operator can repair them later. An explicitly saved `devices` array, including an empty array, is authoritative during migration; defaults are created only when no device collection has ever been saved.
 
+Shot Library adds `state.shots` between camera presets and Production Looks. `shot-operations.cjs` owns versioned migration, CRUD, ordering, filtering, reference counts, pure target resolution, readiness summaries, and deterministic defaults. The dependency chain is Device → Camera Manager → Camera Preset → Shot → Production Look → Cue → `executeCue()` → `live.executionSnapshot`.
+
+Shot mutations use the serialized main-process command queue and restricted preload bridge. Execution plans resolve Shot intent without mutation; Browser Operator receives only safe summaries and frozen executed assignments, never private Shot metadata.
+
 `state.cameraPresets` is the versioned preset collection. `camera-preset-operations.cjs` owns deterministic legacy migration, validation, narrow CRUD, per-camera ordering, category/favorite queries, and reference-aware deletion. Browser clients receive safe `managedCameras` and `cameraPresetSummaries`, never device configuration or full preset records.
 
 This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.

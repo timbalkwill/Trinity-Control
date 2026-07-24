@@ -176,10 +176,12 @@ test("preset deletion is reference-aware and preserves visible missing reference
   current.productionLooks.push({ id: "look", name: "Look", cameraAssignments: [{ role: "program", cameraId: "main", presetId: "preset" }] });
   current.runOfService.push({ id: "cue", name: "Cue", cameraPresetId: "preset" });
   current.cameraLayouts.push({ id: "layout", name: "Layout", programPresetId: "preset" });
-  assert.equal(countCameraPresetReferences(current, "preset").length, 3);
+  current.shots = [{ id: "shot", name: "Pastor Tight", cameraPresetId: "preset" }];
+  assert.equal(countCameraPresetReferences(current, "preset").length, 4);
   assert.throws(() => deleteCameraPreset(current, "preset"), error => error.code === "CONFIRM_CAMERA_PRESET_DELETE");
   deleteCameraPreset(current, "preset", { confirmReferences: true });
   assert.equal(current.productionLooks[0].cameraAssignments[0].presetId, "preset");
+  assert.equal(current.shots[0].cameraPresetId, "preset");
 });
 
 test("missing and disabled cameras produce honest warnings and readiness", () => {

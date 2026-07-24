@@ -136,13 +136,15 @@ test("reference-aware deletion counts Looks, layouts, assignments, and cues", ()
   current.cameraLayouts.push({ id: "layout", name: "Layout", previewCamera: "main" });
   current.runOfService.push({ id: "cue", name: "Cue", cameraId: "main" });
   current.cameraPresets = [{ id: "preset", name: "Pastor Tight", cameraDeviceId: "main" }];
-  assert.equal(countDeviceReferences(current, "main").length, 5);
-  assert.throws(() => deleteDevice(current, "main"), error => error.code === "CONFIRM_DEVICE_DELETE" && error.references.length === 5);
+  current.shots = [{ id: "shot", name: "Pastor Tight", cameraDeviceId: "main" }];
+  assert.equal(countDeviceReferences(current, "main").length, 6);
+  assert.throws(() => deleteDevice(current, "main"), error => error.code === "CONFIRM_DEVICE_DELETE" && error.references.length === 6);
   deleteDevice(current, "main", { confirmReferences: true });
   assert.equal(current.productionLooks[0].programCameraId, "main");
   assert.equal(current.runOfService[0].cameraId, "main");
   assert.equal(current.cameraLayouts[0].previewCamera, "main");
   assert.equal(current.cameraPresets[0].cameraDeviceId, "main");
+  assert.equal(current.shots[0].cameraDeviceId, "main");
 });
 
 test("browser projection excludes credentials, usernames, notes, and configuration", () => {

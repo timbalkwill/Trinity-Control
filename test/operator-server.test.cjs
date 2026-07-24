@@ -32,13 +32,14 @@ function initialState() {
     }],
     configuration: { privateValue: "hidden" },
     cameraPresets: [{ id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" }],
+    shots: [{ id: "shot-right", name: "Pastor Tight", cameraDeviceId: "right", logicalCameraRole: "right", operatorNotes: "private-shot-notes", framingNotes: "private-framing-notes", trackingPreferred: true, motionEnabled: false, enabled: true }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{
       id: "look",
       lightingSceneId: "light-cue",
       cameraLayoutId: "layout",
       cameraAssignments: [
-        { role: "PROGRAM", cameraId: "right" },
+        { role: "PROGRAM", shotId: "shot-right", cameraId: "right" },
         { role: "PREVIEW", cameraId: "left" }
       ]
     }],
@@ -134,6 +135,8 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(state.deviceSummaries[0].name, "Main Camera");
       assert.equal(state.managedCameras[0].displayName, "Main Camera");
       assert.equal(state.cameraPresetSummaries[0].name, "Pastor Tight");
+      assert.equal(state.shotSummaries[0].name, "Pastor Tight");
+      assert.equal("operatorNotes" in state.shotSummaries[0], false);
       assert.equal("cameraPresets" in state, false);
       assert.doesNotMatch(JSON.stringify(state), /private-user|private-password|private-reference|private-notes|privateValue|private-preset-notes|10\.0\.0\.5/);
       assert.equal(response.headers.get("cache-control"), "no-store");
@@ -147,8 +150,10 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(state.live.executionSnapshot.productionLookId, "look");
       assert.equal(state.live.executionSnapshot.video.programCameraName, "Right Camera");
       assert.equal(state.live.executionSnapshot.video.previewCameraName, "Left Camera");
+      assert.equal(state.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
+      assert.equal(state.live.executionSnapshot.cameraAssignments[0].tracking.preferred, true);
       assert.equal(state.live.executionSnapshot.cameraAssignments[0].cameraDeviceId, "right");
-      assert.doesNotMatch(JSON.stringify(state.live.executionSnapshot), /private-user|private-password|private-reference/);
+      assert.doesNotMatch(JSON.stringify(state.live.executionSnapshot), /private-user|private-password|private-reference|private-shot-notes|private-framing-notes/);
     });
     await t.test("BACK command", async () => {
       const response = await post(baseUrl, "/api/live/back");

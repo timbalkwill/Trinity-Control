@@ -163,3 +163,18 @@ test("camera preset commands use the same serialized authoritative state", async
   result = await commands.deleteCameraPreset(result.cameraPresets[0].id);
   assert.equal(result.cameraPresets.length, 1);
 });
+
+test("Shot commands use serialized authoritative state and preserve deletion references", async () => {
+  const { commands } = harness();
+  let result = await commands.createShot({ id: "shot-one", name: "Pastor Tight", category: "Pastor", tags: ["sermon"] });
+  assert.equal(result.shots[0].name, "Pastor Tight");
+  result = await commands.updateShot("shot-one", { favorite: true, enabled: false, category: "Custom" });
+  assert.equal(result.shots[0].favorite, true);
+  result = await commands.duplicateShot("shot-one");
+  const duplicate = result.shots[1];
+  assert.notEqual(duplicate.id, "shot-one");
+  result = await commands.reorderShot(1, 0);
+  assert.equal(result.shots[0].id, duplicate.id);
+  result = await commands.deleteShot(duplicate.id);
+  assert.deepEqual(result.shots.map(shot => shot.id), ["shot-one"]);
+});

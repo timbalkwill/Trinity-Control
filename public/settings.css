@@ -1,4 +1,4 @@
-.bottom-nav { grid-template-columns: repeat(6, 1fr); }
+.bottom-nav { grid-template-columns: repeat(7, 1fr); }
 .settings-layout { height: 100%; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
 .settings-nav { background: #0a151f; border: 1px solid #3d5263; border-radius: 16px; padding: 12px; display: grid; align-content: start; gap: 7px; }
 .settings-admin-label { padding: 10px; color: var(--amber); font-size: 10px; font-weight: 900; letter-spacing: .1em; }

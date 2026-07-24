@@ -7,6 +7,7 @@ const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 const { normalizeProductionLooks } = require("./production-look-operations.cjs");
 const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.cjs");
 const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
+const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
@@ -34,6 +35,7 @@ function defaultState() {
     deviceSchemaVersion: 1,
     cameraManagerSchemaVersion: CAMERA_MANAGER_SCHEMA_VERSION,
     cameraPresetSchemaVersion: CAMERA_PRESET_SCHEMA_VERSION,
+    shotSchemaVersion: SHOT_SCHEMA_VERSION,
     cameras: [
       { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
       { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
@@ -41,6 +43,7 @@ function defaultState() {
     ],
     devices: [...defaultCameras(), ...defaultPlaceholders()],
     cameraPresets: [],
+    shots: defaultShots(),
     lightingScenes: [
       {
             "id": "light-preservice",
@@ -714,8 +717,10 @@ function migrate(state) {
   merged.devices = normalizeDeviceCollection(state.devices, { legacyCameras: merged.cameras });
   merged.deviceSchemaVersion = 1;
   merged.cameraPresets = migrateLegacyPresets({ ...merged, cameraPresets: state.cameraPresets });
+  merged.shots = migrateShots(state.shots);
   merged.cameraManagerSchemaVersion = CAMERA_MANAGER_SCHEMA_VERSION;
   merged.cameraPresetSchemaVersion = CAMERA_PRESET_SCHEMA_VERSION;
+  merged.shotSchemaVersion = SHOT_SCHEMA_VERSION;
     merged.lightingScenes = merged.lightingScenes.map(scene => ({
     category: "Custom",
     favorite: false,
@@ -791,6 +796,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("camera-preset:duplicate", (_e, presetId) => commands.duplicateCameraPreset(presetId));
   ipcMain.handle("camera-preset:delete", (_e, { presetId, options }) => commands.deleteCameraPreset(presetId, options));
   ipcMain.handle("camera-preset:reorder", (_e, { cameraDeviceId, from, to }) => commands.reorderCameraPreset(cameraDeviceId, from, to));
+  ipcMain.handle("shot:create", (_e, input) => commands.createShot(input));
+  ipcMain.handle("shot:update", (_e, { shotId, patch }) => commands.updateShot(shotId, patch));
+  ipcMain.handle("shot:duplicate", (_e, shotId) => commands.duplicateShot(shotId));
+  ipcMain.handle("shot:delete", (_e, { shotId, options }) => commands.deleteShot(shotId, options));
+  ipcMain.handle("shot:reorder", (_e, { from, to }) => commands.reorderShot(from, to));
   ipcMain.handle("live:go", (_e, { index, options }) => commands.goCue(index, options));
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());

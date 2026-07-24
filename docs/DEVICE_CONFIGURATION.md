@@ -40,7 +40,7 @@ The projection applies to initial state, command responses, and SSE events.
 
 ## Reference behavior
 
-Before deletion, Trinity counts references from Production Looks, logical camera assignments, camera layouts, cues, and reserved direct camera fields. Referenced deletion requires confirmation. Confirmation removes only the device; it never clears or rewrites Production Looks or cues. Intentional missing references remain visible for repair.
+Before deletion, Trinity counts references from Production Looks, logical camera assignments, camera layouts, cues, presets, Shots, and reserved direct camera fields. Referenced deletion requires confirmation. Confirmation removes only the device; it never clears or rewrites Production Looks, Shots, or cues. Intentional missing references remain visible for repair.
 
 Production-facing summaries prefer a matching device name and fall back to the legacy camera library. Missing devices generate warnings rather than crashes.
 
@@ -62,3 +62,5 @@ Future PTZ, QLC+, ATEM, X32, and presentation adapters should consume validated 
 Device Configuration answers what camera hardware exists and how it connects. Camera Manager uses the same camera device IDs to describe operational capabilities, presets, readiness, and known live state. It never duplicates credential or network editing.
 
 Camera Manager metadata lives under `device.metadata.cameraManager`; presets live in the separate versioned `state.cameraPresets` collection. Editing a capability or preset does not rewrite the camera device identity, Production Looks, or cues.
+
+Shot Library targets a stable camera device ID or logical role. A role-only Shot resolves conservatively at execution time. Specific camera references participate in deletion counts and remain missing if the camera is removed.

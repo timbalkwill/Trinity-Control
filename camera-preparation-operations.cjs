@@ -145,6 +145,38 @@ function setCameraTracking(state, cameraId, active) {
   return preparation;
 }
 
+function applyCueStartPreparations(state, plan, { now = Date.now } = {}) {
+  migrateCameraPreparations(state);
+  for (const assignment of plan?.cameraAssignments || []) {
+    if (!["main", "left", "right"].includes(assignment?.role) || !assignment.cameraDeviceId || !assignment.presetId || assignment.missing) continue;
+    const camera = cameraDevices(state).find(item => item.id === assignment.cameraDeviceId);
+    const preset = (state.cameraPresets || []).find(item => item.id === assignment.presetId && item.cameraDeviceId === assignment.cameraDeviceId && item.enabled !== false);
+    const preparation = state.live.cameraPreparations.find(item => item.cameraId === assignment.cameraDeviceId);
+    if (!camera || !preset || !preparation) continue;
+    preparation.selectedMode = "static";
+    preparation.selectedPresetId = preset.id;
+    preparation.selectedMotionId = null;
+    preparation.preparationStatus = "ready";
+    preparation.errorMessage = null;
+    preparation.preparedAssignment = {
+      cameraId: camera.id,
+      cameraName: camera.name,
+      mode: "static",
+      presetId: preset.id,
+      presetName: preset.name
+    };
+    preparation.preparedAt = now();
+  }
+
+  const main = cameraDevices(state).find(item => item.logicalRole === "main" || item.id === "main" || item.logicalRole === "center");
+  const mainPreparation = main && state.live.cameraPreparations.find(item => item.cameraId === main.id);
+  const requested = plan?.simplifiedLook?.startMainTracking === true;
+  const applied = Boolean(mainPreparation?.tracking.supported && requested);
+  if (mainPreparation) mainPreparation.tracking.active = applied;
+  if (plan?.simplifiedLook) plan.simplifiedLook.appliedMainTracking = applied;
+  return state.live.cameraPreparations;
+}
+
 function makeCameraLive(state, cameraId, { now = Date.now } = {}) {
   const camera = cameraFor(state, cameraId);
   const preparation = preparationFor(state, cameraId);
@@ -186,7 +218,8 @@ function synchronizeLiveCameraFromSnapshot(state) {
   const snapshot = state?.live?.executionSnapshot;
   const programId = snapshot?.video?.programCameraId || state?.live?.programCamera || null;
   if (!state?.live || !programId) return state;
-  const assignment = (snapshot.cameraAssignments || []).find(item => String(item?.role || "").toLowerCase() === "program");
+  const assignment = (snapshot.cameraAssignments || []).find(item =>
+    String(item?.role || "").toLowerCase() === "program" || item?.cameraDeviceId === programId);
   state.live.activeCameraAssignment = {
     cameraId: programId,
     cameraName: assignment?.cameraName || snapshot.video?.programCameraName || null,
@@ -223,6 +256,7 @@ function cameraPreparationSummaries(state) {
 
 module.exports = {
   CAMERA_PREPARATION_SCHEMA_VERSION,
+  applyCueStartPreparations,
   cameraPreparationSummaries,
   makeCameraLive,
   migrateCameraPreparations,

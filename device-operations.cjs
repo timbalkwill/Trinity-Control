@@ -190,6 +190,10 @@ function reorderDevice(state, from, to) {
 function countDeviceReferences(state, deviceId) {
   const references = [];
   for (const look of state?.productionLooks || []) {
+    if (look.priorityCameraId === deviceId) references.push({ type: "Production Look priority camera", id: look.id, name: look.name });
+    for (const [role, assignment] of Object.entries(look.cameraPresets || {})) {
+      if (assignment?.cameraId === deviceId) references.push({ type: `Production Look ${role}`, id: look.id, name: look.name });
+    }
     if (look.programCameraId === deviceId) references.push({ type: "Production Look program camera", id: look.id, name: look.name });
     if (look.previewCameraId === deviceId) references.push({ type: "Production Look preview camera", id: look.id, name: look.name });
     for (const assignment of look.cameraAssignments || []) if (assignment.cameraId === deviceId) references.push({ type: `Production Look ${assignment.role}`, id: look.id, name: look.name });
@@ -346,6 +350,11 @@ function projectBrowserState(state) {
     })),
     deviceSummaries: (state?.devices || []).filter(device => device.enabled || device.type === "camera").map(device => browserSafeDeviceSummary(device, state)),
     managedCameras,
+    productionLooks: (state?.productionLooks || []).map(look => ({
+      id: look.id,
+      name: look.name,
+      enabled: look.enabled !== false
+    })),
     shotSummaries: (state?.shots || []).map(shot => ({
       id: shot.id,
       name: shot.name,

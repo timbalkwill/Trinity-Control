@@ -112,7 +112,7 @@ test("executed Production Look snapshot includes inherited live display fields",
 
 test("modern camera assignments populate authoritative execution snapshot and Live state", () => {
   const current = state();
-  current.cameraPresets = [{ id: "wide-id", name: "Wide preset" }, { id: "tight-id", name: "Tight preset" }];
+  current.cameraPresets = [{ id: "wide-id", name: "Wide preset", cameraDeviceId: "left" }, { id: "tight-id", name: "Tight preset", cameraDeviceId: "right" }];
   current.productionLooks[0] = {
     ...current.productionLooks[0],
     cameraLayoutId: null,
@@ -127,7 +127,7 @@ test("modern camera assignments populate authoritative execution snapshot and Li
   executeCue(current, 0, { now: () => 6000 });
   assert.equal(current.live.programCamera, "right");
   assert.equal(current.live.previewCamera, "left");
-  assert.deepEqual(current.live.auxiliaryCameras, ["main"]);
+  assert.deepEqual(current.live.auxiliaryCameras, []);
   assert.equal(current.live.executionSnapshot.video.programCameraName, "Right Camera");
   assert.equal(current.live.executionSnapshot.video.previewCameraName, "Left Camera");
   assert.equal(current.live.executionSnapshot.cameraAssignments[0].presetName, "Tight preset");
@@ -144,7 +144,7 @@ test("Live camera roles are based on stable snapshot IDs and survive library reo
   assert.equal(globalThis.TrinityLookView.cameraRole(current, "left"), "idle");
 });
 
-test("editing camera assignments does not change Live roles until re-execution", () => {
+test("editing legacy camera assignments does not mutate the frozen execution", () => {
   const current = state();
   current.productionLooks[0].cameraAssignments = [
     { role: "program", cameraId: "main" },
@@ -158,9 +158,7 @@ test("editing camera assignments does not change Live roles until re-execution",
   ];
   assert.equal(globalThis.TrinityLookView.cameraRole(current, "main"), "program");
   assert.equal(globalThis.TrinityLookView.cameraRole(current, "right"), "idle");
-  executeCue(current, 0, { now: () => 2 });
-  assert.equal(globalThis.TrinityLookView.cameraRole(current, "right"), "program");
-  assert.equal(globalThis.TrinityLookView.cameraRole(current, "main"), "preview");
+  assert.equal(current.live.executionSnapshot.video.programCameraId, "main");
 });
 
 test("editing inactive or active Looks does not alter executed state until re-execution", () => {

@@ -15,15 +15,16 @@ function resolveId(items, cueId, lookId) {
 function buildCueExecutionPlan(state, cue) {
   const warnings = [];
   const look = byId(state?.productionLooks, cue?.productionLookId);
+  const effectiveLook = look?.enabled === false ? null : look;
   if (cue?.productionLookId && !look) warnings.push(`Missing Production Look: ${cue.productionLookId}`);
-  const resolvedCameras = resolveProductionLookCameraAssignments(state, look, cue);
+  const resolvedCameras = resolveProductionLookCameraAssignments(state, effectiveLook, cue);
   warnings.push(...resolvedCameras.warnings);
-  const lighting = resolveId(state?.lightingScenes, cue?.lightingSceneId, look?.lightingSceneId);
-  const layout = resolveId(state?.cameraLayouts, cue?.cameraLayoutId, look?.cameraLayoutId);
+  const lighting = resolveId(state?.lightingScenes, cue?.lightingSceneId, effectiveLook?.lightingSceneId);
+  const layout = resolveId(state?.cameraLayouts, cue?.cameraLayoutId, effectiveLook?.schemaVersion === 3 ? null : effectiveLook?.cameraLayoutId);
   if (cue?.lightingSceneId && !byId(state?.lightingScenes, cue.lightingSceneId)) warnings.push(`Missing cue lighting scene: ${cue.lightingSceneId}`);
   if (!lighting.id && look?.lightingSceneId) warnings.push(`Missing Production Look lighting scene: ${look.lightingSceneId}`);
   if (cue?.cameraLayoutId && !byId(state?.cameraLayouts, cue.cameraLayoutId)) warnings.push(`Missing cue camera layout: ${cue.cameraLayoutId}`);
-  if (!layout.id && look?.cameraLayoutId) warnings.push(`Missing Production Look camera layout: ${look.cameraLayoutId}`);
+  if (look?.enabled === false) warnings.push("Production Look is disabled");
 
   const effectiveLayout = byId(state?.cameraLayouts, layout.id);
   const videoSource = resolvedCameras.source;
@@ -42,9 +43,9 @@ function buildCueExecutionPlan(state, cue) {
     lighting: {
       sceneId: lighting.id,
       sceneName: byId(state?.lightingScenes, lighting.id)?.name || null,
-      fadeMs: Number(look?.lightingFadeMs) || 0,
-      stageWashMode: look?.stageWashMode || null,
-      wallWashMode: look?.wallWashMode || null,
+      fadeMs: Number(effectiveLook?.lightingFadeMs) || 0,
+      stageWashMode: effectiveLook?.stageWashMode || null,
+      wallWashMode: effectiveLook?.wallWashMode || null,
       source: lighting.source
     },
     video: {
@@ -61,11 +62,27 @@ function buildCueExecutionPlan(state, cue) {
       previewShotName: resolvedCameras.preview.shotName || null,
       programPreset: resolvedCameras.program.presetName || null,
       previewPreset: resolvedCameras.preview.presetName || null,
-      transitionStyle: look?.transitionStyle || "cut",
-      transitionDurationMs: Number(look?.transitionDurationMs) || 0,
+      transitionStyle: effectiveLook?.transitionStyle || "cut",
+      transitionDurationMs: Number(effectiveLook?.transitionDurationMs) || 0,
       source: videoSource
     },
     cameraAssignments,
+    simplifiedLook: {
+      cameraPresets: Object.fromEntries(cameraAssignments
+        .filter(item => ["main", "left", "right"].includes(item.role))
+        .map(item => [item.role, {
+          cameraId: item.cameraDeviceId || null,
+          cameraName: item.cameraName || null,
+          presetId: item.presetId || null,
+          presetName: item.presetName || null,
+          source: item.source,
+          missing: item.missing === true
+        }])),
+      priorityCameraId: programCameraId,
+      priorityCameraName: knownCamera(programCameraId)?.name || null,
+      startMainTracking: effectiveLook?.startMainTracking === true,
+      appliedMainTracking: false
+    },
     cameras: cameraAssignments.map(item => ({
       role: item.role,
       cameraId: item.cameraDeviceId,
@@ -81,12 +98,12 @@ function buildCueExecutionPlan(state, cue) {
       missing: item.missing
     })),
     motion: {
-      enabled: look?.motionEnabled === true,
-      profileId: look?.motionProfileId || null,
-      durationMs: Number(look?.motionDurationMs) || 0,
-      speed: Number(look?.motionSpeed) || 1
+      enabled: effectiveLook?.motionEnabled === true,
+      profileId: effectiveLook?.motionProfileId || null,
+      durationMs: Number(effectiveLook?.motionDurationMs) || 0,
+      speed: Number(effectiveLook?.motionSpeed) || 1
     },
-    future: { audioSceneId: look?.audioSceneId || null, presentationCueId: look?.presentationCueId || null },
+    future: { audioSceneId: effectiveLook?.audioSceneId || null, presentationCueId: effectiveLook?.presentationCueId || null },
     warnings: [...new Set(warnings)]
   };
 }

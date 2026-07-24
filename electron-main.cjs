@@ -804,6 +804,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:go", (_e, { index, options }) => commands.goCue(index, options));
   ipcMain.handle("live:next", () => commands.nextCue());
   ipcMain.handle("live:back", () => commands.previousCue());
+  ipcMain.handle("live:take", () => commands.takeLive());
   ipcMain.handle("live:hold", () => commands.toggleHold());
   ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
   ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());

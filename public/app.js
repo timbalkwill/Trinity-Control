@@ -518,9 +518,9 @@ function cameraCard(camera) {
 
         <button
           class="${isProgram ? 'live-button' : ''}"
-          data-take-button="${camera.id}"
+          ${isPreview ? 'data-take-live' : 'disabled'}
         >
-          ${isProgram ? 'ON AIR' : 'TAKE LIVE'}
+          ${isProgram ? 'ON AIR' : isPreview ? 'TAKE LIVE' : 'STANDBY'}
         </button>
       </div>
     </article>
@@ -1113,84 +1113,16 @@ function livePage() {
       };
     });
 
-  const takeCamera = async cameraId => {
-    if (cameraId === state.live.programCamera) {
-      return;
-    }
-
-    const previousProgram =
-      state.live.programCamera;
-
-    const previousPreset =
-      state.live.programPreset;
-
-    state.live.programCamera = cameraId;
-
-    const selector = document.querySelector(
-      `[data-camera-preset="${cameraId}"]`
-    );
-
-    const camera =
-  byId(state.cameras, cameraId);
-
-state.live.programPreset =
-  selector?.value ||
-  camera?.lastPreset ||
-  'Stage Wide';
-
-if (camera) {
-  camera.lastPreset =
-    state.live.programPreset;
-}
-    state.live.previewCamera =
-      previousProgram;
-
-    const previousCamera =
-  byId(state.cameras, previousProgram);
-
-if (previousCamera) {
-  previousCamera.lastPreset =
-    state.live.previewPreset;
-}
-
-    state.live.activityLog = [
-      {
-        at: Date.now(),
-        message:
-          `Camera live: ${
-            byId(state.cameras, cameraId)?.name ||
-            cameraId
-          }`
-      },
-      ...(state.live.activityLog || [])
-    ].slice(0, 8);
-
-    state = await window.trinity.saveState(state);
-
-    render();
-  };
-
-  document
-    .querySelectorAll('[data-take-camera]')
-    .forEach(card => {
-      card.onclick = event => {
-        if (
-          event.target.closest('select') ||
-          event.target.closest('button')
-        ) {
-          return;
-        }
-
-        takeCamera(card.dataset.takeCamera);
-      };
-    });
-
-  document
-    .querySelectorAll('[data-take-button]')
-    .forEach(button => {
-      button.onclick = () =>
-        takeCamera(button.dataset.takeButton);
-    });
+  document.querySelectorAll('[data-take-live]').forEach(button => {
+    button.onclick = async () => {
+      try {
+        state = await window.trinity.takeLive();
+        render();
+      } catch (error) {
+        window.alert(error.message);
+      }
+    };
+  });
 
   document
     .querySelectorAll('[data-camera-preset]')

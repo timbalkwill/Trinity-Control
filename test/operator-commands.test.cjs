@@ -65,6 +65,25 @@ test("shared commands serialize writes and publish authoritative saved snapshots
   assert.deepEqual(published.map(state => state.live.cueIndex), [1, 2]);
 });
 
+test("TAKE LIVE persists and publishes through the serialized authoritative command path", async () => {
+  const { commands } = harness();
+  await commands.goCue(0);
+  const published = [];
+  commands.subscribe(state => published.push(state));
+  const result = await commands.takeLive();
+  assert.equal(result.live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(result.live.executionSnapshot.video.previewCameraId, "main");
+  assert.equal(commands.getState().live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(published.at(-1).live.executionSnapshot.video.programCameraId, "left");
+
+  let persisted = clone(result);
+  const reloadCommands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); }
+  });
+  assert.equal(reloadCommands.getState().live.executionSnapshot.video.programCameraId, "left");
+});
+
 test("shared browser and Electron commands use the injected authoritative cue executor", async () => {
   const calls = [];
   const { commands } = harness({

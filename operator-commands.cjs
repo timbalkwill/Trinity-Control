@@ -6,6 +6,7 @@ const looks = require("./production-look-operations.cjs");
 const devices = require("./device-operations.cjs");
 const presets = require("./camera-preset-operations.cjs");
 const shots = require("./shot-operations.cjs");
+const liveOperations = require("./live-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
   const subscribers = new Set();
@@ -49,6 +50,7 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     }),
     nextCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) + 1)),
     previousCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) - 1)),
+    takeLive: () => mutate(state => liveOperations.takeLive(state)),
     toggleHold: () => mutate(state => {
       state.live = state.live && typeof state.live === "object" ? state.live : {};
       state.live.hold = !state.live.hold;

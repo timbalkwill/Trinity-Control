@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld("trinity", {
   goCue: (index, options) => ipcRenderer.invoke("live:go", { index, options }),
   nextCue: () => ipcRenderer.invoke("live:next"),
   previousCue: () => ipcRenderer.invoke("live:back"),
+  takeLive: () => ipcRenderer.invoke("live:take"),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
   lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
   returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue")

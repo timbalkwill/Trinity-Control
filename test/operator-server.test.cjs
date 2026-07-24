@@ -167,6 +167,17 @@ test("Browser Operator HTTP API and synchronization", async t => {
       const response = await post(baseUrl, "/api/live/hold");
       assert.equal((await response.json()).live.hold, true);
     });
+    await t.test("TAKE LIVE command swaps frozen assignments and persists", async () => {
+      await post(baseUrl, "/api/live/go", { index: 0 });
+      const response = await post(baseUrl, "/api/live/take");
+      assert.equal(response.status, 200);
+      const state = await response.json();
+      assert.equal(state.live.executionSnapshot.video.programCameraId, "left");
+      assert.equal(state.live.executionSnapshot.video.previewCameraId, "right");
+      assert.equal(state.live.executionSnapshot.cameraAssignments.find(item => item.role === "program").cameraDeviceId, "left");
+      const reloaded = await (await fetch(`${baseUrl}/api/state`)).json();
+      assert.equal(reloaded.live.executionSnapshot.video.programCameraId, "left");
+    });
     await t.test("lighting override", async () => {
       const response = await post(baseUrl, "/api/lighting/override", { sceneId: "light-manual" });
       assert.equal((await response.json()).live.lightingOverrideId, "light-manual");
@@ -231,6 +242,16 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(update.live.cueIndex, 0);
       assert.equal("devices" in update, false);
       assert.doesNotMatch(JSON.stringify(update), /private-password/);
+      await events.close();
+    });
+    await t.test("SSE receives matching TAKE LIVE updates", async () => {
+      await post(baseUrl, "/api/live/go", { index: 0 });
+      const events = connectEvents(`${baseUrl}/api/events`);
+      await events.next();
+      await post(baseUrl, "/api/live/take");
+      const update = await events.next();
+      assert.equal(update.live.executionSnapshot.video.programCameraId, "left");
+      assert.equal(update.live.executionSnapshot.cameraAssignments.find(item => item.role === "program").shotId, null);
       await events.close();
     });
   } finally {

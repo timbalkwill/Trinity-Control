@@ -1889,12 +1889,17 @@ function camerasPage() {
         <div class="preset-list">${presets.length ? presets.map(presetRow).join('') : '<div class="empty-state">No matching presets. Create an operational name such as Pastor Tight or Main Wide.</div>'}</div>
       </section>
       <section class="panel future-control"><div class="section-title"><span>FUTURE CONTROL</span><strong>Adapter not implemented</strong></div><div class="future-control-grid"><button disabled>PAN / TILT</button><button disabled>ZOOM</button><button disabled>TRACKING TOGGLE</button><button disabled>RECALL PRESET</button><div class="preview-placeholder">CAMERA PREVIEW<br><small>Adapter not implemented</small></div></div></section>
+      <section class="panel camera-danger-zone danger-zone"><div><span class="eyebrow">CAMERA ACTIONS · DANGER ZONE</span><strong>${escapeHtml(selected.name)}</strong><p>Rename, copy, enable or disable this camera. Deletion preserves ${cameraReferenceSummary(selected.id).total} reference${cameraReferenceSummary(selected.id).total === 1 ? '' : 's'} as missing references.</p><ul>${Object.entries(cameraReferenceSummary(selected.id).counts).map(([label, count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><div class="danger-zone-actions"><button id="camera-rename">RENAME / EDIT</button><button id="camera-duplicate">DUPLICATE</button><button id="camera-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="camera-delete">DELETE CAMERA</button></div></section>
     </div>` : '<div class="empty-state">No camera devices configured.</div>'}
   </div>${presetEditor}`);
 
   document.querySelectorAll('[data-managed-camera]').forEach(button => button.onclick = () => { selectedManagedCameraId = button.dataset.managedCamera; selectedCameraPresetId = null; render(); });
   document.getElementById('configure-camera-device')?.addEventListener('click', () => { page = 'settings'; settingsSection = 'cameras'; selectedDeviceId = selected?.id || null; render(); });
   document.getElementById('camera-settings-link')?.addEventListener('click', () => { page = 'settings'; settingsSection = 'cameras'; selectedDeviceId = selected.id; render(); });
+  document.getElementById('camera-rename')?.addEventListener('click', () => { page = 'settings'; settingsSection = 'cameras'; selectedDeviceId = selected.id; render(); });
+  document.getElementById('camera-duplicate')?.addEventListener('click', async () => { state = await window.trinity.duplicateDevice(selected.id); selectedManagedCameraId = state.devices.filter(device => device.type === 'camera').at(-1)?.id || selected.id; render(); });
+  document.getElementById('camera-toggle')?.addEventListener('click', async () => { state = await window.trinity.updateDevice(selected.id, { enabled: !selected.enabled }); render(); });
+  document.getElementById('camera-delete')?.addEventListener('click', () => confirmAndDeleteCamera(selected.id, { returnToCameraManager: true }));
   document.getElementById('run-camera-diagnostic')?.addEventListener('click', async () => { state = await window.trinity.testDevice(selected.id); render(); });
   document.getElementById('preset-search')?.addEventListener('input', event => { cameraPresetSearch = event.target.value; render(); });
   document.getElementById('preset-category')?.addEventListener('change', event => { cameraPresetCategory = event.target.value; render(); });
@@ -1941,6 +1946,59 @@ function deviceStatusLabel(value) {
   })[value] || value || 'Not tested';
 }
 
+function cameraReferenceCounts(deviceId) {
+  const counts = {
+    'Production Looks': 0,
+    'Camera layouts': 0,
+    'Cues': 0,
+    'Camera presets': 0
+  };
+  for (const look of state.productionLooks || []) {
+    if (look.programCameraId === deviceId) counts['Production Looks'] += 1;
+    if (look.previewCameraId === deviceId) counts['Production Looks'] += 1;
+    counts['Production Looks'] += (look.cameraAssignments || []).filter(item => item.cameraId === deviceId).length;
+  }
+  for (const layout of state.cameraLayouts || []) {
+    if (layout.programCamera === deviceId || layout.previewCamera === deviceId) counts['Camera layouts'] += 1;
+  }
+  for (const cue of state.runOfService || []) {
+    if (cue.cameraId === deviceId || cue.programCameraId === deviceId || cue.previewCameraId === deviceId) counts.Cues += 1;
+  }
+  counts['Camera presets'] = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === deviceId).length;
+  return counts;
+}
+
+function cameraReferenceSummary(deviceId) {
+  const counts = cameraReferenceCounts(deviceId);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+  return {
+    counts,
+    total,
+    text: Object.entries(counts).map(([label, count]) => `${label}: ${count}`).join('\n')
+  };
+}
+
+async function confirmAndDeleteCamera(deviceId, { returnToCameraManager = false } = {}) {
+  const device = byId(state.devices || [], deviceId);
+  if (!device) return;
+  const references = cameraReferenceSummary(deviceId);
+  const confirmed = window.confirm(
+    `Delete ${device.name}?\n\nReferences will remain saved as missing references and can be repaired later.\n\n${references.text}\nTotal references: ${references.total}\n\nThis cannot be undone.`
+  );
+  if (!confirmed) return;
+  try {
+    state = await window.trinity.deleteDevice(device.id, { confirmReferences: true });
+    selectedDeviceId = null;
+    if (selectedManagedCameraId === device.id) {
+      selectedManagedCameraId = (state.devices || []).find(item => item.type === 'camera')?.id || null;
+    }
+    if (returnToCameraManager) page = 'cameras';
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
 function settingsPage() {
   const sections = [
     ['devices', 'Devices'],
@@ -1960,6 +2018,7 @@ function settingsPage() {
   const cameras = devices.filter(device => device.type === 'camera');
   const roleWarnings = cameras.filter(camera => camera.enabled && cameras.some(other => other.id !== camera.id && other.enabled && other.logicalRole === camera.logicalRole));
   const selected = byId(devices, selectedDeviceId) || null;
+  const selectedReferences = selected?.type === 'camera' ? cameraReferenceSummary(selected.id) : null;
   const summary = device => {
     const diagnostic = device.metadata?.diagnostic;
     return `<article class="device-card ${device.enabled ? '' : 'disabled'}">
@@ -1982,7 +2041,7 @@ function settingsPage() {
       <small>${escapeHtml([camera.manufacturer, camera.model].filter(Boolean).join(' ') || 'Manufacturer/model not assigned')}</small>
       <small>${escapeHtml(camera.ipAddress || 'No IP address')} · ${escapeHtml(camera.protocol || 'No protocol')}</small>
       <small>Tracking ${camera.trackingEnabled ? 'Yes' : 'No'} · Motion ${camera.motionEnabled ? 'Yes' : 'No'} · Presets ${camera.presetSupport ? (legacy?.savedPositions?.length || 'Supported') : 'No'}</small>
-      <div class="row-actions"><button data-configure-device="${camera.id}">EDIT</button><button data-test-device="${camera.id}">TEST CONNECTION</button><button data-move-device="${camera.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-device="${camera.id}" data-direction="1" ${index === cameras.length - 1 ? 'disabled' : ''}>↓</button></div>
+      <div class="row-actions"><button data-configure-device="${camera.id}">RENAME / EDIT</button><button data-duplicate-device="${camera.id}">DUPLICATE</button><button data-toggle-device="${camera.id}">${camera.enabled ? 'DISABLE' : 'ENABLE'}</button><button data-test-device="${camera.id}">TEST</button><button data-move-device="${camera.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-device="${camera.id}" data-direction="1" ${index === cameras.length - 1 ? 'disabled' : ''}>↓</button><button class="danger" data-delete-device="${camera.id}">DELETE</button></div>
     </article>`;
   };
   const editor = selected ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
@@ -2002,6 +2061,7 @@ function settingsPage() {
       <label class="wide">Notes<textarea data-device-field="notes">${escapeHtml(selected.notes || '')}</textarea></label>
     </div>
     <div class="settings-editor-actions"><span>Changes save immediately. Hardware adapters are not enabled.</span><button data-test-device="${selected.id}">TEST CONNECTION</button><button id="device-editor-done">DONE</button></div>
+    ${selected.type === 'camera' ? `<section class="danger-zone"><div><span class="eyebrow">DANGER ZONE</span><strong>Delete ${escapeHtml(selected.name)}</strong><p>References are preserved as missing references. ${selectedReferences.total} current reference${selectedReferences.total === 1 ? '' : 's'}.</p><ul>${Object.entries(selectedReferences.counts).map(([label, count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><button class="danger" data-delete-device="${selected.id}">DELETE CAMERA</button></section>` : ''}
   </section></div>` : '';
 
   let body;
@@ -2038,10 +2098,7 @@ function settingsPage() {
   document.querySelectorAll('[data-toggle-device]').forEach(button => button.onclick = async () => { const device = byId(state.devices, button.dataset.toggleDevice); state = await window.trinity.updateDevice(device.id, { enabled: !device.enabled }); render(); });
   document.querySelectorAll('[data-duplicate-device]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateDevice(button.dataset.duplicateDevice); render(); });
   document.querySelectorAll('[data-delete-device]').forEach(button => button.onclick = async () => {
-    const device = byId(state.devices, button.dataset.deleteDevice);
-    const references = [...state.productionLooks.flatMap(look => [look.programCameraId, look.previewCameraId, ...(look.cameraAssignments || []).map(item => item.cameraId)].filter(id => id === device.id)), ...state.cameraLayouts.flatMap(layout => [layout.programCamera, layout.previewCamera].filter(id => id === device.id))];
-    if (references.length && !window.confirm(`${device.name} has ${references.length} reference${references.length === 1 ? '' : 's'}. Delete it without clearing references?`)) return;
-    state = await window.trinity.deleteDevice(device.id, { confirmReferences: references.length > 0 }); selectedDeviceId = null; render();
+    await confirmAndDeleteCamera(button.dataset.deleteDevice);
   });
   document.querySelectorAll('[data-move-device]').forEach(button => button.onclick = async () => {
     const deviceIndex = state.devices.findIndex(device => device.id === button.dataset.moveDevice);

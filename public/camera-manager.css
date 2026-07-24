@@ -9,7 +9,7 @@
 .managed-camera-card small { color: var(--muted); }
 .readiness { color: var(--amber); font-weight: 800; }
 .camera-detail-grid { display: grid; grid-template-columns: .8fr 1.2fr; gap: 12px; }
-.camera-overview, .capability-panel, .preset-panel, .future-control { min-height: 0; }
+.camera-overview, .capability-panel, .preset-panel, .future-control, .camera-danger-zone { min-height: 0; }
 .camera-status-hero { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .camera-status-hero b { color: var(--amber); }
 .capability-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -23,6 +23,7 @@
 .preset-row small { color: var(--muted); }
 .favorite-button { color: var(--amber); font-size: 22px; padding: 4px 8px; background: transparent; border: 0; }
 .future-control { grid-column: 1 / -1; }
+.camera-danger-zone { grid-column: 1 / -1; margin-top: 0; }
 .future-control-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .preview-placeholder { grid-column: 1 / -1; min-height: 130px; display: grid; place-content: center; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; background: #071019; }
 .empty-state { padding: 30px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 12px; }

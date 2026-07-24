@@ -138,6 +138,17 @@ test("device configuration commands share serialized authoritative state", async
   assert.equal(result.devices.length, 1);
 });
 
+test("deleted cameras remain absent from subsequent authoritative loads", async () => {
+  const { commands } = harness();
+  await commands.createDevice({ id: "main", type: "camera", name: "Main Camera", logicalRole: "main", enabled: true });
+  await commands.createDevice({ id: "user-camera", type: "camera", name: "User Camera", logicalRole: "audience", enabled: true });
+  let result = await commands.deleteDevice("main", { confirmReferences: true });
+  assert.equal(result.devices.some(device => device.id === "main"), false);
+  result = await commands.deleteDevice("user-camera");
+  assert.equal(result.devices.some(device => device.id === "user-camera"), false);
+  assert.deepEqual(commands.getState().devices, []);
+});
+
 test("camera preset commands use the same serialized authoritative state", async () => {
   const { commands } = harness();
   await commands.createDevice({ id: "main", type: "camera", name: "Main Camera", logicalRole: "main", enabled: true });

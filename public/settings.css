@@ -29,6 +29,12 @@
 .settings-form .wide { grid-column: 1 / -1; }
 .settings-editor-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 15px; }
 .settings-editor-actions span { margin-right: auto; color: var(--muted); font-size: 11px; }
+.danger-zone { margin-top: 18px; padding: 14px; border: 1px solid #8e3f3b; border-radius: 12px; background: #2a1111; display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.danger-zone > div:first-child { display: grid; gap: 6px; }
+.danger-zone strong { font-size: 17px; }
+.danger-zone p { margin: 0; color: #e7b9b6; font-size: 12px; }
+.danger-zone ul { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 2px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 11px; }
+.danger-zone-actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: 8px !important; }
 .diagnostic-table { display: grid; gap: 7px; }
 .diagnostic-table > div { display: grid; grid-template-columns: 1.3fr .7fr repeat(4, .85fr) auto auto; gap: 8px; align-items: center; background: #101c27; border: 1px solid var(--line); border-radius: 11px; padding: 10px; font-size: 12px; }
 .coming-later { height: 100%; display: grid; place-content: center; text-align: center; }

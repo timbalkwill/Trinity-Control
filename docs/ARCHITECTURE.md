@@ -47,6 +47,8 @@ Diagnostics deliberately report configuration and adapter readiness only. No dev
 
 Camera Manager is a computed operational projection over camera records in `state.devices`; it does not create another camera identity. `camera-manager-operations.cjs` resolves device details, legacy camera records, conservative capability states, diagnostic readiness, known program/preview state, and preset summaries. Main, Left, and Right are presentation priorities only, followed by any additional camera devices.
 
+All camera records—including the initial Main, Left, and Right records—use the same create, rename, duplicate, enable/disable, and reference-aware delete operations. Deletion removes only the camera device. Production Looks, layouts, cues, and presets retain their stable camera IDs as visible missing references so an operator can repair them later. An explicitly saved `devices` array, including an empty array, is authoritative during migration; defaults are created only when no device collection has ever been saved.
+
 `state.cameraPresets` is the versioned preset collection. `camera-preset-operations.cjs` owns deterministic legacy migration, validation, narrow CRUD, per-camera ordering, category/favorite queries, and reference-aware deletion. Browser clients receive safe `managedCameras` and `cameraPresetSummaries`, never device configuration or full preset records.
 
 This release assumes a trusted church LAN. It does not provide cloud access or authentication and should not be exposed directly to the internet.

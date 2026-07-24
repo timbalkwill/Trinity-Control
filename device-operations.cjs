@@ -199,6 +199,9 @@ function countDeviceReferences(state, deviceId) {
   for (const cue of state?.runOfService || []) {
     if (cue.cameraId === deviceId || cue.programCameraId === deviceId || cue.previewCameraId === deviceId) references.push({ type: "Cue", id: cue.id, name: cue.name });
   }
+  for (const preset of state?.cameraPresets || []) {
+    if (preset.cameraDeviceId === deviceId) references.push({ type: "Camera preset", id: preset.id, name: preset.name });
+  }
   return references;
 }
 

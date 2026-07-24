@@ -410,10 +410,11 @@
 .simple-cue-panel{min-width:0;overflow:hidden}
 .simple-live-main{min-width:0;gap:10px;overflow:hidden}
 .simple-camera-grid{width:100%;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;overflow:hidden}
-.simple-camera-card{width:100%;min-height:0;overflow:hidden;padding:9px;grid-template-rows:auto minmax(110px,1fr) auto auto auto auto;gap:7px}
+.simple-camera-card{width:100%;min-height:0;overflow:hidden;padding:9px;grid-template-rows:repeat(6,auto);align-content:start;gap:7px}
 .simple-camera-card header{min-width:0}
 .simple-camera-card header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.simple-camera-preview{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;aspect-ratio:auto}
+.simple-camera-preview{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 / 9}
+.simple-camera-preview>img,.simple-camera-preview>video,.simple-camera-preview>canvas{width:100%;height:100%;object-fit:cover}
 .prepared-summary{min-width:0}
 .camera-mode-selector{min-width:0;grid-template-columns:repeat(2,minmax(0,1fr))}
 .camera-mode-selector button{width:100%;min-width:0}
@@ -437,7 +438,7 @@
 }
 
 @media(max-height:820px){
-  .simple-camera-card{grid-template-rows:auto minmax(90px,1fr) auto auto auto auto}
+  .simple-camera-card{grid-template-rows:repeat(6,auto)}
   .simple-camera-preview{min-height:0}
   .simple-camera-preview .lens{font-size:34px}
   .simple-cue-panel{padding:9px}

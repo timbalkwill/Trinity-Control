@@ -180,6 +180,7 @@ test("desktop Live layout constrains three equal camera columns and all action c
   assert.match(styles, /\.simple-live-layout\{width:100%;min-width:0;grid-template-columns:clamp\([^}]+minmax\(0,1fr\);overflow:hidden\}/);
   assert.match(styles, /\.simple-camera-grid\{width:100%;min-width:0;display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   assert.match(styles, /\.simple-camera-card\{width:100%;min-height:0;overflow:hidden/);
+  assert.match(styles, /\.simple-camera-preview\{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 \/ 9\}/);
   assert.match(styles, /\.camera-live-actions\{width:100%;min-width:0;grid-template-columns:minmax\(0,1fr\) minmax\(/);
   assert.match(styles, /\.camera-live-actions button\{width:100%;min-width:0/);
 });

@@ -84,6 +84,7 @@ function createOperatorServer({
     }],
     ["/api/live/next", () => commands.nextCue()],
     ["/api/live/back", () => commands.previousCue()],
+    ["/api/live/take", () => commands.takeLive()],
     ["/api/live/hold", () => commands.toggleHold()],
     ["/api/lighting/override", body => {
       if (typeof body.sceneId !== "string" || !body.sceneId) throw new TypeError("sceneId is required");

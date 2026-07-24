@@ -12,6 +12,8 @@ Main, Left, and Right are prioritized when their logical roles are present. They
 
 Each detail view shows overview, capability, preset, status, diagnostic, and future-control information. Network and credential editing links back to **Settings → Cameras**.
 
+Camera cards and preset rows show how many Shots use the resource. Camera and preset deletion counts direct Shot references. Confirmation removes only the camera or preset; Shots retain missing stable IDs for repair.
+
 ## Capability model
 
 Capabilities cover pan/tilt, zoom, focus, preset recall, preset save, tracking, motion, tally, and preview. Each resolves to Supported, Not supported, Unknown, or Adapter required. Values may be manually configured or conservatively inferred from device flags. Inference never claims hardware detection.
@@ -32,4 +34,4 @@ Browser Operator receives read-only camera readiness and preset summary records 
 
 ## Future integration
 
-No PTZ traffic, preview stream, preset recall, switching, tracking control, tally, calibration, or motion execution is included. The model prepares future Shot Library, Motion Studio, PTZ adapter, tracking, tally, firmware, preview, and calibration work without coupling saved services to a hardware vendor.
+No PTZ traffic, preview stream, preset recall, switching, tracking control, tally, calibration, or motion execution is included. Shot Library consumes camera/preset identity and intent only. Future adapters remain decoupled from saved services.

@@ -58,9 +58,9 @@ test("migration canonicalizes roles and preserves legacy camera selections", () 
     ]
   });
   assert.deepEqual(migrated.cameraAssignments, [
-    { role: "program", cameraId: "main", presetId: "wide" },
-    { role: "auxiliary", cameraId: "left", presetId: "tight" },
-    { role: "preview", cameraId: "left", presetId: null }
+    { role: "program", cameraId: "main", presetId: "wide", shotId: null },
+    { role: "auxiliary", cameraId: "left", presetId: "tight", shotId: null },
+    { role: "preview", cameraId: "left", presetId: null, shotId: null }
   ]);
   assert.deepEqual(normalizeProductionLook(migrated), migrated);
 });

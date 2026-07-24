@@ -55,3 +55,13 @@ Use search and category filters to find presets. The star marks favorites. Creat
 Preset category suggestions include Pastor, Platform, Piano, Choir, Baptistry, Congregation, Wide, and Utility. Custom categories remain available and automatically appear in the filter list. Utility is only the display/filter fallback for an uncategorized preset.
 
 Capability choices are manual until hardware adapters exist: **Supported**, **Not supported**, **Unknown**, or **Adapter required**. Future control buttons are intentionally disabled. Use **Settings → Cameras** to edit connection details, credentials, model, enable state, or logical role.
+
+## Shot Library
+
+Open **SHOTS** to manage reusable framing such as Pastor Tight, Piano, Choir Wide, or Baptistry. Search or filter by category, camera/role, favorite, and enabled state. Create, edit, favorite, duplicate, enable/disable, reorder, or delete Shots; changes save immediately.
+
+A Shot can target a specific camera or fall back to a logical role, then optionally reference a preset on that camera. Readiness warnings identify missing or disabled cameras/presets, mismatches, or incomplete configuration without claiming a hardware connection.
+
+In **LOOKS**, choose a Shot for PROGRAM, PREVIEW, or AUXILIARY. Explicit camera and preset values are compatibility fallbacks. GO/NEXT/BACK freeze the resolved Shot in Live and Browser Operator. Editing a Shot does not alter what Live says was executed; run the cue again to apply it.
+
+Deleting a referenced Shot requires confirmation and leaves the reference visible for repair. Camera and preset deletion counts Shot references and likewise preserves the Shot.

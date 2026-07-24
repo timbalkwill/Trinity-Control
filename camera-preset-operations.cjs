@@ -114,6 +114,9 @@ function countCameraPresetReferences(state, presetId) {
   for (const layout of state?.cameraLayouts || []) {
     if ([layout.programPresetId, layout.previewPresetId, layout.selectedShotId, layout.motionPresetId].includes(presetId)) references.push({ type: "Camera layout", id: layout.id, name: layout.name });
   }
+  for (const shot of state?.shots || []) {
+    if (shot.cameraPresetId === presetId) references.push({ type: "Shot", id: shot.id, name: shot.name });
+  }
   return references;
 }
 

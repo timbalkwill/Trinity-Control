@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check production-look-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
+    "check": "node --check electron-main.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"
@@ -28,6 +28,8 @@
       "device-operations.cjs",
       "camera-manager-operations.cjs",
       "camera-preset-operations.cjs",
+      "shot-operations.cjs",
+      "live-operations.cjs",
       "service-operations.cjs",
       "operator-commands.cjs",
       "operator-server.cjs",

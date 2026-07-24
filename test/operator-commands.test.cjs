@@ -65,6 +65,25 @@ test("shared commands serialize writes and publish authoritative saved snapshots
   assert.deepEqual(published.map(state => state.live.cueIndex), [1, 2]);
 });
 
+test("TAKE LIVE persists and publishes through the serialized authoritative command path", async () => {
+  const { commands } = harness();
+  await commands.goCue(0);
+  const published = [];
+  commands.subscribe(state => published.push(state));
+  const result = await commands.takeLive();
+  assert.equal(result.live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(result.live.executionSnapshot.video.previewCameraId, "main");
+  assert.equal(commands.getState().live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(published.at(-1).live.executionSnapshot.video.programCameraId, "left");
+
+  let persisted = clone(result);
+  const reloadCommands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); }
+  });
+  assert.equal(reloadCommands.getState().live.executionSnapshot.video.programCameraId, "left");
+});
+
 test("shared browser and Electron commands use the injected authoritative cue executor", async () => {
   const calls = [];
   const { commands } = harness({
@@ -162,4 +181,19 @@ test("camera preset commands use the same serialized authoritative state", async
   assert.equal(result.cameraPresets[1].id, "preset-one");
   result = await commands.deleteCameraPreset(result.cameraPresets[0].id);
   assert.equal(result.cameraPresets.length, 1);
+});
+
+test("Shot commands use serialized authoritative state and preserve deletion references", async () => {
+  const { commands } = harness();
+  let result = await commands.createShot({ id: "shot-one", name: "Pastor Tight", category: "Pastor", tags: ["sermon"] });
+  assert.equal(result.shots[0].name, "Pastor Tight");
+  result = await commands.updateShot("shot-one", { favorite: true, enabled: false, category: "Custom" });
+  assert.equal(result.shots[0].favorite, true);
+  result = await commands.duplicateShot("shot-one");
+  const duplicate = result.shots[1];
+  assert.notEqual(duplicate.id, "shot-one");
+  result = await commands.reorderShot(1, 0);
+  assert.equal(result.shots[0].id, duplicate.id);
+  result = await commands.deleteShot(duplicate.id);
+  assert.deepEqual(result.shots.map(shot => shot.id), ["shot-one"]);
 });

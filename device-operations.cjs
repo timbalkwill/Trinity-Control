@@ -202,6 +202,9 @@ function countDeviceReferences(state, deviceId) {
   for (const preset of state?.cameraPresets || []) {
     if (preset.cameraDeviceId === deviceId) references.push({ type: "Camera preset", id: preset.id, name: preset.name });
   }
+  for (const shot of state?.shots || []) {
+    if (shot.cameraDeviceId === deviceId) references.push({ type: "Shot", id: shot.id, name: shot.name });
+  }
   return references;
 }
 
@@ -290,8 +293,40 @@ function browserSafeDeviceSummary(device, state) {
 
 function projectBrowserState(state) {
   const managedCameras = buildManagedCameraProjection(state).map(summarizeManagedCamera);
+  const safeAssignment = item => ({
+    role: item?.role || null,
+    shotId: item?.shotId || null,
+    shotName: item?.shotName || null,
+    cameraDeviceId: item?.cameraDeviceId || item?.cameraId || null,
+    cameraName: item?.cameraName || null,
+    presetId: item?.presetId || null,
+    presetName: item?.presetName || null,
+    tracking: item?.tracking ? {
+      mode: item.tracking.mode || null,
+      preferred: item.tracking.preferred === true,
+      subject: item.tracking.subject || null
+    } : null,
+    motion: item?.motion ? {
+      enabled: item.motion.enabled === true,
+      profileId: item.motion.profileId || null,
+      durationMs: Number(item.motion.durationMs) || 0,
+      speed: Number(item.motion.speed) || 1
+    } : null,
+    source: item?.source || null,
+    missing: item?.missing === true,
+    warnings: Array.isArray(item?.warnings) ? item.warnings.map(String) : []
+  });
+  const executionSnapshot = state?.live?.executionSnapshot;
   const projected = {
     ...state,
+    live: {
+      ...(state?.live || {}),
+      executionSnapshot: executionSnapshot ? {
+        ...executionSnapshot,
+        cameraAssignments: (executionSnapshot.cameraAssignments || []).map(safeAssignment),
+        cameras: (executionSnapshot.cameras || []).map(safeAssignment)
+      } : null
+    },
     cameras: (state?.cameras || []).map(camera => ({
       id: camera.id,
       name: camera.name,
@@ -301,6 +336,15 @@ function projectBrowserState(state) {
     })),
     deviceSummaries: (state?.devices || []).filter(device => device.enabled || device.type === "camera").map(device => browserSafeDeviceSummary(device, state)),
     managedCameras,
+    shotSummaries: (state?.shots || []).map(shot => ({
+      id: shot.id,
+      name: shot.name,
+      enabled: shot.enabled !== false,
+      category: shot.category || null,
+      cameraDeviceId: shot.cameraDeviceId || null,
+      logicalCameraRole: shot.logicalCameraRole || null,
+      cameraPresetId: shot.cameraPresetId || null
+    })),
     cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
       id: preset.id,
       name: preset.name,
@@ -313,6 +357,7 @@ function projectBrowserState(state) {
   };
   delete projected.devices;
   delete projected.cameraPresets;
+  delete projected.shots;
   delete projected.configuration;
   return projected;
 }

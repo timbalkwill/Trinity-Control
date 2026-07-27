@@ -123,3 +123,67 @@ test("desktop Looks editor exposes only simplified fields and uses narrow save",
   assert.doesNotMatch(looksPage, />Shot</);
   assert.doesNotMatch(looksPage, /PROGRAM|PREVIEW|AUXILIARY|Motion profile|Audio scene|Presentation cue/);
 });
+
+
+test("cue execution repairs stale camera IDs from valid role-scoped preset IDs", () => {
+  const current = state();
+  current.productionLooks[0].priorityCameraId = "right";
+  current.productionLooks[0].cameraPresets = {
+    main: { cameraId: "right", presetId: "main-wide" },
+    left: { cameraId: "main", presetId: "left-tight" },
+    right: { cameraId: "left", presetId: "right-wide" }
+  };
+  current.live.cameraPreparations = [
+    { cameraId: "main", selectedMode: "static", selectedPresetId: null, selectedMotionId: null, preparationStatus: "idle", preparedAssignment: null, tracking: { supported: true, active: false } },
+    { cameraId: "left", selectedMode: "static", selectedPresetId: null, selectedMotionId: null, preparationStatus: "idle", preparedAssignment: null, tracking: { supported: false, active: false } },
+    { cameraId: "right", selectedMode: "static", selectedPresetId: null, selectedMotionId: null, preparationStatus: "idle", preparedAssignment: null, tracking: { supported: false, active: false } }
+  ];
+
+  executeCue(current, 0, { now: () => 300 });
+
+  assert.deepEqual(current.live.cameraPreparations.map(item => [item.cameraId, item.selectedPresetId, item.preparedAssignment?.presetName]), [
+    ["main", "main-wide", "Main Wide"],
+    ["left", "left-tight", "Left Tight"],
+    ["right", "right-wide", "Right Wide"]
+  ]);
+  assert.deepEqual(current.live.executionSnapshot.simplifiedLook.cameraPresets, {
+    main: { cameraId: "main", cameraName: "Main Camera", presetId: "main-wide", presetName: "Main Wide", source: "production-look", missing: false },
+    left: { cameraId: "left", cameraName: "Left Camera", presetId: "left-tight", presetName: "Left Tight", source: "production-look", missing: false },
+    right: { cameraId: "right", cameraName: "Right Camera", presetId: "right-wide", presetName: "Right Wide", source: "production-look", missing: false }
+  });
+  assert.equal(current.live.programCamera, "right");
+  assert.equal(current.live.activeCameraAssignment.presetName, "Right Wide");
+});
+test("simplified role presets override stale preparation and legacy cue layout presets", () => {
+  const current = state();
+  current.cameraPresets.push(
+    { id: "main-old", name: "Stage Left", cameraDeviceId: "main", enabled: true },
+    { id: "left-old", name: "Pulpit Tight", cameraDeviceId: "left", enabled: true },
+    { id: "right-old", name: "Pulpit Tight", cameraDeviceId: "right", enabled: true }
+  );
+  current.cameraLayouts = [{
+    id: "legacy-layout",
+    name: "Legacy Welcome",
+    programCamera: "right",
+    programPreset: "Pulpit Tight",
+    previewCamera: "left",
+    previewPreset: "Pulpit Tight"
+  }];
+  current.runOfService[0].cameraLayoutId = "legacy-layout";
+  current.live.cameraPreparations = [
+    { cameraId: "main", selectedMode: "static", selectedPresetId: "main-old", selectedMotionId: null, preparationStatus: "ready", preparedAssignment: { presetId: "main-old", presetName: "Stage Left" }, tracking: { supported: true, active: false } },
+    { cameraId: "left", selectedMode: "static", selectedPresetId: "left-old", selectedMotionId: null, preparationStatus: "ready", preparedAssignment: { presetId: "left-old", presetName: "Pulpit Tight" }, tracking: { supported: false, active: false } },
+    { cameraId: "right", selectedMode: "static", selectedPresetId: "right-old", selectedMotionId: null, preparationStatus: "ready", preparedAssignment: { presetId: "right-old", presetName: "Pulpit Tight" }, tracking: { supported: false, active: false } }
+  ];
+
+  executeCue(current, 0, { now: () => 200 });
+
+  assert.deepEqual(current.live.cameraPreparations.map(item => [item.cameraId, item.selectedPresetId, item.preparedAssignment?.presetName]), [
+    ["main", "main-wide", "Main Wide"],
+    ["left", "left-tight", "Left Tight"],
+    ["right", "right-wide", "Right Wide"]
+  ]);
+  assert.equal(current.live.programCamera, "right");
+  assert.equal(current.live.activeCameraAssignment.presetId, "right-wide");
+  assert.equal(current.live.activeCameraAssignment.presetName, "Right Wide");
+});

@@ -1811,12 +1811,27 @@ function looksPage() {
   document.getElementById('look-create').onclick = async () => { state = await window.trinity.createProductionLook({ name: 'New Production Look' }); selectedLookId = state.productionLooks.at(-1).id; render(); };
   document.querySelectorAll('[data-select-look]').forEach(button => button.onclick = () => { selectedLookId = button.dataset.selectLook; render(); });
   if (!selected) return;
-  document.getElementById('look-duplicate').onclick = async () => { state = await window.trinity.duplicateProductionLook(selected.id); selectedLookId = state.productionLooks.at(-1).id; render(); };
+  document.getElementById('look-duplicate').onclick = async () => {
+    const previousIds = new Set((state.productionLooks || []).map(look => look.id));
+    try {
+      state = await window.trinity.duplicateProductionLook(selected.id);
+      const duplicate = (state.productionLooks || []).find(look => !previousIds.has(look.id));
+      selectedLookId = duplicate?.id || state.productionLooks.at(-1)?.id || selected.id;
+      render();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  };
   document.getElementById('look-cancel').onclick = () => render();
   document.getElementById('look-save').onclick = async () => {
     const cameraPresets = Object.fromEntries(['main', 'left', 'right'].map(role => {
+      const presetId = document.querySelector(`[data-look-preset="${role}"]`)?.value || null;
+      const preset = byId(state.cameraPresets || [], presetId);
       const camera = roleCamera(role);
-      return [role, { cameraId: camera?.id || selected.cameraPresets?.[role]?.cameraId || null, presetId: document.querySelector(`[data-look-preset="${role}"]`)?.value || null }];
+      return [role, {
+        cameraId: preset?.cameraDeviceId || camera?.id || selected.cameraPresets?.[role]?.cameraId || null,
+        presetId
+      }];
     }));
     try {
       state = await window.trinity.updateProductionLook(selected.id, {

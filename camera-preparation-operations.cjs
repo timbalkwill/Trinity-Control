@@ -147,12 +147,30 @@ function setCameraTracking(state, cameraId, active) {
 
 function applyCueStartPreparations(state, plan, { now = Date.now } = {}) {
   migrateCameraPreparations(state);
-  for (const assignment of plan?.cameraAssignments || []) {
-    if (!["main", "left", "right"].includes(assignment?.role) || !assignment.cameraDeviceId || !assignment.presetId || assignment.missing) continue;
-    const camera = cameraDevices(state).find(item => item.id === assignment.cameraDeviceId);
-    const preset = (state.cameraPresets || []).find(item => item.id === assignment.presetId && item.cameraDeviceId === assignment.cameraDeviceId && item.enabled !== false);
-    const preparation = state.live.cameraPreparations.find(item => item.cameraId === assignment.cameraDeviceId);
+
+  // A simplified Look defines one independent starting preset per logical role.
+  // Apply those frozen role assignments directly instead of walking the mixed
+  // PROGRAM/PREVIEW compatibility list, which may contain legacy layout entries
+  // for the same cameras with different presets.
+  const simplifiedAssignments = plan?.simplifiedLook?.cameraPresets || {};
+  const fallbackAssignments = new Map((plan?.cameraAssignments || [])
+    .filter(item => ["main", "left", "right"].includes(item?.role))
+    .map(item => [item.role, item]));
+
+  for (const role of ["main", "left", "right"]) {
+    const frozen = simplifiedAssignments[role];
+    const fallback = fallbackAssignments.get(role);
+    const cameraId = frozen?.cameraId || fallback?.cameraDeviceId || null;
+    const presetId = frozen?.presetId || fallback?.presetId || null;
+    const missing = frozen?.missing === true || fallback?.missing === true;
+    if (!cameraId || !presetId || missing) continue;
+
+    const camera = cameraDevices(state).find(item => item.id === cameraId && item.enabled !== false);
+    const preset = (state.cameraPresets || []).find(item =>
+      item.id === presetId && item.cameraDeviceId === cameraId && item.enabled !== false);
+    const preparation = state.live.cameraPreparations.find(item => item.cameraId === cameraId);
     if (!camera || !preset || !preparation) continue;
+
     preparation.selectedMode = "static";
     preparation.selectedPresetId = preset.id;
     preparation.selectedMotionId = null;
@@ -218,8 +236,11 @@ function synchronizeLiveCameraFromSnapshot(state) {
   const snapshot = state?.live?.executionSnapshot;
   const programId = snapshot?.video?.programCameraId || state?.live?.programCamera || null;
   if (!state?.live || !programId) return state;
-  const assignment = (snapshot.cameraAssignments || []).find(item =>
-    String(item?.role || "").toLowerCase() === "program" || item?.cameraDeviceId === programId);
+  const roleAssignment = Object.values(snapshot.simplifiedLook?.cameraPresets || {})
+    .find(item => item?.cameraId === programId);
+  const assignment = roleAssignment || (snapshot.cameraAssignments || []).find(item =>
+    item?.cameraDeviceId === programId && ["main", "left", "right"].includes(String(item?.role || "").toLowerCase())) ||
+    (snapshot.cameraAssignments || []).find(item => String(item?.role || "").toLowerCase() === "program");
   state.live.activeCameraAssignment = {
     cameraId: programId,
     cameraName: assignment?.cameraName || snapshot.video?.programCameraName || null,

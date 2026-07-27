@@ -54,7 +54,14 @@ function legacyAssignment(input, role) {
 
 function migratePresetAssignment(input, role, state) {
   const current = input.cameraPresets?.[role];
-  if (current && typeof current === "object") return emptyPresetAssignment(current);
+  if (current && typeof current === "object") {
+    const assignment = emptyPresetAssignment(current);
+    const preset = findResource(state?.cameraPresets, assignment.presetId);
+    if (preset && roleForCamera(state, preset.cameraDeviceId) === role) {
+      assignment.cameraId = preset.cameraDeviceId;
+    }
+    return assignment;
+  }
 
   const roleCamera = cameraForRole(state, role);
   const assignments = Array.isArray(input.cameraAssignments) ? input.cameraAssignments : [];
@@ -227,10 +234,17 @@ function searchProductionLooks(looks, query = "") {
 function resolveRoleAssignment(state, look, role) {
   const requested = look?.cameraPresets?.[role] || {};
   const configured = cameraForRole(state, role);
-  const cameraId = requested.cameraId || configured?.id || null;
-  const camera = findResource(cameraDevices(state), cameraId);
   const preset = findResource(state?.cameraPresets, requested.presetId);
-  const validPreset = preset && camera && preset.cameraDeviceId === camera.id && preset.enabled !== false;
+  // Older saved schema-v3 records can contain a correct role-scoped preset ID
+  // paired with a stale camera ID. The preset is the authoritative resource:
+  // when it belongs to this logical role, use its stable cameraDeviceId. This
+  // repairs the pair at resolution time without weakening wrong-role validation.
+  const presetRole = preset ? roleForCamera(state, preset.cameraDeviceId) : null;
+  const cameraId = preset && presetRole === role
+    ? preset.cameraDeviceId
+    : requested.cameraId || configured?.id || null;
+  const camera = findResource(cameraDevices(state), cameraId);
+  const validPreset = preset && presetRole === role && camera && preset.cameraDeviceId === camera.id && preset.enabled !== false;
   return {
     role,
     cameraDeviceId: camera?.id || cameraId,

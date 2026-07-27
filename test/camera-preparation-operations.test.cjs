@@ -184,3 +184,15 @@ test("desktop Live layout constrains three equal camera columns and all action c
   assert.match(styles, /\.camera-live-actions\{width:100%;min-width:0;grid-template-columns:minmax\(0,1fr\) minmax\(/);
   assert.match(styles, /\.camera-live-actions button\{width:100%;min-width:0/);
 });
+
+
+test("simplified Looks UI preserves preset-camera pairing and list containment", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const styles = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
+  assert.match(app, /cameraId: preset\?\.cameraDeviceId \|\| camera\?\.id/);
+  assert.match(app, /previousIds = new Set/);
+  assert.match(styles, /\.look-list\{[^}]*overflow-x:hidden[^}]*padding:8px 8px 8px 10px/);
+  assert.match(styles, /\.look-list-item\{width:100%;min-width:0;box-sizing:border-box\}/);
+  assert.match(styles, /\.look-list-item\{border:1px solid var\(--line\)/);
+  assert.match(styles, /\.look-list-item\.selected\{[^}]*border-color:var\(--blue\)[^}]*box-shadow:inset/);
+});

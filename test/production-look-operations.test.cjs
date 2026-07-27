@@ -167,3 +167,36 @@ test("repairable missing references and unsupported tracking produce warnings", 
   assert.match(warnings, /Missing priority camera/);
   assert.match(warnings, /tracking is not supported/);
 });
+
+test("duplicate preset IDs are resolved by camera role, not globally", () => {
+  const state = fixture();
+  state.cameraPresets = [
+    { id: "position-1", name: "Main Position 1", cameraDeviceId: "main", enabled: true },
+    { id: "position-2", name: "Main Position 2", cameraDeviceId: "main", enabled: true },
+    { id: "position-3", name: "Main Position 3", cameraDeviceId: "main", enabled: true },
+    { id: "position-1", name: "Left Position 1", cameraDeviceId: "left", enabled: true },
+    { id: "position-2", name: "Left Position 2", cameraDeviceId: "left", enabled: true },
+    { id: "position-3", name: "Left Position 3", cameraDeviceId: "left", enabled: true },
+    { id: "position-1", name: "Right Position 1", cameraDeviceId: "right", enabled: true },
+    { id: "position-2", name: "Right Position 2", cameraDeviceId: "right", enabled: true },
+    { id: "position-3", name: "Right Position 3", cameraDeviceId: "right", enabled: true }
+  ];
+
+  const normalized = normalizeProductionLook({
+    id: "duplicate-ids",
+    name: "Duplicate IDs",
+    cameraPresets: {
+      main: { cameraId: "main", presetId: "position-1" },
+      left: { cameraId: "main", presetId: "position-2" },
+      right: { cameraId: "main", presetId: "position-3" }
+    }
+  }, { state });
+
+  assert.deepEqual(normalized.cameraPresets, {
+    main: { cameraId: "main", presetId: "position-1" },
+    left: { cameraId: "left", presetId: "position-2" },
+    right: { cameraId: "right", presetId: "position-3" }
+  });
+  assert.equal(validateProductionLook(normalized, state).valid, true);
+  assert.deepEqual(readinessWarnings(state, normalized), []);
+});

@@ -1781,7 +1781,7 @@ function looksPage() {
     const camera = roleCamera(role);
     const assignment = selected?.cameraPresets?.[role] || {};
     const presets = camera ? (state.cameraPresets || []).filter(item => item.cameraDeviceId === camera.id && item.enabled !== false) : [];
-    const selectedPreset = byId(state.cameraPresets || [], assignment.presetId);
+    const selectedPreset = (state.cameraPresets || []).find(item => item.id === assignment.presetId && item.cameraDeviceId === camera?.id);
     const missing = assignment.presetId && (!selectedPreset || selectedPreset.cameraDeviceId !== assignment.cameraId);
     const empty = !camera ? `No ${label} camera configured` : !presets.length ? `No ${label} camera presets` : 'Not assigned';
     return `<label>${label} Camera Preset<select data-look-preset="${role}" ${camera ? '' : 'disabled'}><option value="">${empty}</option>${missing ? `<option value="${escapeHtml(assignment.presetId)}" selected>Missing preset reference</option>` : ''}${selectedPreset?.enabled === false && !missing ? `<option value="${selectedPreset.id}" selected>${escapeHtml(selectedPreset.name)} (Disabled)</option>` : ''}${presets.map(item => `<option value="${item.id}" ${selectedOption(item.id, assignment.presetId)}>${escapeHtml(item.name)}</option>`).join('')}</select><small>${camera ? escapeHtml(camera.name) : `No ${label} camera configured`}</small></label>`;
@@ -1826,11 +1826,11 @@ function looksPage() {
   document.getElementById('look-save').onclick = async () => {
     const cameraPresets = Object.fromEntries(['main', 'left', 'right'].map(role => {
       const presetId = document.querySelector(`[data-look-preset="${role}"]`)?.value || null;
-      const preset = byId(state.cameraPresets || [], presetId);
       const camera = roleCamera(role);
+      const preset = (state.cameraPresets || []).find(item => item.id === presetId && item.cameraDeviceId === camera?.id);
       return [role, {
-        cameraId: preset?.cameraDeviceId || camera?.id || selected.cameraPresets?.[role]?.cameraId || null,
-        presetId
+        cameraId: camera?.id || selected.cameraPresets?.[role]?.cameraId || null,
+        presetId: preset?.id || null
       }];
     }));
     try {

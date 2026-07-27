@@ -15,6 +15,14 @@ function findResource(items, id) {
   return nullableString(id) ? (Array.isArray(items) ? items.find(item => item?.id === id) : undefined) : undefined;
 }
 
+function findCameraPreset(state, presetId, cameraId) {
+  if (!nullableString(presetId)) return undefined;
+  const presets = Array.isArray(state?.cameraPresets) ? state.cameraPresets : [];
+  return nullableString(cameraId)
+    ? presets.find(item => item?.id === presetId && item?.cameraDeviceId === cameraId)
+    : presets.find(item => item?.id === presetId);
+}
+
 function cameraDevices(state) {
   const devices = (state?.devices || []).filter(item => item?.type === "camera");
   const known = new Set(devices.map(item => item.id));
@@ -56,10 +64,10 @@ function migratePresetAssignment(input, role, state) {
   const current = input.cameraPresets?.[role];
   if (current && typeof current === "object") {
     const assignment = emptyPresetAssignment(current);
-    const preset = findResource(state?.cameraPresets, assignment.presetId);
-    if (preset && roleForCamera(state, preset.cameraDeviceId) === role) {
-      assignment.cameraId = preset.cameraDeviceId;
-    }
+    const roleCamera = cameraForRole(state, role);
+    const expectedCameraId = roleCamera?.id || assignment.cameraId;
+    const preset = findCameraPreset(state, assignment.presetId, expectedCameraId);
+    if (preset) assignment.cameraId = preset.cameraDeviceId;
     return assignment;
   }
 
@@ -144,10 +152,11 @@ function readinessWarnings(state, lookOrId) {
     if (!configured) warnings.push(`No ${label} camera configured`);
     if (assignment.cameraId && !camera) warnings.push(`Missing ${label} camera reference`);
     if (camera?.enabled === false) warnings.push(`${label} camera is disabled`);
-    const preset = findResource(state?.cameraPresets, assignment.presetId);
-    if (assignment.presetId && !preset) warnings.push(`Missing ${label} preset reference`);
+    const preset = findCameraPreset(state, assignment.presetId, assignment.cameraId);
+    const anyPreset = preset || findCameraPreset(state, assignment.presetId);
+    if (assignment.presetId && !anyPreset) warnings.push(`Missing ${label} preset reference`);
     if (preset?.enabled === false) warnings.push(`${label} preset is disabled`);
-    if (preset && assignment.cameraId && preset.cameraDeviceId !== assignment.cameraId) warnings.push(`${label} preset belongs to another camera`);
+    if (!preset && anyPreset && assignment.cameraId) warnings.push(`${label} preset belongs to another camera`);
   }
   const priority = findResource(cameraDevices(state), look.priorityCameraId);
   if (look.priorityCameraId && !priority) warnings.push("Missing priority camera reference");
@@ -167,8 +176,9 @@ function validateProductionLook(look, state) {
   if (state) {
     for (const role of LOOK_ROLES) {
       const assignment = look.cameraPresets?.[role] || {};
-      const preset = findResource(state.cameraPresets, assignment.presetId);
-      if (preset && assignment.cameraId && preset.cameraDeviceId !== assignment.cameraId) {
+      const preset = findCameraPreset(state, assignment.presetId, assignment.cameraId);
+      const anyPreset = preset || findCameraPreset(state, assignment.presetId);
+      if (!preset && anyPreset && assignment.cameraId) {
         errors.push(`${role[0].toUpperCase() + role.slice(1)} preset belongs to another camera`);
       }
     }
@@ -234,7 +244,8 @@ function searchProductionLooks(looks, query = "") {
 function resolveRoleAssignment(state, look, role) {
   const requested = look?.cameraPresets?.[role] || {};
   const configured = cameraForRole(state, role);
-  const preset = findResource(state?.cameraPresets, requested.presetId);
+  const expectedCameraId = configured?.id || requested.cameraId || null;
+  const preset = findCameraPreset(state, requested.presetId, expectedCameraId);
   // Older saved schema-v3 records can contain a correct role-scoped preset ID
   // paired with a stale camera ID. The preset is the authoritative resource:
   // when it belongs to this logical role, use its stable cameraDeviceId. This

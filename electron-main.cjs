@@ -707,7 +707,7 @@ function defaultState() {
 function migrate(state) {
   const fresh = defaultState();
   const merged = { ...fresh, ...state, version: fresh.version, schemaVersion: fresh.schemaVersion };
-  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates"]) {
+  for (const key of ["lightingScenes", "cameraLayouts", "cueTemplates"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
     } else {
@@ -715,11 +715,12 @@ function migrate(state) {
       merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
     }
   }
-  merged.productionLooks = normalizeProductionLooks(merged.productionLooks);
   merged.devices = normalizeDeviceCollection(state.devices, { legacyCameras: merged.cameras });
   merged.deviceSchemaVersion = 1;
   merged.cameraPresets = migrateLegacyPresets({ ...merged, cameraPresets: state.cameraPresets });
   merged.shots = migrateShots(state.shots);
+  const savedLooks = Object.prototype.hasOwnProperty.call(state, "productionLooks") && Array.isArray(state.productionLooks);
+  merged.productionLooks = normalizeProductionLooks(savedLooks ? state.productionLooks : fresh.productionLooks, { state: merged });
   merged.cameraManagerSchemaVersion = CAMERA_MANAGER_SCHEMA_VERSION;
   merged.cameraPresetSchemaVersion = CAMERA_PRESET_SCHEMA_VERSION;
   merged.shotSchemaVersion = SHOT_SCHEMA_VERSION;

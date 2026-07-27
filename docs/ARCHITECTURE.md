@@ -27,13 +27,13 @@ Reordering records the active cue ID before moving the array item and restores `
 
 GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direct jumps beyond two positions require an explicit confirmation flag, while sequential NEXT and BACK remain immediate.
 
-## Production Looks 2.0 foundation
+## Simplified Production Looks
 
-`production-look-operations.cjs` owns the versioned Production Look schema, normalization, validation, resource resolution, summaries, and CRUD operations. Migration is applied in the main process before state reaches either renderer. Electron IPC and narrow HTTP commands both use the serialized operator-command queue, so every edit begins with the latest saved state and publishes only the resulting authoritative snapshot.
+`production-look-operations.cjs` owns schema v3, normalization, validation, resource resolution, readiness warnings, search, and reference-aware CRUD. A Look defines only how a cue begins: name, enabled state, lighting scene, stable Main/Left/Right camera-preset pairs, priority camera, and whether Main tracking starts. Migration preserves Look IDs, names, enabled state, timestamps, valid lighting, and safely resolvable legacy layout/assignment/Shot preset intent without inventing references. Explicitly saved empty Look collections remain empty and cues are never rewritten.
 
-`cue-execution-plan.cjs` builds a pure hardware-independent description of the desired cue state. It records the source of lighting and video values, camera assignments, motion intent, future audio/presentation references, and non-fatal missing-resource warnings. `executeCue()` remains the only runtime entry point for GO, NEXT, and BACK; the execution plan does not communicate with hardware or create another execution path.
+`cue-execution-plan.cjs` builds a pure hardware-independent description of the desired cue start. `executeCue()` remains the only runtime entry point for GO, NEXT, BACK, and direct execution. In one serialized mutation it resolves resources, prepares valid role presets in Static mode, clears affected Motion selections, applies the valid priority camera, explicitly starts or stops Main tracking, freezes `live.executionSnapshot`, and then saves and publishes one authoritative state. No intermediate state is published and no hardware is contacted.
 
-Cue precedence remains: valid cue override, valid referenced Production Look value, then the existing safe fallback. Updating or deleting a Look never rewrites a cue. A confirmed deletion may leave an intentional missing reference so an operator can repair the cue later.
+Cue precedence is: valid cue lighting/layout compatibility override, valid simplified Look value, then safe fallback. A missing priority camera preserves the current program camera. `startMainTracking: false` explicitly stops Main tracking at cue start; `true` starts it only when supported and otherwise records a warning. Updating or deleting a Look never rewrites a cue or an active snapshot. Manual preparation, tracking, favorite lighting, and Make Live remain independent after execution and never rebuild the frozen snapshot.
 
 ## Device configuration foundation
 

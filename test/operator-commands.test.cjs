@@ -158,8 +158,8 @@ test("Browser and Electron Production Look commands share authoritative narrow m
   const { commands } = harness();
   let result = await commands.createProductionLook({ name: "New Look", lightingSceneId: "light-cue" });
   const created = result.productionLooks.at(-1);
-  result = await commands.updateProductionLook(created.id, { description: "Saved centrally" });
-  assert.equal(result.productionLooks.at(-1).description, "Saved centrally");
+  result = await commands.updateProductionLook(created.id, { enabled: false });
+  assert.equal(result.productionLooks.at(-1).enabled, false);
   result = await commands.duplicateProductionLook(created.id);
   assert.notEqual(result.productionLooks.at(-1).id, created.id);
   assert.equal(result.productionLooks.at(-1).name, "New Look Copy");

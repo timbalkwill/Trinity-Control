@@ -1769,52 +1769,82 @@ function servicePage() {
 function looksPage() {
   if (!selectedLookId || !byId(state.productionLooks, selectedLookId)) selectedLookId = state.productionLooks[0]?.id || null;
   const selected = byId(state.productionLooks, selectedLookId);
-  const filtered = state.productionLooks.filter(look => `${look.name} ${look.description} ${(look.tags || []).join(' ')}`.toLowerCase().includes(lookSearch.toLowerCase()));
-  const options = (items, current, empty = 'Not assigned') => `<option value="">${empty}</option>${items.map(item => `<option value="${item.id}" ${item.id === current ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
-  const cameraOptions = liveCameraTiles();
-  const assignment = role => {
-    const item = (selected?.cameraAssignments || []).find(value => {
-      const normalized = String(value?.role || '').trim().toLowerCase();
-      return (normalized === 'aux' ? 'auxiliary' : normalized) === role;
-    }) || {};
-    const shotOptions = options(state.shots || [], item.shotId, 'No Shot');
-    const presetOptions = options(state.cameraPresets || [], item.presetId, 'No explicit preset');
-    return `<div class="assignment-row"><strong>${role.toUpperCase()}</strong><label>Shot<select data-assignment="${role}" data-part="shotId">${shotOptions}</select></label><label>Explicit camera fallback<select data-assignment="${role}" data-part="cameraId">${options(cameraOptions, item.cameraId)}</select></label><label>Explicit preset fallback<select data-assignment="${role}" data-part="presetId">${presetOptions}</select></label></div>`;
+  const filtered = state.productionLooks.filter(look => String(look.name || '').toLowerCase().includes(lookSearch.toLowerCase()));
+  const roleCamera = role => (state.devices || []).find(device => device.type === 'camera' && (device.logicalRole === role || (role === 'main' && (device.id === 'main' || device.logicalRole === 'center'))));
+  const selectedOption = (value, current) => value === current ? 'selected' : '';
+  const lightingOptions = current => {
+    const exists = (state.lightingScenes || []).some(item => item.id === current);
+    return `<option value="">Not assigned</option>${current && !exists ? `<option value="${escapeHtml(current)}" selected>Missing reference</option>` : ''}${(state.lightingScenes || []).map(item => `<option value="${item.id}" ${selectedOption(item.id, current)}>${escapeHtml(item.name)}</option>`).join('')}`;
   };
+  const presetEditor = role => {
+    const label = role[0].toUpperCase() + role.slice(1);
+    const camera = roleCamera(role);
+    const assignment = selected?.cameraPresets?.[role] || {};
+    const presets = camera ? (state.cameraPresets || []).filter(item => item.cameraDeviceId === camera.id && item.enabled !== false) : [];
+    const selectedPreset = (state.cameraPresets || []).find(item => item.id === assignment.presetId && item.cameraDeviceId === camera?.id);
+    const missing = assignment.presetId && (!selectedPreset || selectedPreset.cameraDeviceId !== assignment.cameraId);
+    const empty = !camera ? `No ${label} camera configured` : !presets.length ? `No ${label} camera presets` : 'Not assigned';
+    return `<label>${label} Camera Preset<select data-look-preset="${role}" ${camera ? '' : 'disabled'}><option value="">${empty}</option>${missing ? `<option value="${escapeHtml(assignment.presetId)}" selected>Missing preset reference</option>` : ''}${selectedPreset?.enabled === false && !missing ? `<option value="${selectedPreset.id}" selected>${escapeHtml(selectedPreset.name)} (Disabled)</option>` : ''}${presets.map(item => `<option value="${item.id}" ${selectedOption(item.id, assignment.presetId)}>${escapeHtml(item.name)}</option>`).join('')}</select><small>${camera ? escapeHtml(camera.name) : `No ${label} camera configured`}</small></label>`;
+  };
+  const priorityOptions = current => {
+    const cameras = ['main', 'left', 'right'].map(role => ({ role, camera: roleCamera(role) })).filter(item => item.camera);
+    const exists = cameras.some(item => item.camera.id === current);
+    return `<option value="">Not assigned</option>${current && !exists ? `<option value="${escapeHtml(current)}" selected>Missing camera reference</option>` : ''}${cameras.map(({ role, camera }) => `<option value="${camera.id}" ${selectedOption(camera.id, current)}>${role[0].toUpperCase() + role.slice(1)} Camera — ${escapeHtml(camera.name)}</option>`).join('')}`;
+  };
+  const mainCamera = roleCamera('main');
+  const trackingUnsupported = !mainCamera || mainCamera.trackingEnabled === false || mainCamera.metadata?.cameraManager?.capabilities?.tracking === 'unsupported';
   shell(`<div class="page-scroll"><div class="looks-workspace">
-    <aside class="panel look-library"><div class="section-title"><span>PRODUCTION LOOKS 2.0</span><strong>${state.productionLooks.length} looks</strong></div>
+    <aside class="panel look-library"><div class="section-title"><span>PRODUCTION LOOKS</span><strong>${state.productionLooks.length} looks</strong></div>
       <div class="look-toolbar"><input id="look-search" value="${escapeHtml(lookSearch)}" placeholder="Search looks"><button id="look-create">NEW LOOK</button></div>
-      <div class="look-list">${filtered.map(look => `<button class="look-list-item ${look.id === selectedLookId ? 'selected' : ''}" data-select-look="${look.id}" style="--look-color:${escapeHtml(look.color || '#4da9ff')}"><strong>${escapeHtml(look.name)}</strong><small>${escapeHtml(look.description || 'No description')}</small><span>${look.enabled === false ? 'Disabled' : 'Enabled'}</span></button>`).join('') || '<p class="empty-state">No matching looks.</p>'}</div>
+      <div class="look-list">${filtered.map(look => `<button class="look-list-item ${look.id === selectedLookId ? 'selected' : ''}" data-select-look="${look.id}"><strong>${escapeHtml(look.name)}</strong><span>${look.enabled === false ? 'Disabled' : 'Enabled'}</span></button>`).join('') || '<p class="empty-state">No matching looks.</p>'}</div>
     </aside>
-    <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">SELECTED PRODUCTION LOOK</span><h1>${escapeHtml(selected.name)}</h1></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-toggle">${selected.enabled === false ? 'ENABLE' : 'DISABLE'}</button><button id="look-delete" class="danger">DELETE</button></div></div>
-      ${window.TrinityLookView.card(state, { productionLookId: selected.id })}
-      <div class="look-sections">
-        <fieldset><legend>GENERAL</legend><label>Name<input data-look-field="name" value="${escapeHtml(selected.name)}" required></label><label>Description<textarea data-look-field="description">${escapeHtml(selected.description || '')}</textarea></label><label>Color / label<input type="color" data-look-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label><label>Tags<input data-look-field="tags" data-value-type="tags" value="${escapeHtml((selected.tags || []).join(', '))}" placeholder="worship, sermon"></label><label>Operator notes<textarea data-look-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label></fieldset>
-        <fieldset><legend>LIGHTING</legend><label>Lighting scene<select data-look-field="lightingSceneId">${options(state.lightingScenes, selected.lightingSceneId)}</select></label><label>Fade (ms)<input type="number" min="0" data-look-field="lightingFadeMs" value="${selected.lightingFadeMs || 0}"></label><label>Stage wash mode<input data-look-field="stageWashMode" value="${escapeHtml(selected.stageWashMode || '')}" placeholder="Optional"></label><label>Wall wash mode<input data-look-field="wallWashMode" value="${escapeHtml(selected.wallWashMode || '')}" placeholder="Optional"></label></fieldset>
-        <fieldset><legend>VIDEO</legend><label>Legacy camera layout (compatibility fallback)<select data-look-field="cameraLayoutId">${options(state.cameraLayouts, selected.cameraLayoutId)}</select></label><label>Transition<select data-look-field="transitionStyle"><option value="cut" ${selected.transitionStyle === 'cut' ? 'selected' : ''}>Cut</option><option value="mix" ${selected.transitionStyle === 'mix' ? 'selected' : ''}>Mix</option><option value="dip" ${selected.transitionStyle === 'dip' ? 'selected' : ''}>Dip</option></select></label><label>Transition duration (ms)<input type="number" min="0" data-look-field="transitionDurationMs" value="${selected.transitionDurationMs || 0}"></label><p>Legacy direct camera selections remain preserved in saved Looks. The camera assignments below are authoritative.</p></fieldset>
-        <fieldset><legend>CAMERAS · AUTHORITATIVE</legend><p>Shot → explicit assignment → legacy fields/layout. Shot edits apply only when a cue executes again.</p>${['program', 'preview', 'auxiliary'].map(assignment).join('')}<button type="button" id="open-shot-library">OPEN SHOT LIBRARY</button></fieldset>
-        <fieldset><legend>MOTION</legend><label class="checkbox-label"><input type="checkbox" data-look-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Enable motion</label><label>Motion profile<input data-look-field="motionProfileId" value="${escapeHtml(selected.motionProfileId || '')}" placeholder="Coming later"></label><label>Duration (ms)<input type="number" min="0" data-look-field="motionDurationMs" value="${selected.motionDurationMs || 0}"></label><label>Speed<input type="number" min="0" step="0.1" data-look-field="motionSpeed" value="${selected.motionSpeed || 1}"></label></fieldset>
-        <fieldset class="future-section"><legend>FUTURE INTEGRATIONS</legend><label>Audio scene<input data-look-field="audioSceneId" value="${escapeHtml(selected.audioSceneId || '')}" placeholder="Coming later"></label><label>Presentation cue<input data-look-field="presentationCueId" value="${escapeHtml(selected.presentationCueId || '')}" placeholder="Coming later"></label><p>Hardware communication is not enabled. These references are stored for future QLC+, ATEM, PTZ, Motion Studio, audio, and presentation adapters.</p></fieldset>
-      </div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>
+    <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">HOW SHOULD THIS CUE BEGIN?</span><h1>${escapeHtml(selected.name)}</h1></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-delete" class="danger">DELETE</button></div></div>
+      <div class="look-sections simplified-look-form">
+        <fieldset><legend>LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select></label></fieldset>
+        <fieldset><legend>CAMERA STARTING PRESETS</legend>${['main', 'left', 'right'].map(presetEditor).join('')}</fieldset>
+        <fieldset><legend>STARTING LIVE CAMERA</legend><label>Priority Camera<select id="look-priority">${priorityOptions(selected.priorityCameraId)}</select></label><label class="checkbox-label"><input type="checkbox" id="look-main-tracking" ${selected.startMainTracking ? 'checked' : ''} ${trackingUnsupported ? 'disabled' : ''}> Start Main Camera Tracking</label>${trackingUnsupported ? `<small class="look-warning">${mainCamera ? 'Main camera tracking is not supported.' : 'No Main camera configured.'}</small>` : ''}</fieldset>
+      </div>
+      <div class="look-form-actions"><button id="look-cancel">CANCEL</button><button id="look-save" class="live-button">SAVE LOOK</button></div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>
   </div></div>`);
 
   document.getElementById('look-search').oninput = event => { lookSearch = event.target.value; looksPage(); document.getElementById('look-search')?.focus(); };
   document.getElementById('look-create').onclick = async () => { state = await window.trinity.createProductionLook({ name: 'New Production Look' }); selectedLookId = state.productionLooks.at(-1).id; render(); };
   document.querySelectorAll('[data-select-look]').forEach(button => button.onclick = () => { selectedLookId = button.dataset.selectLook; render(); });
   if (!selected) return;
-  const savePatch = async patch => { try { state = await window.trinity.updateProductionLook(selected.id, patch); render(); } catch (error) { window.alert(error.message); render(); } };
-  document.querySelectorAll('[data-look-field]').forEach(input => input.onchange = () => {
-    let value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value || null;
-    if (input.dataset.valueType === 'tags') value = input.value.split(',').map(tag => tag.trim()).filter(Boolean);
-    savePatch({ [input.dataset.lookField]: value });
-  });
-  document.querySelectorAll('[data-assignment]').forEach(input => input.onchange = () => {
-    const assignments = ['program', 'preview', 'auxiliary'].map(role => ({ role, shotId: document.querySelector(`[data-assignment="${role}"][data-part="shotId"]`).value || null, cameraId: document.querySelector(`[data-assignment="${role}"][data-part="cameraId"]`).value || null, presetId: document.querySelector(`[data-assignment="${role}"][data-part="presetId"]`).value || null }));
-    savePatch({ cameraAssignments: assignments });
-  });
-  document.getElementById('open-shot-library').onclick = () => { page = 'shots'; render(); };
-  document.getElementById('look-duplicate').onclick = async () => { state = await window.trinity.duplicateProductionLook(selected.id); selectedLookId = state.productionLooks.at(-1).id; render(); };
-  document.getElementById('look-toggle').onclick = () => savePatch({ enabled: selected.enabled === false });
+  document.getElementById('look-duplicate').onclick = async () => {
+    const previousIds = new Set((state.productionLooks || []).map(look => look.id));
+    try {
+      state = await window.trinity.duplicateProductionLook(selected.id);
+      const duplicate = (state.productionLooks || []).find(look => !previousIds.has(look.id));
+      selectedLookId = duplicate?.id || state.productionLooks.at(-1)?.id || selected.id;
+      render();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  };
+  document.getElementById('look-cancel').onclick = () => render();
+  document.getElementById('look-save').onclick = async () => {
+    const cameraPresets = Object.fromEntries(['main', 'left', 'right'].map(role => {
+      const presetId = document.querySelector(`[data-look-preset="${role}"]`)?.value || null;
+      const camera = roleCamera(role);
+      const preset = (state.cameraPresets || []).find(item => item.id === presetId && item.cameraDeviceId === camera?.id);
+      return [role, {
+        cameraId: camera?.id || selected.cameraPresets?.[role]?.cameraId || null,
+        presetId: preset?.id || null
+      }];
+    }));
+    try {
+      state = await window.trinity.updateProductionLook(selected.id, {
+        name: document.getElementById('look-name').value,
+        enabled: document.getElementById('look-enabled').checked,
+        lightingSceneId: document.getElementById('look-lighting').value || null,
+        cameraPresets,
+        priorityCameraId: document.getElementById('look-priority').value || null,
+        startMainTracking: document.getElementById('look-main-tracking').checked
+      });
+      render();
+    } catch (error) { window.alert(error.message); }
+  };
   document.getElementById('look-delete').onclick = async () => {
     const references = state.runOfService.filter(cue => cue.productionLookId === selected.id);
     if (references.length && !window.confirm(`This Look is referenced by ${references.length} cue${references.length === 1 ? '' : 's'}. Delete it without changing those cue references?`)) return;
@@ -2001,7 +2031,7 @@ function camerasPage() {
   document.querySelectorAll('[data-move-preset]').forEach(button => button.onclick = async () => { const preset = byId(state.cameraPresets, button.dataset.movePreset); const ordered = (state.cameraPresets || []).filter(item => item.cameraDeviceId === selected.id); const from = ordered.findIndex(item => item.id === preset.id); state = await window.trinity.reorderCameraPreset(selected.id, from, from + Number(button.dataset.direction)); render(); });
   document.querySelectorAll('[data-delete-preset]').forEach(button => button.onclick = async () => {
     const preset = byId(state.cameraPresets, button.dataset.deletePreset);
-    const references = [...(state.productionLooks || []).flatMap(look => (look.cameraAssignments || []).filter(item => item.presetId === preset.id)), ...(state.runOfService || []).filter(cue => [cue.cameraPresetId, cue.presetId].includes(preset.id)), ...(state.shots || []).filter(shot => shot.cameraPresetId === preset.id)];
+    const references = [...(state.productionLooks || []).flatMap(look => [...Object.values(look.cameraPresets || {}), ...(look.cameraAssignments || [])].filter(item => item.presetId === preset.id)), ...(state.runOfService || []).filter(cue => [cue.cameraPresetId, cue.presetId].includes(preset.id)), ...(state.shots || []).filter(shot => shot.cameraPresetId === preset.id)];
     const confirmReferences = references.length ? window.confirm(`${preset.name} has ${references.length} reference${references.length === 1 ? '' : 's'}. Delete and preserve missing references?`) : window.confirm(`Delete ${preset.name}?`);
     if (!confirmReferences) return;
     state = await window.trinity.deleteCameraPreset(preset.id, { confirmReferences: references.length > 0 }); render();
@@ -2043,6 +2073,8 @@ function shotResolution(shot) {
 function shotReferenceSummary(shotId) {
   const counts = { 'Production Looks': 0, Cues: 0, Templates: 0, 'Motion Studio': 0 };
   for (const look of state.productionLooks || []) {
+    if (look.priorityCameraId === deviceId) counts['Production Looks'] += 1;
+    counts['Production Looks'] += Object.values(look.cameraPresets || {}).filter(item => item.cameraId === deviceId).length;
     if (look.selectedShotId === shotId) counts['Production Looks'] += 1;
     counts['Production Looks'] += (look.cameraAssignments || []).filter(item => item.shotId === shotId).length;
   }

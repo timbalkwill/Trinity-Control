@@ -33,18 +33,20 @@ function initialState() {
     configuration: { privateValue: "hidden" },
     cameraPresets: [
       { id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" },
-      { id: "left-wide", name: "Left Wide", cameraDeviceId: "left", enabled: true, favorite: false, category: "Wide" }
+      { id: "left-wide", name: "Left Wide", cameraDeviceId: "left", enabled: true, favorite: false, category: "Wide" },
+      { id: "right-tight", name: "Right Tight", cameraDeviceId: "right", enabled: true, favorite: false, category: "Pastor" }
     ],
     shots: [{ id: "shot-right", name: "Pastor Tight", cameraDeviceId: "right", logicalCameraRole: "right", operatorNotes: "private-shot-notes", framingNotes: "private-framing-notes", trackingPreferred: true, motionEnabled: false, enabled: true }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{
-      id: "look",
+      schemaVersion: 3, id: "look", name: "Operator Look", enabled: true,
       lightingSceneId: "light-cue",
-      cameraLayoutId: "layout",
-      cameraAssignments: [
-        { role: "PROGRAM", shotId: "shot-right", cameraId: "right" },
-        { role: "PREVIEW", cameraId: "left" }
-      ]
+      cameraPresets: {
+        main: { cameraId: "main", presetId: "pastor-tight" },
+        left: { cameraId: "left", presetId: "left-wide" },
+        right: { cameraId: "right", presetId: "right-tight" }
+      },
+      priorityCameraId: "right", startMainTracking: false
     }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
     runOfService: [
@@ -52,7 +54,7 @@ function initialState() {
       { id: "two", name: "Two", productionLookId: "look" },
       { id: "three", name: "Three", productionLookId: "look" }
     ],
-    live: { cueIndex: 0, hold: false, lightingOverrideId: null, activityLog: [] }
+    live: { cueIndex: 0, programCamera: "main", previewCamera: "left", hold: false, lightingOverrideId: null, activityLog: [] }
   };
 }
 
@@ -153,8 +155,7 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(state.live.executionSnapshot.productionLookId, "look");
       assert.equal(state.live.executionSnapshot.video.programCameraName, "Right Camera");
       assert.equal(state.live.executionSnapshot.video.previewCameraName, "Left Camera");
-      assert.equal(state.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
-      assert.equal(state.live.executionSnapshot.cameraAssignments[0].tracking.preferred, true);
+      assert.equal(state.live.executionSnapshot.cameraAssignments[0].presetName, "Right Tight");
       assert.equal(state.live.executionSnapshot.cameraAssignments[0].cameraDeviceId, "right");
       assert.doesNotMatch(JSON.stringify(state.live.executionSnapshot), /private-user|private-password|private-reference|private-shot-notes|private-framing-notes/);
     });
@@ -218,9 +219,9 @@ test("Browser Operator HTTP API and synchronization", async t => {
       let response = await post(baseUrl, "/api/looks/create", { look: { name: "Browser Look", lightingSceneId: "light-cue" } });
       let payload = await response.json();
       const look = payload.productionLooks.at(-1);
-      response = await post(baseUrl, "/api/looks/update", { lookId: look.id, patch: { operatorNotes: "Narrow update" } });
+      response = await post(baseUrl, "/api/looks/update", { lookId: look.id, patch: { enabled: false } });
       payload = await response.json();
-      assert.equal(payload.productionLooks.at(-1).operatorNotes, "Narrow update");
+      assert.equal(payload.productionLooks.at(-1).enabled, false);
       response = await post(baseUrl, "/api/looks/duplicate", { lookId: look.id });
       assert.equal((await response.json()).productionLooks.at(-1).name, "Browser Look Copy");
     });

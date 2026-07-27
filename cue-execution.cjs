@@ -2,7 +2,7 @@
 
 const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
 const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
-const { synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
+const { applyCueStartPreparations, synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -71,6 +71,7 @@ function normalizeExecutionSnapshot(input) {
     },
     cameraAssignments: Array.isArray(input.cameraAssignments) ? input.cameraAssignments.map(item => ({ ...item })) : [],
     cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
+    simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
     motion: {
       enabled: input.motion?.enabled === true,
       profileId: input.motion?.profileId || null,
@@ -145,14 +146,15 @@ function executeCue(state, requestedIndex, { now = Date.now } = {}) {
   applyResources(state, {
     lightingSceneId: plan.lighting.sceneId,
     cameraLayoutId: plan.video.cameraLayoutId,
-    programCameraId: plan.video.programCameraId,
-    previewCameraId: plan.video.previewCameraId,
+    ...(plan.video.programCameraId ? { programCameraId: plan.video.programCameraId } : {}),
+    ...(plan.video.previewCameraId ? { previewCameraId: plan.video.previewCameraId } : {}),
     auxiliaryCameraIds: plan.video.auxiliaryCameraIds,
     programPreset: plan.video.programPreset,
     previewPreset: plan.video.previewPreset
   });
   const live = state.live;
   const executedAt = now();
+  applyCueStartPreparations(state, plan, { now: () => executedAt });
   live.cueIndex = index;
   live.activeCueId = cue.id || null;
   live.activeProductionLookId = plan.productionLookId;

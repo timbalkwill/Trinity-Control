@@ -28,13 +28,15 @@ Open the Browser Operator address shown by Trinity Control on an iPad. Landscape
 
 Service elapsed time begins from the saved service-start timestamp. Cue elapsed time resets only when a cue executes. Estimated remaining time combines the unelapsed portion of the current cue with the configured durations of later cues. These are display-only estimates and never trigger cue execution.
 
-## Production Looks 2.0
+## Simplified Production Looks
 
-Open **LOOKS** to search, create, duplicate, enable, disable, edit, or delete Production Looks. Changes save immediately through Trinity’s main process. A Look can describe general metadata, lighting, program/preview video, logical camera preset assignments, motion intent, and future audio or presentation references.
+Open **LOOKS** to search, create, duplicate, enable, disable, edit, or delete Production Looks. A Look answers one question: **How should this cue begin?**
 
-The summary strip shows the selected Look’s lighting, program and preview cameras, preset assignments, motion status, and enabled state. Cue details label inherited values as **From Production Look**, cue-specific selections as **Cue Override**, and empty values as **Not assigned**.
+Choose a lighting scene, optional Main/Left/Right starting presets, a priority camera, and whether Main tracking should start. Press **SAVE LOOK** to persist the complete edit through Trinity’s serialized main-process command. **CANCEL** discards unsaved form changes. Preset lists show only presets for the camera currently assigned to that role; missing saved references remain visible for repair.
 
-The Live page shows what was actually executed. Editing a Look or assigning it to a cue does not execute it. If the active cue's Look is edited, Live continues to show the earlier executed values until that cue runs again. Missing saved resources appear as **Missing reference** warnings.
+When the cue runs, valid presets are prepared in Static mode, the priority camera becomes live, and Main tracking is explicitly started or stopped. This is deterministic application state only—no camera, switcher, lighting, or tracking hardware command is sent. Afterward, the Live page remains fully manual: prepare another camera, choose Motion, use Make Live, change tracking, or select favorite lighting.
+
+The Live page shows what was actually executed. Editing a Look or any referenced library does not alter the frozen execution summary; run the cue again to apply edits. Missing or disabled resources produce readable warnings rather than crashes.
 
 Deleting a Look referenced by service cues requires confirmation and does not silently change those cues. Duplicate Looks receive a new identity and can be edited independently.
 
@@ -62,7 +64,7 @@ Open **SHOTS** to manage reusable framing such as Pastor Tight, Piano, Choir Wid
 
 A Shot can target a specific camera or fall back to a logical role, then optionally reference a preset on that camera. Readiness warnings identify missing or disabled cameras/presets, mismatches, or incomplete configuration without claiming a hardware connection.
 
-In **LOOKS**, choose a Shot for PROGRAM, PREVIEW, or AUXILIARY. Explicit camera and preset values are compatibility fallbacks. GO/NEXT/BACK freeze the resolved Shot in Live and Browser Operator. Editing a Shot does not alter what Live says was executed; run the cue again to apply it.
+Shots remain available to the Live page’s **Motion** selector. Production Looks no longer select Shots, PROGRAM, PREVIEW, or AUXILIARY.
 
 Deleting a referenced Shot requires confirmation and leaves the reference visible for repair. Camera and preset deletion counts Shot references and likewise preserves the Shot.
 ## Simplified Live camera workflow

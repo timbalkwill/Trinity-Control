@@ -105,6 +105,9 @@ function duplicateCameraPreset(state, presetId, { id = uniqueId(), now = Date.no
 function countCameraPresetReferences(state, presetId) {
   const references = [];
   for (const look of state?.productionLooks || []) {
+    for (const [role, assignment] of Object.entries(look.cameraPresets || {})) {
+      if (assignment?.presetId === presetId) references.push({ type: `Production Look ${role} preset`, id: look.id, name: look.name });
+    }
     if (look.selectedShotId === presetId) references.push({ type: "Production Look selected shot", id: look.id, name: look.name });
     for (const assignment of look.cameraAssignments || []) if (assignment.presetId === presetId) references.push({ type: `Production Look ${assignment.role} preset`, id: look.id, name: look.name });
   }

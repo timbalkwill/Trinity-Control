@@ -6,198 +6,197 @@ const {
   deleteProductionLook,
   duplicateProductionLook,
   normalizeProductionLook,
-  resolveProductionLookCameraAssignments,
-  resolveProductionLookResources,
-  summarizeProductionLook,
+  normalizeProductionLooks,
+  readinessWarnings,
+  searchProductionLooks,
   updateProductionLook,
   validateProductionLook
 } = require("../production-look-operations.cjs");
-const { buildCueExecutionPlan } = require("../cue-execution-plan.cjs");
 
+const clone = value => JSON.parse(JSON.stringify(value));
 function fixture() {
   return {
-    cameras: [{ id: "main", name: "Main" }, { id: "left", name: "Left" }],
-    cameraPresets: [{ id: "wide", name: "Wide" }, { id: "tight", name: "Tight" }],
-    lightingScenes: [{ id: "warm", name: "Warm" }, { id: "blue", name: "Blue" }],
-    cameraLayouts: [{ id: "layout", name: "Layout", programCamera: "main", previewCamera: "left", programPreset: "Wide", previewPreset: "Left" }],
+    devices: [
+      { id: "main", type: "camera", name: "Main Camera", logicalRole: "main", enabled: true, trackingEnabled: true },
+      { id: "left", type: "camera", name: "Left Camera", logicalRole: "left", enabled: true },
+      { id: "right", type: "camera", name: "Right Camera", logicalRole: "right", enabled: true }
+    ],
+    cameraPresets: [
+      { id: "main-wide", name: "Wide", cameraDeviceId: "main", enabled: true },
+      { id: "left-tight", name: "Tight", cameraDeviceId: "left", enabled: true },
+      { id: "right-wide", name: "Wide", cameraDeviceId: "right", enabled: true }
+    ],
+    lightingScenes: [{ id: "warm", name: "Warm" }],
+    cameraLayouts: [{ id: "legacy-layout", programCamera: "left", programPreset: "Tight", previewCamera: "main", previewPreset: "Wide" }],
+    shots: [{ id: "legacy-shot", name: "Legacy", enabled: true, cameraDeviceId: "main", cameraPresetId: "main-wide" }],
     productionLooks: [],
-    runOfService: []
+    runOfService: [],
+    live: { executionSnapshot: { cueId: "frozen" } }
   };
 }
 
-test("legacy Production Look migration preserves identity and selections", () => {
-  const legacy = { id: "legacy", name: "Legacy", lightingSceneId: "warm", cameraLayoutId: "layout", graphics: "Lyrics", houseLights: 30 };
-  const migrated = normalizeProductionLook(legacy);
+test("v3 migration preserves stable identity, name, enabled state, lighting, and metadata", () => {
+  const state = fixture();
+  const migrated = normalizeProductionLook({
+    id: "legacy", name: "  Legacy  ", enabled: false, lightingSceneId: "warm",
+    createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2021-01-01T00:00:00.000Z"
+  }, { state });
   assert.equal(migrated.schemaVersion, PRODUCTION_LOOK_SCHEMA_VERSION);
   assert.equal(migrated.id, "legacy");
   assert.equal(migrated.name, "Legacy");
+  assert.equal(migrated.enabled, false);
   assert.equal(migrated.lightingSceneId, "warm");
-  assert.equal(migrated.cameraLayoutId, "layout");
-  assert.equal(migrated.graphics, "Lyrics");
-  assert.equal(migrated.houseLights, 30);
-  assert.equal(migrated.enabled, true);
-  assert.deepEqual(migrated.cameraAssignments, []);
+  assert.equal(migrated.createdAt, "2020-01-01T00:00:00.000Z");
 });
 
-test("migration is idempotent and tolerates null fields", () => {
-  const migrated = normalizeProductionLook({ id: "one", name: "One", lightingSceneId: null, tags: null });
-  assert.deepEqual(normalizeProductionLook(migrated), migrated);
-  assert.equal(migrated.lightingSceneId, null);
-  assert.deepEqual(migrated.tags, []);
+test("legacy layout maps priority and role presets without inventing references", () => {
+  const state = fixture();
+  const migrated = normalizeProductionLook({ id: "look", name: "Look", cameraLayoutId: "legacy-layout" }, { state });
+  assert.equal(migrated.priorityCameraId, "left");
+  assert.deepEqual(migrated.cameraPresets.main, { cameraId: "main", presetId: "main-wide" });
+  assert.deepEqual(migrated.cameraPresets.left, { cameraId: "left", presetId: "left-tight" });
+  assert.deepEqual(migrated.cameraPresets.right, { cameraId: "right", presetId: null });
 });
 
-test("migration canonicalizes roles and preserves legacy camera selections", () => {
-  const migrated = normalizeProductionLook({
-    id: "one",
-    name: "One",
-    programCameraId: "main",
-    previewCameraId: "left",
-    cameraAssignments: [
-      { role: "PROGRAM", cameraId: "", presetId: "wide" },
-      { role: "Aux", cameraId: "left", presetId: "tight" }
-    ]
+test("valid linked legacy Shot preset migrates while invalid Shot does not invent a preset", () => {
+  const state = fixture();
+  const valid = normalizeProductionLook({ name: "Valid", selectedShotId: "legacy-shot" }, { state });
+  const invalid = normalizeProductionLook({ name: "Invalid", selectedShotId: "missing-shot" }, { state });
+  assert.equal(valid.cameraPresets.main.presetId, "main-wide");
+  assert.equal(valid.priorityCameraId, "main");
+  assert.equal(invalid.cameraPresets.main.presetId, null);
+});
+
+
+test("v3 normalization repairs stale role camera IDs from valid role-scoped presets", () => {
+  const state = fixture();
+  const normalized = normalizeProductionLook({
+    id: "stale",
+    name: "Stale assignments",
+    cameraPresets: {
+      main: { cameraId: "main", presetId: "main-wide" },
+      left: { cameraId: "main", presetId: "left-tight" },
+      right: { cameraId: "left", presetId: "right-wide" }
+    }
+  }, { state });
+
+  assert.deepEqual(normalized.cameraPresets.main, { cameraId: "main", presetId: "main-wide" });
+  assert.deepEqual(normalized.cameraPresets.left, { cameraId: "left", presetId: "left-tight" });
+  assert.deepEqual(normalized.cameraPresets.right, { cameraId: "right", presetId: "right-wide" });
+  assert.equal(validateProductionLook(normalized, state).valid, true);
+});
+
+test("duplicate repairs stale role camera IDs and copies all simplified fields", () => {
+  const state = fixture();
+  state.productionLooks.push({
+    schemaVersion: PRODUCTION_LOOK_SCHEMA_VERSION,
+    id: "source",
+    name: "Source",
+    enabled: false,
+    lightingSceneId: "warm",
+    cameraPresets: {
+      main: { cameraId: "main", presetId: "main-wide" },
+      left: { cameraId: "main", presetId: "left-tight" },
+      right: { cameraId: "left", presetId: "right-wide" }
+    },
+    priorityCameraId: "left",
+    startMainTracking: true,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z"
   });
-  assert.deepEqual(migrated.cameraAssignments, [
-    { role: "program", cameraId: "main", presetId: "wide", shotId: null },
-    { role: "auxiliary", cameraId: "left", presetId: "tight", shotId: null },
-    { role: "preview", cameraId: "left", presetId: null, shotId: null }
-  ]);
-  assert.deepEqual(normalizeProductionLook(migrated), migrated);
+
+  const copy = duplicateProductionLook(state, "source", { id: "copy-fixed", now: 4 });
+  assert.equal(copy.id, "copy-fixed");
+  assert.equal(copy.name, "Source Copy");
+  assert.equal(copy.enabled, false);
+  assert.equal(copy.lightingSceneId, "warm");
+  assert.deepEqual(copy.cameraPresets.left, { cameraId: "left", presetId: "left-tight" });
+  assert.deepEqual(copy.cameraPresets.right, { cameraId: "right", presetId: "right-wide" });
+  assert.equal(copy.priorityCameraId, "left");
+  assert.equal(copy.startMainTracking, true);
+});
+test("migration is deterministic, idempotent, malformed-safe, and preserves empty collections", () => {
+  const state = fixture();
+  const once = normalizeProductionLook({ id: "one", name: null, cameraPresets: { main: null } }, { state });
+  assert.deepEqual(normalizeProductionLook(once, { state }), once);
+  assert.deepEqual(normalizeProductionLooks([], { state }), []);
 });
 
-test("modern camera assignments are authoritative over legacy fields and layouts", () => {
+test("CRUD, duplicate, search, enable/disable, and reference-aware deletion use stable narrow records", () => {
   const state = fixture();
-  const look = {
-    id: "look",
-    cameraLayoutId: "layout",
-    programCameraId: "left",
-    previewCameraId: "main",
-    cameraAssignments: [
-      { role: "PROGRAM", cameraId: "main", presetId: "wide" },
-      { role: "preview", cameraId: "left", presetId: "tight" },
-      { role: "AUX", cameraId: "main" }
-    ]
-  };
-  const resolved = resolveProductionLookCameraAssignments(state, look);
-  assert.equal(resolved.programCameraId, "main");
-  assert.equal(resolved.previewCameraId, "left");
-  assert.deepEqual(resolved.auxiliaryCameraIds, ["main"]);
-  assert.equal(resolved.program.presetName, "Wide");
-  assert.equal(resolved.preview.presetName, "Tight");
+  const created = createProductionLook(state, {
+    id: "look", name: "Welcome", lightingSceneId: "warm",
+    cameraPresets: { main: { cameraId: "main", presetId: "main-wide" } },
+    priorityCameraId: "main", startMainTracking: true
+  }, { now: 1 });
+  const frozen = clone(state.live.executionSnapshot);
+  updateProductionLook(state, created.id, { name: "Welcome Updated", enabled: false }, { now: 2 });
+  assert.deepEqual(state.live.executionSnapshot, frozen);
+  assert.equal(searchProductionLooks(state.productionLooks, "updated").length, 1);
+  const copy = duplicateProductionLook(state, created.id, { id: "copy", now: 3 });
+  assert.equal(copy.id, "copy");
+  assert.equal(copy.cameraPresets.main.presetId, "main-wide");
+  state.runOfService.push({ id: "cue", productionLookId: "look" });
+  assert.throws(() => deleteProductionLook(state, "look"), error => error.code === "CONFIRM_LOOK_DELETE");
+  deleteProductionLook(state, "look", { confirmReferences: true });
+  assert.equal(state.runOfService[0].productionLookId, "look");
+  assert.deepEqual(state.live.executionSnapshot, frozen);
 });
 
-test("legacy direct selections and layout remain deterministic fallbacks", () => {
+test("validation rejects empty names and cross-camera presets", () => {
   const state = fixture();
-  const direct = resolveProductionLookCameraAssignments(state, { programCameraId: "main", previewCameraId: "left", cameraAssignments: [] });
-  assert.equal(direct.program.source, "legacy-video");
-  assert.equal(direct.preview.source, "legacy-video");
-  const layout = resolveProductionLookCameraAssignments(state, { cameraLayoutId: "layout", cameraAssignments: [] });
-  assert.equal(layout.program.source, "legacy-layout");
-  assert.equal(layout.preview.source, "legacy-layout");
+  assert.equal(validateProductionLook(normalizeProductionLook({ name: "" }, { state }), state).valid, false);
+  assert.throws(() => createProductionLook(state, {
+    name: "Wrong",
+    cameraPresets: { main: { cameraId: "main", presetId: "left-tight" } }
+  }), /another camera/i);
 });
 
-test("invalid modern assignments warn and fall through to valid legacy selections", () => {
+test("repairable missing references and unsupported tracking produce warnings", () => {
   const state = fixture();
-  const resolved = resolveProductionLookCameraAssignments(state, {
-    programCameraId: "main",
-    previewCameraId: "left",
-    cameraAssignments: [{ role: "program", cameraId: "missing" }]
+  state.devices[0].trackingEnabled = false;
+  const look = normalizeProductionLook({
+    name: "Repairable", lightingSceneId: "missing-light",
+    cameraPresets: { right: { cameraId: "missing-camera", presetId: "missing-preset" } },
+    priorityCameraId: "missing-priority", startMainTracking: true
+  }, { state });
+  const warnings = readinessWarnings(state, look).join("; ");
+  assert.match(warnings, /Missing lighting scene/);
+  assert.match(warnings, /Missing Right camera/);
+  assert.match(warnings, /Missing Right preset/);
+  assert.match(warnings, /Missing priority camera/);
+  assert.match(warnings, /tracking is not supported/);
+});
+
+test("duplicate preset IDs are resolved by camera role, not globally", () => {
+  const state = fixture();
+  state.cameraPresets = [
+    { id: "position-1", name: "Main Position 1", cameraDeviceId: "main", enabled: true },
+    { id: "position-2", name: "Main Position 2", cameraDeviceId: "main", enabled: true },
+    { id: "position-3", name: "Main Position 3", cameraDeviceId: "main", enabled: true },
+    { id: "position-1", name: "Left Position 1", cameraDeviceId: "left", enabled: true },
+    { id: "position-2", name: "Left Position 2", cameraDeviceId: "left", enabled: true },
+    { id: "position-3", name: "Left Position 3", cameraDeviceId: "left", enabled: true },
+    { id: "position-1", name: "Right Position 1", cameraDeviceId: "right", enabled: true },
+    { id: "position-2", name: "Right Position 2", cameraDeviceId: "right", enabled: true },
+    { id: "position-3", name: "Right Position 3", cameraDeviceId: "right", enabled: true }
+  ];
+
+  const normalized = normalizeProductionLook({
+    id: "duplicate-ids",
+    name: "Duplicate IDs",
+    cameraPresets: {
+      main: { cameraId: "main", presetId: "position-1" },
+      left: { cameraId: "main", presetId: "position-2" },
+      right: { cameraId: "main", presetId: "position-3" }
+    }
+  }, { state });
+
+  assert.deepEqual(normalized.cameraPresets, {
+    main: { cameraId: "main", presetId: "position-1" },
+    left: { cameraId: "left", presetId: "position-2" },
+    right: { cameraId: "right", presetId: "position-3" }
   });
-  assert.equal(resolved.programCameraId, "main");
-  assert.equal(resolved.previewCameraId, "left");
-  assert.ok(resolved.warnings.some(warning => warning.includes("Missing program camera")));
-});
-
-test("cue camera layout overrides Production Look camera assignments", () => {
-  const state = fixture();
-  const resolved = resolveProductionLookCameraAssignments(state, {
-    cameraAssignments: [
-      { role: "program", cameraId: "left" },
-      { role: "preview", cameraId: "main" }
-    ]
-  }, { cameraLayoutId: "layout" });
-  assert.equal(resolved.programCameraId, "main");
-  assert.equal(resolved.previewCameraId, "left");
-  assert.equal(resolved.program.source, "cue");
-});
-
-test("create, update, duplicate, and delete use isolated objects", () => {
-  const state = fixture();
-  const created = createProductionLook(state, { name: "Created", tags: ["one"], cameraAssignments: [{ role: "program", cameraId: "main", presetId: "Wide" }] }, { id: "created", now: 1000 });
-  assert.equal(created.id, "created");
-  updateProductionLook(state, "created", { description: "Updated" }, { now: 2000 });
-  const duplicate = duplicateProductionLook(state, "created", { id: "copy", now: 3000 });
-  assert.equal(duplicate.id, "copy");
-  assert.equal(duplicate.name, "Created Copy");
-  duplicate.tags.push("copy-only");
-  duplicate.cameraAssignments[0].presetId = "Tight";
-  assert.deepEqual(state.productionLooks[0].tags, ["one"]);
-  assert.equal(state.productionLooks[0].cameraAssignments[0].presetId, "Wide");
-  deleteProductionLook(state, "copy");
-  assert.deepEqual(state.productionLooks.map(look => look.id), ["created"]);
-});
-
-test("validation requires a non-empty name and accepts nullable resources", () => {
-  assert.equal(validateProductionLook(normalizeProductionLook({ name: "" })).valid, false);
-  assert.equal(validateProductionLook(normalizeProductionLook({ name: "Valid", lightingSceneId: null, programCameraId: null })).valid, true);
-  assert.throws(() => createProductionLook(fixture(), { name: "  " }), /name is required/i);
-});
-
-test("referenced deletion requires confirmation and preserves cue references", () => {
-  const state = fixture();
-  createProductionLook(state, { id: "used", name: "Used" });
-  state.runOfService.push({ id: "cue", productionLookId: "used" });
-  assert.throws(() => deleteProductionLook(state, "used"), error => error.code === "CONFIRM_LOOK_DELETE" && error.references.length === 1);
-  deleteProductionLook(state, "used", { confirmReferences: true });
-  assert.equal(state.runOfService[0].productionLookId, "used");
-});
-
-test("resource resolution and summary handle missing optional resources", () => {
-  const state = fixture();
-  const look = normalizeProductionLook({ id: "look", name: "Look", lightingSceneId: "missing", programCameraId: "main", cameraAssignments: [{ role: "program", cameraId: "missing-camera", presetId: "Wide" }] });
-  state.productionLooks.push(look);
-  const resources = resolveProductionLookResources(state, look);
-  assert.equal(resources.lightingScene, null);
-  assert.equal(resources.programCamera.id, "main");
-  assert.equal(resources.cameraAssignments[0].camera, null);
-  assert.match(summarizeProductionLook(state, look).lighting, /Missing/);
-});
-
-test("execution plan applies cue override precedence over Production Look inheritance", () => {
-  const state = fixture();
-  state.productionLooks.push(normalizeProductionLook({ id: "look", name: "Look", lightingSceneId: "warm", cameraLayoutId: "layout", lightingFadeMs: 750, transitionStyle: "mix" }));
-  const inherited = buildCueExecutionPlan(state, { id: "inherited", productionLookId: "look" });
-  assert.equal(inherited.lighting.sceneId, "warm");
-  assert.equal(inherited.lighting.source, "production-look");
-  assert.equal(inherited.video.programCameraId, "main");
-  const overridden = buildCueExecutionPlan(state, { id: "override", productionLookId: "look", lightingSceneId: "blue" });
-  assert.equal(overridden.lighting.sceneId, "blue");
-  assert.equal(overridden.lighting.source, "cue");
-  assert.equal(overridden.lighting.fadeMs, 750);
-});
-
-test("direct Production Look camera selections retain inherited source", () => {
-  const state = fixture();
-  state.productionLooks.push(normalizeProductionLook({ id: "direct", name: "Direct", programCameraId: "main", previewCameraId: "left" }));
-  const plan = buildCueExecutionPlan(state, { id: "cue", productionLookId: "direct" });
-  assert.equal(plan.video.source, "production-look");
-  assert.equal(plan.video.programCameraName, "Main");
-  assert.equal(plan.video.previewCameraName, "Left");
-});
-
-test("execution plan reports missing resources without throwing", () => {
-  const state = fixture();
-  state.productionLooks.push(normalizeProductionLook({ id: "look", name: "Look", lightingSceneId: "missing", programCameraId: "gone", motionEnabled: true }));
-  const plan = buildCueExecutionPlan(state, { id: "cue", productionLookId: "look", cameraLayoutId: "missing-layout" });
-  assert.equal(plan.lighting.sceneId, null);
-  assert.equal(plan.motion.enabled, true);
-  assert.ok(plan.warnings.length >= 3);
-});
-
-test("updating a Look preserves cue references and cue overrides", () => {
-  const state = fixture();
-  createProductionLook(state, { id: "look", name: "Look", lightingSceneId: "warm" });
-  state.runOfService.push({ id: "cue", productionLookId: "look", lightingSceneId: "blue" });
-  updateProductionLook(state, "look", { lightingSceneId: null });
-  assert.deepEqual(state.runOfService[0], { id: "cue", productionLookId: "look", lightingSceneId: "blue" });
+  assert.equal(validateProductionLook(normalized, state).valid, true);
+  assert.deepEqual(readinessWarnings(state, normalized), []);
 });

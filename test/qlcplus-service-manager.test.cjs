@@ -76,7 +76,7 @@ test("platform launch plans preserve paths as separate arguments without a shell
   ]);
   assert.deepEqual(launchArguments(context().settings, "darwin", value => existing.has(value)), {
     command: preferred,
-    args: ["--open", "/Lighting Workspaces/Trinity Sunday.qxw"],
+    args: ["--web", "--open", "/Lighting Workspaces/Trinity Sunday.qxw"],
     mode: "mac-app-bundle"
   });
   assert.deepEqual(launchArguments(
@@ -85,7 +85,7 @@ test("platform launch plans preserve paths as separate arguments without a shell
     () => true
   ), {
     command: "/opt/QLC Plus/qlcplus",
-    args: ["/Shows/Sunday Service.qxw"],
+    args: ["--web", "--open", "/Shows/Sunday Service.qxw"],
     mode: "executable"
   });
 
@@ -104,18 +104,22 @@ test("platform launch plans preserve paths as separate arguments without a shell
   await launcher(context().settings);
   assert.equal(invocation.options.shell, false);
   assert.equal(invocation.command, preferred);
-  assert.deepEqual(invocation.args, ["--open", "/Lighting Workspaces/Trinity Sunday.qxw"]);
+  assert.deepEqual(invocation.args, ["--web", "--open", "/Lighting Workspaces/Trinity Sunday.qxw"]);
 });
 
 test("macOS bundle resolution falls back safely and validates every path before spawn", async () => {
   const application = "/Applications/QLC+.app";
   const workspace = "/Shows/Trinity.qxw";
   const fallback = `${application}/Contents/MacOS/qlcplus`;
-  assert.equal(launchArguments(
+  assert.deepEqual(launchArguments(
     { applicationPath: application, workspacePath: workspace },
     "darwin",
     value => [application, workspace, fallback].includes(value)
-  ).command, fallback);
+  ), {
+    command: fallback,
+    args: ["--web", "--open", workspace],
+    mode: "mac-app-bundle"
+  });
   assert.throws(
     () => launchArguments({ applicationPath: application, workspacePath: workspace }, "darwin", value => value === workspace),
     /QLC\+ application not found\./
@@ -236,9 +240,11 @@ test("readiness polling is bounded and timeout becomes degraded", async () => {
   await manager.initialize();
   assert.ok(calls >= 2 && calls <= 4);
   assert.equal(manager.getStatus().state, "degraded");
+  assert.equal(manager.getStatus().owned, true);
+  assert.match(manager.getStatus().message, /running.*WebSocket service is not ready/i);
 });
 
-test("restart policy, cooldown, ownership, and shutdown are bounded", async () => {
+test("restart policy never replaces a live owned process and explicit restart remains bounded", async () => {
   let clock = 20000;
   let launches = 0;
   let kills = 0;
@@ -259,11 +265,13 @@ test("restart policy, cooldown, ownership, and shutdown are bounded", async () =
   healthy = false;
   clock += 10001;
   await manager.monitorOnce();
-  assert.equal(launches, 2);
+  assert.equal(launches, 1);
+  assert.equal(manager.getStatus().state, "degraded");
   await manager.monitorOnce();
-  assert.equal(launches, 2);
+  assert.equal(launches, 1);
   await manager.restart();
   assert.equal(kills, 1);
+  assert.equal(launches, 2);
   manager.shutdown();
   assert.equal(kills, 1, "shutdown must not terminate QLC+");
 
@@ -277,6 +285,103 @@ test("restart policy, cooldown, ownership, and shutdown are bounded", async () =
   await external.restart();
   assert.equal(externalLaunches, 0);
   assert.match(external.getStatus().message, /cannot safely restart/);
+});
+
+test("timed-out live child suppresses Start, refresh, health, and cooldown relaunches then connects late", async () => {
+  let clock = 0;
+  let launches = 0;
+  let ready = false;
+  const child = new EventEmitter();
+  child.pid = 42;
+  child.kill = () => {};
+  const manager = createQlcServiceManager({
+    getContext: () => context({ startupTimeoutMs: 1000, restartIfClosed: true }),
+    discover: async () => ready
+      ? { ok: true, widgetCount: 14, widgets: context().device.metadata.qlcplusWidgets }
+      : { ok: false },
+    launch: async () => {
+      launches += 1;
+      return { child };
+    },
+    now: () => clock,
+    setTimer: callback => { clock += 500; callback(); return 1; }
+  });
+  await manager.initialize();
+  assert.equal(manager.getStatus().state, "degraded");
+  assert.equal(manager.getStatus().childPid, 42);
+  await manager.start();
+  await manager.refresh();
+  clock += 20000;
+  await manager.monitorOnce();
+  assert.equal(launches, 1);
+  ready = true;
+  await manager.refresh();
+  assert.equal(launches, 1);
+  assert.equal(manager.getStatus().state, "connected");
+});
+
+test("child exit before readiness clears ownership and permits one later explicit launch", async () => {
+  let launches = 0;
+  let ready = false;
+  const children = [];
+  const manager = createQlcServiceManager({
+    getContext: () => context({ startupTimeoutMs: 1000 }),
+    discover: async () => ({ ok: ready, widgetCount: 1 }),
+    launch: async () => {
+      launches += 1;
+      const child = new EventEmitter();
+      child.pid = launches;
+      child.kill = () => {};
+      children.push(child);
+      if (launches === 1) queueMicrotask(() => {
+        child.exitCode = 1;
+        child.emit("exit", 1, null);
+      });
+      else ready = true;
+      return { child };
+    },
+    setTimer: callback => { callback(); return 1; }
+  });
+  await manager.initialize();
+  assert.equal(manager.getStatus().owned, false);
+  assert.match(manager.getStatus().message, /exited/);
+  await manager.start();
+  assert.equal(launches, 2);
+  assert.equal(manager.getStatus().state, "connected");
+});
+
+test("explicit restart waits for the owned child exit before launching one replacement", async () => {
+  let launches = 0;
+  let ready = true;
+  let oldExited = false;
+  const manager = createQlcServiceManager({
+    getContext: () => context(),
+    discover: async () => ({ ok: ready, widgetCount: 1 }),
+    launch: async () => {
+      launches += 1;
+      ready = true;
+      const child = new EventEmitter();
+      child.pid = launches;
+      child.kill = () => {
+        ready = false;
+        queueMicrotask(() => {
+          oldExited = true;
+          child.exitCode = 0;
+          child.emit("exit", 0, null);
+          ready = true;
+        });
+      };
+      return { child };
+    }
+  });
+  ready = false;
+  await manager.start();
+  ready = true;
+  await manager.refresh();
+  await manager.restart();
+  assert.equal(oldExited, true);
+  assert.equal(launches, 2);
+  assert.equal(manager.getStatus().state, "connected");
 });
 
 test("restart disabled never relaunches after a failed health check", async () => {

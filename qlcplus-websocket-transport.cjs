@@ -42,6 +42,7 @@ function classifyError(error) {
   if (code === "authenticationFailure") return errorResult(code, "QLC+ authentication failed");
   if (code === "unexpectedDisconnect") return errorResult(code, "QLC+ disconnected unexpectedly");
   if (code === "invalidResponse") return errorResult(code, "QLC+ returned an invalid response");
+  if (code === "commandSendFailure") return errorResult(code, "QLC+ command could not be sent");
   return errorResult("connectionFailure", "Could not connect to QLC+");
 }
 
@@ -136,6 +137,15 @@ class QlcPlusWebSocketSession {
       this.pending = { command, resolve, reject, timer };
       this.socket.send([QLC_PREFIX + command, ...parameters].join("|"));
     });
+  }
+
+  sendWidgetValue(widgetId, value) {
+    if (!this.socket) throw Object.assign(new Error("invalid state"), { code: "unexpectedDisconnect" });
+    try {
+      this.socket.send(`${widgetId}|${value}`);
+    } catch {
+      throw Object.assign(new Error("send failed"), { code: "commandSendFailure" });
+    }
   }
 
   disconnect() {
@@ -265,10 +275,17 @@ function createQlcPlusTransport(options = {}) {
       }
       return { code: "qlcConnected", widgetCount, widgets, pages: hierarchy.pages, message: `Discovered ${widgets.length} QLC+ controls` };
     }),
-    activateControl: (config, { externalControlId, value = 255 } = {}) =>
+    activateControl: (config, { externalControlId } = {}) =>
       withSession(config, async session => {
-        await session.request(String(externalControlId), String(value));
-        return { code: "qlcConnected", message: "QLC+ control command was sent" };
+        const widgetId = String(externalControlId ?? "").trim();
+        if (!widgetId) throw Object.assign(new Error("missing widget"), { code: "invalidResponse" });
+        session.sendWidgetValue(widgetId, 255);
+        return {
+          code: "qlcConnected",
+          activationMessageCount: 1,
+          commandValue: 255,
+          message: "QLC+ button activation sent"
+        };
       })
   };
 }

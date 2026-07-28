@@ -5,6 +5,7 @@ const { resolveProductionLookCameraAssignments } = require("./production-look-op
 const { applyCueStartPreparations, synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
 const { executeShotSnapshot, unavailableCameraExecutor } = require("./camera-shot-execution.cjs");
 const { createCameraExecutor } = require("./camera-adapter-registry.cjs");
+const { executeLightingSnapshot } = require("./lighting-execution.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -85,6 +86,7 @@ function normalizeExecutionSnapshot(input) {
     lightingExecutions: Object.freeze(lightingExecutions),
     lightingValidationErrors: Object.freeze(lightingValidationErrors),
     shotExecutionResults: Array.isArray(input.shotExecutionResults) ? JSON.parse(JSON.stringify(input.shotExecutionResults)) : [],
+    lightingExecutionResults: Array.isArray(input.lightingExecutionResults) ? JSON.parse(JSON.stringify(input.lightingExecutionResults)) : [],
     simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
     motion: {
       enabled: input.motion?.enabled === true,
@@ -148,7 +150,7 @@ function applyLook(state, lookId) {
   });
 }
 
-function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = null } = {}) {
+function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = null, lightingExecutor = null } = {}) {
   const cues = Array.isArray(state?.runOfService) ? state.runOfService : [];
   if (!cues.length) return state;
 
@@ -174,11 +176,27 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
   live.activeCueId = cue.id || null;
   live.activeProductionLookId = plan.productionLookId;
   const snapshot = createExecutionSnapshot(state, cue, plan, executedAt);
-  const finish = shotExecutionResults => {
+  snapshot.lightingExecutionResults = snapshot.lightingExecutions.map(execution => ({
+    lightingSceneId: execution.lightingSceneId || null,
+    adapterType: execution.adapterType || null,
+    widgetId: execution.widgetId || null,
+    widgetName: execution.widgetName || null,
+    pageName: execution.pageName || null,
+    status: "pending",
+    message: "Lighting action pending"
+  }));
+  live.executionSnapshot = snapshot;
+  const finish = (shotExecutionResults, lightingExecutionResults) => {
     snapshot.shotExecutionResults = shotExecutionResults;
-    const executionWarnings = shotExecutionResults
+    snapshot.lightingExecutionResults = lightingExecutionResults;
+    const executionWarnings = [
+      ...shotExecutionResults
       .filter(item => item.status === "static-failed")
-      .map(item => `Static Shot failed: ${item.shotName || item.shotId || "Unknown Shot"} — ${item.message}`);
+      .map(item => `Static Shot failed: ${item.shotName || item.shotId || "Unknown Shot"} — ${item.message}`),
+      ...lightingExecutionResults
+        .filter(item => item.status === "failed")
+        .map(item => `Lighting failed: ${item.widgetName || item.lightingSceneId || "Unknown scene"} — ${item.message}`)
+    ];
     snapshot.warnings = [...new Set([...snapshot.warnings, ...executionWarnings])];
     live.executionSnapshot = snapshot;
     synchronizeLiveCameraFromSnapshot(state);
@@ -189,10 +207,16 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
     ].slice(0, 8);
     return state;
   };
+  const runLighting = shotExecutionResults => {
+    const lightingExecutionResults = executeLightingSnapshot(snapshot, { lightingExecutor, now });
+    return lightingExecutionResults && typeof lightingExecutionResults.then === "function"
+      ? lightingExecutionResults.then(results => finish(shotExecutionResults, results))
+      : finish(shotExecutionResults, lightingExecutionResults);
+  };
   const shotExecutionResults = executeShotSnapshot(snapshot, { cameraExecutor: resolvedCameraExecutor });
   return shotExecutionResults && typeof shotExecutionResults.then === "function"
-    ? shotExecutionResults.then(finish)
-    : finish(shotExecutionResults);
+    ? shotExecutionResults.then(runLighting)
+    : runLighting(shotExecutionResults);
 }
 
 module.exports = { applyLook, createExecutionSnapshot, effectiveCueResources, executeCue, normalizeExecutionSnapshot };

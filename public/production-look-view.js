@@ -53,6 +53,7 @@
   function summarizeSnapshot(snapshot) {
     const assignments = snapshot.cameraAssignments || snapshot.cameras || [];
     const lightingExecution = snapshot.lightingExecutions?.[0];
+    const lightingResult = snapshot.lightingExecutionResults?.[0];
     const byRole = Object.fromEntries(roles.map(role => [role, assignments.find(item => item?.role === role)]));
     const cameraParts = roles.map(role => byRole[role]?.presetName).filter(Boolean);
     return {
@@ -70,7 +71,13 @@
       cameraReady: roles.every(role => Boolean(byRole[role]?.cameraDeviceId && byRole[role]?.presetId)),
       cameraSummary: cameraParts.length ? cameraParts.join(" • ") : "Camera presets not assigned",
       enabled: true,
-      lightingSource: snapshot.lighting?.source || "Not assigned",
+      lightingSource: lightingResult?.status === "success"
+        ? "Activated"
+        : lightingResult?.reason === "already-active"
+          ? "Lighting already active"
+        : lightingResult?.status === "failed"
+          ? `Failed — ${lightingResult.message || "Lighting not ready"}`
+          : lightingExecution ? "Pending" : snapshot.lighting?.source || "Not assigned",
       cameraSource: snapshot.video?.source || "Executed snapshot",
       warnings: snapshot.warnings || [],
       executed: true

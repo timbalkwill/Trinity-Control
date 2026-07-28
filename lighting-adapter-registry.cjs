@@ -51,10 +51,32 @@ function createLightingAdapterRegistry({ transports = {} } = {}) {
       return { ok: false, code: "unexpectedAdapterError", message: "Unexpected lighting adapter error", ...resultDetails(config) };
     }
   }
+  async function execute(device, execution) {
+    const config = safeConfiguration(device);
+    if (!device) {
+      return { ok: false, code: "adapterUnavailable", message: "Lighting adapter is not configured", ...resultDetails(config) };
+    }
+    if (device.enabled === false) {
+      return { ok: false, code: "adapterDisabled", message: "Lighting adapter is disabled", ...resultDetails(config) };
+    }
+    const adapter = resolve(device);
+    if (!adapter) {
+      return { ok: false, code: "adapterUnavailable", message: "Lighting adapter is not configured or supported", ...resultDetails(config) };
+    }
+    if (!config.host) {
+      return { ok: false, code: "configurationIncomplete", message: "QLC+ host is not configured", ...resultDetails(config) };
+    }
+    try {
+      return { ...(await adapter.activateControl({ externalControlId: execution.widgetId })), ...resultDetails(config) };
+    } catch {
+      return { ok: false, code: "unexpectedAdapterError", message: "Lighting activation failed", ...resultDetails(config) };
+    }
+  }
   return {
     resolve,
     testConnection: device => run(device, "testConnection"),
-    discoverControls: device => run(device, "discoverControls")
+    discoverControls: device => run(device, "discoverControls"),
+    execute
   };
 }
 

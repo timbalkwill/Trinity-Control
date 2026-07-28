@@ -10,8 +10,17 @@ const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
 const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
 const lightingScenes = require("./lighting-scene-operations.cjs");
+const { createLightingExecutor } = require("./lighting-execution.cjs");
+const { createLightingActiveState } = require("./lighting-active-state.cjs");
 
-function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue, lightingAdapters = createLightingAdapterRegistry() }) {
+function createOperatorCommands({
+  loadState,
+  saveState,
+  normalizeState = state => state,
+  cueExecutor = executeCue,
+  lightingAdapters = createLightingAdapterRegistry(),
+  lightingActiveState = createLightingActiveState()
+}) {
   const subscribers = new Set();
   let queue = Promise.resolve();
 
@@ -33,7 +42,14 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     return enqueue(async () => {
       const state = loadState();
       await operation(state);
+      lightingActiveState.synchronize(state);
       return publish(saveState(state));
+    });
+  }
+
+  function executeRequestedCue(state, index) {
+    return cueExecutor(state, index, {
+      lightingExecutor: createLightingExecutor(state, { registry: lightingAdapters, activeState: lightingActiveState })
     });
   }
 
@@ -49,10 +65,10 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
         error.statusCode = 409;
         throw error;
       }
-      return cueExecutor(state, index);
+      return executeRequestedCue(state, index);
     }),
-    nextCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) + 1)),
-    previousCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) - 1)),
+    nextCue: () => mutate(state => executeRequestedCue(state, Number(state.live?.cueIndex || 0) + 1)),
+    previousCue: () => mutate(state => executeRequestedCue(state, Number(state.live?.cueIndex || 0) - 1)),
     takeLive: () => mutate(state => liveOperations.takeLive(state)),
     setCameraMode: (cameraId, mode) => mutate(state => cameraPreparation.setCameraMode(state, cameraId, mode)),
     prepareCamera: (cameraId, selectionId) => mutate(state => cameraPreparation.prepareCamera(state, cameraId, selectionId)),
@@ -133,6 +149,8 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     duplicateShot: shotId => mutate(state => shots.duplicateShot(state, shotId)),
     deleteShot: (shotId, options) => mutate(state => shots.deleteShot(state, shotId, options)),
     reorderShot: (from, to) => mutate(state => shots.reorderShot(state, from, to)),
+    resetLightingActiveState: reason => lightingActiveState.reset(reason),
+    getLightingActiveState: () => lightingActiveState.get(),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

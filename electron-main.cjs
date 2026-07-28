@@ -882,6 +882,9 @@ app.whenReady().then(async () => {
     logger: console,
     onStatus: status => {
       qlcServiceStatus = status;
+      if (["stopped", "degraded", "restarting", "failed"].includes(status.state)) {
+        commands.resetLightingActiveState(`service-${status.state}`);
+      }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qlc-service:status-changed", status);
     }
   });

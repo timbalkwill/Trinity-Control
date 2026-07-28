@@ -51,7 +51,7 @@ function launchArguments(settings, platform = process.platform, existsSync = fs.
     throw Object.assign(new Error("QLC+ workspace not found."), { code: "workspace-not-found" });
   }
   if (!isMacBundle) {
-    return { command: normalized.applicationPath, args: [normalized.workspacePath], mode: "executable" };
+    return { command: normalized.applicationPath, args: ["--web", "--open", normalized.workspacePath], mode: "executable" };
   }
   const preferred = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus-qml");
   const fallback = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus");
@@ -59,7 +59,7 @@ function launchArguments(settings, platform = process.platform, existsSync = fs.
   if (!executable) {
     throw Object.assign(new Error("QLC+ executable not found inside application bundle."), { code: "bundle-executable-not-found" });
   }
-  return { command: executable, args: ["--open", normalized.workspacePath], mode: "mac-app-bundle" };
+  return { command: executable, args: ["--web", "--open", normalized.workspacePath], mode: "mac-app-bundle" };
 }
 
 function createQlcLauncher({ spawnImpl = spawn, platform = process.platform, existsSync = fs.existsSync, logger = null } = {}) {
@@ -74,6 +74,7 @@ function createQlcLauncher({ spawnImpl = spawn, platform = process.platform, exi
     }
     logger?.info?.(`[QLC+ Service] Startup attempt began`);
     logger?.info?.(`[QLC+ Service] Launch mode: ${launch.mode}`);
+    logger?.info?.(`[QLC+ Service] Arguments: --web --open ${path.basename(settings.workspacePath)}`);
     logger?.info?.(`[QLC+ Service] Resolved executable: ${launch.command}`);
     logger?.info?.(`[QLC+ Service] Workspace: ${path.basename(settings.workspacePath)}`);
     let child;
@@ -167,6 +168,10 @@ function createQlcServiceManager({
   let stopped = false;
   let monitorTimer = null;
   let lastRestartAt = 0;
+  let launchAttemptSequence = 0;
+  let currentLaunchAttemptId = 0;
+  let readinessPollCount = 0;
+  let restartingChild = null;
   let status = {
     state: "disabled",
     launchMode: null,
@@ -185,10 +190,59 @@ function createQlcServiceManager({
     const current = getContext?.() || {};
     return { ...current, settings: normalizeQlcServiceSettings(current.settings) };
   };
+  const childIsLive = () => Boolean(ownedChild
+    && ownedChild.exitCode == null
+    && ownedChild.signalCode == null
+    && ownedChild.killed !== true);
+  const readinessEndpoint = current => {
+    const connection = current?.device?.connection || {};
+    return {
+      host: connection.host || current?.device?.ipAddress || null,
+      port: connection.port || current?.device?.port || 9999,
+      protocol: connection.protocol || current?.device?.protocol || "ws"
+    };
+  };
+  const attachChildLifecycle = (child, attemptId) => {
+    if (!child?.once) return;
+    child.once("exit", (code, signal) => {
+      logger?.warn?.(`[QLC+ Service] Child exited attempt=${attemptId} code=${code ?? "none"} signal=${signal || "none"}`);
+      if (ownedChild !== child) return;
+      ownedChild = null;
+      managedLaunch = false;
+      if (restartingChild === child) return;
+      publish({
+        state: "failed",
+        launchMode: "managed",
+        owned: false,
+        childPid: null,
+        message: "QLC+ process exited"
+      });
+    });
+  };
+  const waitForChildExit = child => {
+    if (!child?.once || child.exitCode != null || child.signalCode != null) return Promise.resolve(true);
+    return new Promise(resolve => {
+      let settled = false;
+      let timer = null;
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimer(timer);
+        resolve(value);
+      };
+      child.once("exit", () => finish(true));
+      timer = setTimer(() => finish(false), 3000);
+    });
+  };
 
-  async function check({ externalIfReachable = false } = {}) {
+  async function check({ externalIfReachable = false, attemptId = null } = {}) {
     const current = context();
+    const wasConnected = status.state === "connected";
     const result = await discover(current.device);
+    if (attemptId !== null && attemptId !== currentLaunchAttemptId) {
+      logger?.info?.(`[QLC+ Service] Ignored stale readiness result attempt=${attemptId}`);
+      return { ok: false, stale: true, result, current };
+    }
     if (!result?.ok) return { ok: false, result, current };
     if (activeLaunch) {
       logger?.info?.("[QLC+ Service] WebSocket connected");
@@ -212,41 +266,85 @@ function createQlcServiceManager({
       widgetCount: result.widgetCount ?? result.widgets?.length ?? 0,
       elapsedMs: result.elapsedMs || 0
     });
+    if (!wasConnected) logger?.info?.(`[QLC+ Service] Connected productionButtons=${compatibility.productionButtonCount}`);
     return { ok: true, result, current, compatibility };
   }
 
-  async function waitForReadiness() {
+  async function waitForReadiness(attemptId) {
     const startedAt = now();
     const timeout = context().settings.startupTimeoutMs;
+    readinessPollCount = 0;
     do {
       if (stopped || context().device?.enabled === false) return { ok: false, cancelled: true };
+      if (attemptId !== currentLaunchAttemptId) return { ok: false, stale: true };
+      if (!childIsLive()) {
+        ownedChild = null;
+        managedLaunch = false;
+        return publish({ state: "failed", owned: false, childPid: null, message: "QLC+ process exited before readiness" });
+      }
+      readinessPollCount += 1;
+      const endpoint = readinessEndpoint(context());
       publish({ state: "waiting-for-readiness", message: "Waiting for QLC+" });
-      if (now() === startedAt) logger?.info?.("[QLC+ Service] Waiting for WebSocket");
-      const result = await check();
+      logger?.info?.(`[QLC+ Service] Readiness poll=${readinessPollCount} host=${endpoint.host || "unconfigured"} port=${endpoint.port} protocol=${endpoint.protocol}`);
+      const result = await check({ attemptId });
       if (result.ok) return result;
+      if (result.stale) return result;
       if (now() - startedAt >= timeout) break;
       await delay(Math.min(500, Math.max(50, timeout)), setTimer);
     } while (now() - startedAt <= timeout);
-    publish({ state: "degraded", message: "QLC+ process launched, but WebSocket readiness timed out" });
-    logger?.warn?.("[QLC+ Service] Startup timed out");
+    publish({
+      state: "degraded",
+      launchMode: "managed",
+      owned: true,
+      message: "QLC+ is running, but its WebSocket service is not ready"
+    });
+    logger?.warn?.(`[QLC+ Service] Startup timed out attempt=${attemptId} polls=${readinessPollCount}`);
     return { ok: false, timeout: true };
   }
 
   async function launchManaged({ restarting = false } = {}) {
     if (activeLaunch) return activeLaunch;
+    if (childIsLive()) {
+      logger?.info?.("[QLC+ Service] Duplicate launch suppressed: owned process is still running");
+      return publish({
+        state: status.state === "degraded" ? "degraded" : "waiting-for-readiness",
+        launchMode: "managed",
+        owned: true,
+        message: status.state === "degraded"
+          ? "QLC+ is running, but its WebSocket service is not ready"
+          : "Waiting for QLC+"
+      });
+    }
+    const attemptId = ++launchAttemptSequence;
+    currentLaunchAttemptId = attemptId;
     activeLaunch = (async () => {
       const current = context();
       if (!current.settings.applicationPath || !current.settings.workspacePath) {
         return publish({ state: "not-configured", message: "QLC+ application and workspace are required" });
       }
-      publish({ state: restarting ? "restarting" : "starting", message: restarting ? "Restarting QLC+" : "Starting QLC+" });
+      publish({
+        state: restarting ? "restarting" : "starting",
+        launchAttemptId: attemptId,
+        message: restarting ? "Restarting QLC+" : "Starting QLC+"
+      });
+      logger?.info?.(`[QLC+ Service] Launch attempt=${attemptId} began`);
       try {
         const launched = await launch(current.settings);
+        if (attemptId !== currentLaunchAttemptId) return { ok: false, stale: true };
         ownedChild = launched.child || null;
         managedLaunch = true;
-        publish({ state: "running-managed", launchMode: "managed", owned: true, message: "QLC+ launched by Trinity" });
-        return await waitForReadiness();
+        attachChildLifecycle(ownedChild, attemptId);
+        publish({
+          state: "running-managed",
+          launchMode: "managed",
+          owned: true,
+          childPid: ownedChild?.pid || null,
+          message: "QLC+ launched by Trinity"
+        });
+        logger?.info?.(`[QLC+ Service] Child running attempt=${attemptId} pid=${ownedChild?.pid || "unknown"}`);
+        return await waitForReadiness(attemptId);
       } catch (error) {
+        if (attemptId !== currentLaunchAttemptId) return { ok: false, stale: true };
         return publish({ state: "failed", launchMode: "managed", owned: false, message: safeErrorMessage(error) });
       }
     })().finally(() => { activeLaunch = null; });
@@ -267,12 +365,28 @@ function createQlcServiceManager({
   async function start() {
     stopped = false;
     const existing = await check({ externalIfReachable: true });
-    return existing.ok ? existing : launchManaged();
+    if (existing.ok) return existing;
+    if (childIsLive()) {
+      logger?.info?.("[QLC+ Service] Start suppressed: owned process is still running");
+      return publish({
+        state: status.state === "degraded" ? "degraded" : "waiting-for-readiness",
+        launchMode: "managed",
+        owned: true,
+        message: status.state === "degraded"
+          ? "QLC+ is running, but its WebSocket service is not ready"
+          : "Waiting for QLC+"
+      });
+    }
+    return launchManaged();
   }
 
   async function refresh() {
     const result = await check({ externalIfReachable: !ownedChild });
-    if (!result.ok) publish({ state: ownedChild ? "degraded" : "stopped", message: "QLC+ is unavailable" });
+    if (!result.ok) publish({
+      state: childIsLive() ? "degraded" : "stopped",
+      owned: childIsLive(),
+      message: childIsLive() ? "QLC+ is running, but its WebSocket service is not ready" : "QLC+ is unavailable"
+    });
     return result;
   }
 
@@ -280,11 +394,27 @@ function createQlcServiceManager({
     if (!managedLaunch) {
       return publish({ message: "Trinity cannot safely restart an externally managed QLC+ instance" });
     }
-    if (ownedChild?.kill) ownedChild.kill();
+    currentLaunchAttemptId = ++launchAttemptSequence;
+    if (ownedChild?.kill) {
+      const child = ownedChild;
+      restartingChild = child;
+      child.kill();
+      const exited = await waitForChildExit(child);
+      restartingChild = null;
+      if (!exited && ownedChild === child) {
+        return publish({
+          state: "degraded",
+          launchMode: "managed",
+          owned: true,
+          message: "QLC+ restart is waiting for the managed process to exit"
+        });
+      }
+    }
     else if (status.state === "connected") {
       return publish({ message: "Trinity cannot safely terminate this QLC+ application bundle" });
     }
     ownedChild = null;
+    managedLaunch = false;
     lastRestartAt = now();
     return launchManaged({ restarting: true });
   }
@@ -294,6 +424,10 @@ function createQlcServiceManager({
     if (result.ok) return result;
     const settings = context().settings;
     if (!settings.restartIfClosed || (lastRestartAt && now() - lastRestartAt < restartCooldownMs)) return result;
+    if (childIsLive()) {
+      logger?.info?.("[QLC+ Service] Automatic restart suppressed: owned process is still running");
+      return result;
+    }
     lastRestartAt = now();
     return launchManaged({ restarting: true });
   }

@@ -75,6 +75,7 @@ class MockSocket extends EventEmitter {
   }
   addEventListener(name, listener) { this.on(name, listener); }
   send(command) {
+    if (this.script.throwSend) throw new Error("socket send failed");
     this.calls.push(command);
     const response = this.script.responses?.[command];
     queueMicrotask(() => response === "DISCONNECT"
@@ -183,4 +184,39 @@ test("registry test and discovery never call activation", async () => {
   await registry.testConnection(device());
   await registry.discoverControls(device());
   assert.equal(transport.calls.some(([operation]) => operation === "activate"), false);
+});
+
+test("QLC+ toggle activation sends exactly one nonzero widget command", async () => {
+  const harness = socketHarness({ responses: {} });
+  const transport = createQlcPlusTransport({ webSocketFactory: harness.factory.bind(harness) });
+  const result = await transport.activateControl(safeConfiguration(device()), { externalControlId: "101" });
+  assert.equal(result.ok, true);
+  assert.equal(result.activationMessageCount, 1);
+  assert.equal(result.commandValue, 255);
+  assert.deepEqual(harness.calls, ["101|255"]);
+  assert.equal(harness.calls.includes("101|0"), false);
+});
+
+test("QLC+ toggle send failure is sanitized without a release attempt", async () => {
+  const harness = socketHarness({ throwSend: true });
+  const result = await createQlcPlusTransport({ webSocketFactory: harness.factory.bind(harness) })
+    .activateControl(safeConfiguration(device()), { externalControlId: "101" });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "commandSendFailure");
+  assert.equal(result.message, "QLC+ command could not be sent");
+  assert.deepEqual(harness.calls, []);
+});
+
+test("registry execution rejects unavailable, disabled, and unconfigured adapters without sending", async () => {
+  const transport = mockTransport({
+    async activateControl(config, input) {
+      this.calls.push(["activate", input]);
+      return { ok: true, code: "qlcConnected", message: "sent" };
+    }
+  });
+  const registry = createLightingAdapterRegistry({ transports: { "qlcplus-websocket": transport } });
+  assert.equal((await registry.execute(null, { widgetId: "101" })).code, "adapterUnavailable");
+  assert.equal((await registry.execute(device({ enabled: false }), { widgetId: "101" })).code, "adapterDisabled");
+  assert.equal((await registry.execute(device({ ipAddress: null, connection: {} }), { widgetId: "101" })).code, "configurationIncomplete");
+  assert.equal(transport.calls.length, 0);
 });

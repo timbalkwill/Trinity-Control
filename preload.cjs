@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("trinity", {
   getState: () => ipcRenderer.invoke("state:get"),
   getAppInfo: () => ipcRenderer.invoke("app:info"),
+  getSystemStatus: () => ipcRenderer.invoke("system:status"),
   onNavigate: subscriber => {
     const listener = (_event, page) => subscriber(page);
     ipcRenderer.on("app:navigate", listener);

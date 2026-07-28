@@ -22,6 +22,7 @@
     "asar": true,
     "files": [
       "electron-main.cjs",
+      "system-status.cjs",
       "application-menu.cjs",
       "cue-execution.cjs",
       "cue-execution-plan.cjs",

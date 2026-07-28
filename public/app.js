@@ -16,6 +16,9 @@ let servicePageError = '';
 let selectedLookId = null;
 let lookSearch = '';
 let settingsSection = 'devices';
+let systemStatus = null;
+let systemStatusLoading = false;
+let rendererFps = null;
 let selectedDeviceId = null;
 let deviceTypeFilter = '';
 let deviceEnabledFilter = '';
@@ -2346,6 +2349,136 @@ async function confirmAndDeleteCamera(deviceId, { returnToCameraManager = false 
   }
 }
 
+function formatDiagnosticDate(value) {
+  if (!value || value === 'Never' || value === 'None recorded') return value || 'Unavailable';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value)) return 'Unavailable';
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function healthBadge(health) {
+  const status = ['healthy', 'warning', 'error'].includes(health?.status) ? health.status : 'warning';
+  return `<span class="system-health-badge ${status}">${escapeHtml(status)}</span>`;
+}
+
+function diagnosticRows(rows) {
+  return `<dl class="system-status-details">${rows.map(([label, value]) =>
+    `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value ?? 'Unavailable')}</dd></div>`
+  ).join('')}</dl>`;
+}
+
+function systemStatusPage() {
+  if (!systemStatus) {
+    return `<div class="settings-heading"><div><span class="eyebrow">READ-ONLY DIAGNOSTICS</span><h1>System Status</h1><p>Current application and production health. No controls are executed from this page.</p></div><button id="refresh-system-status" ${systemStatusLoading ? 'disabled' : ''}>${systemStatusLoading ? 'REFRESHING…' : 'REFRESH STATUS'}</button></div>
+      <section class="panel system-status-empty">${systemStatusLoading ? 'Reading current system status…' : 'Select Refresh Status to load diagnostics.'}</section>`;
+  }
+  const cards = [
+    ['Application', systemStatus.application.health, diagnosticRows([
+      ['Version', systemStatus.application.version],
+      ['Commit', systemStatus.application.commit],
+      ['Build date', formatDiagnosticDate(systemStatus.application.buildDate)],
+      ['Build configuration', systemStatus.application.buildConfiguration],
+      ['Branch', systemStatus.application.branch],
+      ['Environment', systemStatus.application.environment],
+      ['Electron', systemStatus.application.electronVersion],
+      ['Node', systemStatus.application.nodeVersion],
+      ['Chrome', systemStatus.application.chromeVersion],
+      ['Operating system', `${systemStatus.application.operatingSystem} · ${systemStatus.application.architecture}`]
+    ])],
+    ['Lighting System', systemStatus.lighting.health, diagnosticRows([
+      ['QLC+ enabled', systemStatus.lighting.enabled ? 'Yes' : 'No'],
+      ['QLC+ connected', systemStatus.lighting.connected ? 'Yes' : 'No'],
+      ['Adapter', systemStatus.lighting.adapter],
+      ['Transport', systemStatus.lighting.transport],
+      ['Active lighting scene', systemStatus.lighting.activeScene],
+      ['Last successful command', formatDiagnosticDate(systemStatus.lighting.lastSuccessfulCommand)],
+      ['Connection status', systemStatus.lighting.connectionStatus]
+    ])],
+    ['Production System', systemStatus.production.health, diagnosticRows([
+      ['Loaded service plan', systemStatus.production.servicePlan],
+      ['Current cue', systemStatus.production.currentCue],
+      ['Next cue', systemStatus.production.nextCue],
+      ['Current Production Look', systemStatus.production.currentLook],
+      ['Snapshot available', systemStatus.production.snapshotAvailable ? 'Yes' : 'No'],
+      ['Execution ready', systemStatus.production.executionReady ? 'Yes' : 'No']
+    ])],
+    ['Operator Controls', systemStatus.operator.health, diagnosticRows([
+      ['Mode', systemStatus.operator.mode],
+      ['GO ready', systemStatus.operator.goReady ? 'Yes' : 'No'],
+      ['BACK ready', systemStatus.operator.backReady ? 'Yes' : 'No'],
+      ['Live state', systemStatus.operator.liveState]
+    ])],
+    ['Performance', systemStatus.performance.health, diagnosticRows([
+      ['Renderer FPS', rendererFps === null ? 'Unavailable' : rendererFps.toFixed(0)],
+      ['Memory usage', formatBytes(systemStatus.performance.memoryBytes)],
+      ['CPU time', `${Math.round(((systemStatus.performance.cpuUserMicroseconds || 0) + (systemStatus.performance.cpuSystemMicroseconds || 0)) / 1000)} ms`],
+      ['Application uptime', `${Math.round(systemStatus.performance.uptimeSeconds || 0)} seconds`],
+      ['Active timers', systemStatus.performance.activeTimers ?? 'Unavailable']
+    ])],
+    ['Storage', systemStatus.storage.health, diagnosticRows([
+      ['User data', systemStatus.storage.userData],
+      ['Configuration', systemStatus.storage.configuration],
+      ['Service plans', systemStatus.storage.servicePlans],
+      ['Logs', systemStatus.storage.logs]
+    ])]
+  ];
+  const cameraRows = systemStatus.cameras.items.length
+    ? `<div class="system-camera-list">${systemStatus.cameras.items.map(camera => `<article>
+        <strong>${escapeHtml(camera.name)}</strong>
+        ${diagnosticRows([
+          ['Status', camera.status],
+          ['Protocol', camera.protocol],
+          ['Preset count', camera.presetCount],
+          ['Tracking enabled', camera.tracking ? 'Yes' : 'No'],
+          ['Last communication', formatDiagnosticDate(camera.lastCommunication)]
+        ])}
+      </article>`).join('')}</div>`
+    : '<p class="system-status-muted">No cameras configured.</p>';
+  cards.splice(2, 0, ['Camera System', systemStatus.cameras.health,
+    `<p class="system-status-count">${systemStatus.cameras.configuredCount} configured</p>${cameraRows}`]);
+  return `<div class="settings-heading"><div><span class="eyebrow">READ-ONLY DIAGNOSTICS</span><h1>System Status</h1><p>Current application and production health. No controls are executed from this page.</p></div><button id="refresh-system-status" ${systemStatusLoading ? 'disabled' : ''}>${systemStatusLoading ? 'REFRESHING…' : 'REFRESH STATUS'}</button></div>
+    <p class="system-status-timestamp">Updated ${escapeHtml(formatDiagnosticDate(systemStatus.generatedAt))}</p>
+    <div class="system-status-grid">${cards.map(([title, health, content]) => `<section class="panel system-status-card">
+      <div class="system-status-card-heading"><div><h2>${escapeHtml(title)}</h2><small>${escapeHtml(health.message)}</small></div>${healthBadge(health)}</div>
+      ${content}
+    </section>`).join('')}</div>`;
+}
+
+function measureRendererFps(durationMs = 350) {
+  if (typeof requestAnimationFrame !== 'function') return Promise.resolve(null);
+  return new Promise(resolve => {
+    const started = performance.now();
+    let frames = 0;
+    const sample = timestamp => {
+      frames += 1;
+      if (timestamp - started >= durationMs) resolve(frames * 1000 / (timestamp - started));
+      else requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+}
+
+async function refreshSystemStatus() {
+  if (systemStatusLoading) return;
+  systemStatusLoading = true;
+  render();
+  try {
+    [systemStatus, rendererFps] = await Promise.all([
+      window.trinity.getSystemStatus(),
+      measureRendererFps()
+    ]);
+  } catch (error) {
+    showNotification(`System status could not be refreshed: ${error.message}`, { type: 'error' });
+  } finally {
+    systemStatusLoading = false;
+    render();
+  }
+}
+
 function settingsPage() {
   const sections = [
     ['devices', 'Devices'],
@@ -2355,7 +2488,8 @@ function settingsPage() {
     ['audio', 'Audio'],
     ['presentation', 'Presentation'],
     ['network', 'Network'],
-    ['diagnostics', 'Diagnostics']
+    ['diagnostics', 'Diagnostics'],
+    ['systemStatus', 'System Status']
   ];
   const devices = state.devices || [];
   const filtered = devices.filter(device =>
@@ -2494,12 +2628,20 @@ function settingsPage() {
   } else if (settingsSection === 'diagnostics') {
     body = `<div class="settings-heading"><div><span class="eyebrow">STUB ADAPTER STATUS</span><h1>Diagnostics</h1><p>Results are configuration checks only; no hardware connection is attempted.</p></div><button id="run-all-tests">RUN ALL TESTS</button></div>
       <div class="diagnostic-table">${devices.map(device => { const result = device.metadata?.diagnostic; return `<div><strong>${escapeHtml(device.name)}</strong><span>${escapeHtml(device.type)}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span><span>${escapeHtml(result?.message || 'Not tested')}</span><button data-test-device="${device.id}">TEST</button><button data-clear-diagnostic="${device.id}">CLEAR</button></div>`; }).join('')}</div>`;
+  } else if (settingsSection === 'systemStatus') {
+    body = systemStatusPage();
   } else {
     body = `<div class="coming-later"><span class="eyebrow">${escapeHtml(settingsSection.toUpperCase())}</span><h1>Coming later</h1><p>This Settings section is reserved for a future hardware-independent configuration adapter.</p></div>`;
   }
 
   shell(`<div class="settings-layout"><aside class="settings-nav"><div class="settings-admin-label">⚠ ADMINISTRATOR SETTINGS</div>${sections.map(([id,label]) => `<button class="${settingsSection === id ? 'active' : ''}" data-settings-section="${id}">${label}</button>`).join('')}</aside><section class="settings-content page-scroll">${body}</section></div>${editor}`);
-  document.querySelectorAll('[data-settings-section]').forEach(button => button.onclick = () => { settingsSection = button.dataset.settingsSection; selectedDeviceId = null; render(); });
+  document.querySelectorAll('[data-settings-section]').forEach(button => button.onclick = () => {
+    settingsSection = button.dataset.settingsSection;
+    selectedDeviceId = null;
+    render();
+    if (settingsSection === 'systemStatus' && !systemStatus) void refreshSystemStatus();
+  });
+  document.getElementById('refresh-system-status')?.addEventListener('click', () => void refreshSystemStatus());
   const typeFilter = document.getElementById('device-type-filter');
   if (typeFilter) typeFilter.onchange = () => { deviceTypeFilter = typeFilter.value; render(); };
   const enabledFilter = document.getElementById('device-enabled-filter');

@@ -1,0 +1,136 @@
+const fs = require("fs");
+const path = require("path");
+
+function readGitMetadata(projectDirectory, environment = process.env) {
+  const suppliedCommit = environment.TRINITY_GIT_COMMIT || environment.GIT_COMMIT || environment.COMMIT_SHA;
+  const suppliedBranch = environment.TRINITY_GIT_BRANCH || environment.GIT_BRANCH || environment.BRANCH_NAME;
+  let commit = suppliedCommit || null;
+  let branch = suppliedBranch || null;
+  try {
+    let gitDirectory = path.join(projectDirectory, ".git");
+    if (fs.statSync(gitDirectory).isFile()) {
+      const gitEntry = fs.readFileSync(gitDirectory, "utf8").trim();
+      if (gitEntry.startsWith("gitdir:")) gitDirectory = path.resolve(projectDirectory, gitEntry.slice(7).trim());
+    }
+    const head = fs.readFileSync(path.join(gitDirectory, "HEAD"), "utf8").trim();
+    if (head.startsWith("ref:")) {
+      const reference = head.slice(5);
+      branch ||= reference.replace(/^refs\/heads\//, "");
+      commit ||= fs.readFileSync(path.join(gitDirectory, reference), "utf8").trim();
+    } else {
+      commit ||= head;
+    }
+  } catch {
+    // Packaged applications normally do not include repository metadata.
+  }
+  return {
+    commit: commit ? commit.slice(0, 12) : "Unavailable",
+    branch: branch || "Unavailable"
+  };
+}
+
+function health(status, message) {
+  return { status, message };
+}
+
+function buildSystemStatus({ state, qlcStatus = {}, appInfo, storage, now = () => new Date(), processInfo = {} }) {
+  const devices = state?.devices || [];
+  const cameras = devices.filter(device => device.type === "camera");
+  const lightingDevice = devices.find(device => device.type === "lighting");
+  const presets = state?.cameraPresets || [];
+  const cues = state?.runOfService || [];
+  const cueIndex = Number.isInteger(state?.live?.cueIndex) ? state.live.cueIndex : 0;
+  const currentCue = cues[cueIndex] || null;
+  const nextCue = cues[cueIndex + 1] || null;
+  const snapshot = state?.live?.executionSnapshot || null;
+  const currentLook = (state?.productionLooks || []).find(look =>
+    look.id === (snapshot?.productionLookId || currentCue?.productionLookId)
+  );
+  const lightingExecution = snapshot?.lightingExecutions?.[0];
+  const successfulLighting = [...(snapshot?.lightingExecutionResults || [])]
+    .reverse()
+    .find(result => ["success", "succeeded"].includes(result.status));
+  const enabledLighting = Boolean(lightingDevice) && lightingDevice.enabled !== false;
+  const connectedLighting = qlcStatus.connectionState === "connected" || qlcStatus.state === "connected";
+  const cameraErrors = cameras.filter(camera => camera.enabled !== false &&
+    ["error", "offline", "disconnected"].includes(String(camera.connectionStatus || "").toLowerCase()));
+  const executionWarnings = snapshot?.warnings || [];
+
+  return {
+    generatedAt: now().toISOString(),
+    application: { ...appInfo, health: health("healthy", "Application is running") },
+    lighting: {
+      configured: Boolean(lightingDevice),
+      enabled: enabledLighting,
+      connected: connectedLighting,
+      adapter: lightingDevice?.adapterType || "Not configured",
+      transport: lightingDevice
+        ? `${lightingDevice.protocol || lightingDevice.connection?.protocol || "ws"}://${lightingDevice.ipAddress || lightingDevice.connection?.host || "localhost"}:${lightingDevice.port || lightingDevice.connection?.port || 9999}`
+        : "Not configured",
+      activeScene: lightingExecution?.sceneName || snapshot?.lighting?.sceneName || "None",
+      lastSuccessfulCommand: successfulLighting?.completedAt || successfulLighting?.executedAt || "None recorded",
+      connectionStatus: qlcStatus.connectionState || qlcStatus.state || "Unknown",
+      health: !lightingDevice || !enabledLighting
+        ? health("warning", "Lighting is disabled or not configured")
+        : connectedLighting
+          ? health("healthy", "QLC+ is connected and available")
+          : health("error", qlcStatus.message || "QLC+ is disconnected")
+    },
+    cameras: {
+      configuredCount: cameras.length,
+      items: cameras.map(camera => ({
+        id: camera.id,
+        name: camera.name,
+        status: camera.connectionStatus || (camera.enabled === false ? "Disabled" : "Not tested"),
+        protocol: camera.protocol || camera.connection?.protocol || "Not configured",
+        presetCount: presets.filter(preset => preset.cameraDeviceId === camera.id).length,
+        tracking: Boolean(camera.trackingEnabled),
+        lastCommunication: camera.lastCheckedAt || "Never"
+      })),
+      health: cameraErrors.length
+        ? health("error", `${cameraErrors.length} camera${cameraErrors.length === 1 ? "" : "s"} need attention`)
+        : cameras.length
+          ? health("healthy", `${cameras.length} cameras configured`)
+          : health("warning", "No cameras configured")
+    },
+    production: {
+      servicePlan: state?.servicePlan?.name || state?.servicePlanName || (cues.length ? "Loaded service plan" : "None"),
+      currentCue: currentCue?.name || "None",
+      nextCue: nextCue?.name || "None",
+      currentLook: currentLook?.name || snapshot?.productionLookName || "None",
+      snapshotAvailable: Boolean(snapshot),
+      executionReady: Boolean(currentCue) && executionWarnings.length === 0,
+      health: !currentCue
+        ? health("warning", "No current cue is available")
+        : executionWarnings.length
+          ? health("warning", `${executionWarnings.length} execution warning${executionWarnings.length === 1 ? "" : "s"}`)
+          : health("healthy", "Production state is ready")
+    },
+    operator: {
+      mode: state?.live?.hold ? "Hold" : "Live",
+      goReady: Boolean(currentCue),
+      backReady: cueIndex > 0,
+      liveState: snapshot ? "Execution snapshot active" : "Awaiting GO",
+      health: state?.live?.hold
+        ? health("warning", "Operator controls are on hold")
+        : health("healthy", "Operator controls are available")
+    },
+    performance: {
+      memoryBytes: processInfo.memoryBytes ?? null,
+      cpuUserMicroseconds: processInfo.cpuUserMicroseconds ?? null,
+      cpuSystemMicroseconds: processInfo.cpuSystemMicroseconds ?? null,
+      uptimeSeconds: processInfo.uptimeSeconds ?? null,
+      activeTimers: processInfo.activeTimers ?? null,
+      health: health("healthy", "Performance diagnostics available")
+    },
+    storage: {
+      userData: storage.userData,
+      configuration: storage.configuration,
+      servicePlans: storage.servicePlans,
+      logs: storage.logs,
+      health: health("healthy", "Storage locations are available")
+    }
+  };
+}
+
+module.exports = { buildSystemStatus, readGitMetadata };

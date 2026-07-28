@@ -19,6 +19,7 @@ const {
   normalizeDeviceCollection
 } = require("./device-operations.cjs");
 const { createApplicationMenuTemplate } = require("./application-menu.cjs");
+const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
 
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
@@ -815,6 +816,44 @@ app.whenReady().then(async () => {
     architecture: process.arch,
     isPackaged: app.isPackaged
   }));
+  ipcMain.handle("system:status", () => {
+    const packageStats = fs.statSync(path.join(__dirname, "package.json"));
+    const git = readGitMetadata(__dirname);
+    const memory = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const activeResources = typeof process.getActiveResourcesInfo === "function" ? process.getActiveResourcesInfo() : [];
+    return buildSystemStatus({
+      state: commands.getState(),
+      qlcStatus: qlcServiceStatus,
+      appInfo: {
+        name: "Trinity Control",
+        version: app.getVersion(),
+        buildConfiguration: app.isPackaged ? "Packaged" : "Source",
+        buildDate: process.env.TRINITY_BUILD_DATE || process.env.BUILD_DATE || packageStats.mtime.toISOString(),
+        commit: git.commit,
+        branch: git.branch,
+        environment: app.isPackaged ? (/[-.]rc/i.test(app.getVersion()) ? "Release Candidate" : "Production") : "Development",
+        electronVersion: process.versions.electron,
+        nodeVersion: process.versions.node,
+        chromeVersion: process.versions.chrome,
+        operatingSystem: process.platform,
+        architecture: process.arch
+      },
+      processInfo: {
+        memoryBytes: memory.rss,
+        cpuUserMicroseconds: cpu.user,
+        cpuSystemMicroseconds: cpu.system,
+        uptimeSeconds: process.uptime(),
+        activeTimers: activeResources.filter(resource => resource === "Timeout").length
+      },
+      storage: {
+        userData: app.getPath("userData"),
+        configuration: dataPath(),
+        servicePlans: app.getPath("userData"),
+        logs: app.getPath("logs")
+      }
+    });
+  });
   ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
   ipcMain.handle("operator-server:status", () => operatorServerStatus);
   ipcMain.handle("qlc-service:status", () => qlcServiceStatus);

@@ -56,12 +56,32 @@
 .danger-zone-actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: 8px !important; }
 .diagnostic-table { display: grid; gap: 7px; }
 .diagnostic-table > div { display: grid; grid-template-columns: 1.3fr .7fr repeat(4, .85fr) auto auto; gap: 8px; align-items: center; background: #101c27; border: 1px solid var(--line); border-radius: 11px; padding: 10px; font-size: 12px; }
+.system-status-timestamp { margin: -7px 0 12px; color: var(--muted); font-size: 11px; }
+.system-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding-bottom: 12px; }
+.system-status-card { min-width: 0; display: grid; align-content: start; gap: 12px; padding: 14px; }
+.system-status-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.system-status-card-heading h2 { margin: 0 0 3px; font-size: 17px; }
+.system-status-card-heading small, .system-status-muted { color: var(--muted); }
+.system-health-badge { flex: 0 0 auto; border: 1px solid currentColor; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+.system-health-badge.healthy { color: var(--green); background: #0f3228; }
+.system-health-badge.warning { color: var(--amber); background: #392d15; }
+.system-health-badge.error { color: #ff8d87; background: #38191b; }
+.system-status-details { display: grid; gap: 0; margin: 0; }
+.system-status-details > div { min-width: 0; display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 1.2fr); gap: 12px; padding: 7px 0; border-top: 1px solid #263947; }
+.system-status-details dt { color: var(--muted); font-size: 11px; }
+.system-status-details dd { min-width: 0; margin: 0; text-align: right; overflow-wrap: anywhere; font-size: 12px; font-weight: 800; }
+.system-status-count { margin: -4px 0 0; color: var(--muted); font-size: 12px; }
+.system-camera-list { display: grid; gap: 8px; }
+.system-camera-list article { background: #0b1721; border: 1px solid #263947; border-radius: 10px; padding: 10px; }
+.system-camera-list article > strong { display: block; margin-bottom: 6px; }
+.system-status-empty { padding: 22px; color: var(--muted); }
 .coming-later { height: 100%; display: grid; place-content: center; text-align: center; }
 .coming-later h1 { font-size: 42px; margin: 6px; }
 .coming-later p { color: var(--muted); }
 @media (max-width: 1050px) {
   .settings-layout { grid-template-columns: 160px 1fr; }
   .device-grid, .settings-form { grid-template-columns: 1fr; }
+  .system-status-grid { grid-template-columns: 1fr; }
   .diagnostic-table > div { grid-template-columns: 1fr 1fr; }
   .settings-form .wide { grid-column: auto; }
 }

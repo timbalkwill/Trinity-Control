@@ -7,6 +7,7 @@ let selectedLightingSceneId = null;
 let showAllLightingControls = false;
 let showAllDiscoveredLightingControls = false;
 let lightingSceneFilter = 'production';
+let qlcServiceStatus = null;
 let operatorServerStatus;
 let page = 'live';
 let cueEditorOpen = false;
@@ -435,6 +436,14 @@ function ensureAppStyles() {
 
 function shell(content) {
   ensureAppStyles();
+  const qlcManagementEnabled = state?.settings?.qlcplusService?.manageAutomatically === true;
+  const qlcReadiness = !qlcManagementEnabled
+    ? 'All Systems Ready'
+    : qlcServiceStatus?.state !== 'connected'
+      ? 'Lighting Not Ready'
+      : qlcServiceStatus?.compatibility?.severity === 'warning'
+        ? 'Systems Ready · Lighting Warning'
+        : 'All Systems Ready';
 
   root.innerHTML = `
     <div class="shell">
@@ -453,7 +462,7 @@ function shell(content) {
 
         <div class="ready">
           <i></i>
-          All Systems Ready
+          ${escapeHtml(qlcReadiness)}
         </div>
       </header>
 
@@ -2348,7 +2357,25 @@ function settingsPage() {
       : productionPage
         ? `<strong>Production Page: ${escapeHtml(productionPage)}</strong><span>${pageButtons.length} production buttons · ${pageWidgets.length} page widgets · ${widgets.length} total widgets · ${elapsedMs} ms</span>`
         : `<span>${compatibleButtons.length} compatible buttons · ${widgets.length} total widgets · ${elapsedMs} ms</span>`;
+    const serviceSettings = state.settings?.qlcplusService || {};
+    const serviceConnected = qlcServiceStatus?.state === 'connected';
+    const serviceLaunchMode = qlcServiceStatus?.launchMode === 'managed' ? 'Managed by Trinity'
+      : qlcServiceStatus?.launchMode === 'external' ? 'Already running' : 'Not running';
+    const workspaceName = serviceSettings.workspacePath ? serviceSettings.workspacePath.split(/[\\/]/).pop() : 'Not configured';
+    const compatibility = qlcServiceStatus?.compatibility?.message || 'Workspace could not be verified';
     body = `<div class="settings-heading"><div><span class="eyebrow">LIGHTING INTEGRATION</span><h1>QLC+</h1><p>Configure and inspect QLC+ without activating any lighting controls.</p></div></div>
+      <section class="panel qlc-service-panel"><div class="section-title"><span>QLC+ SERVICE</span><strong>${escapeHtml(qlcServiceStatus?.message || 'Status not checked')}</strong></div>
+        <div class="device-facts"><span>Status: ${escapeHtml(qlcServiceStatus?.state || 'unknown')}</span><span>Launch mode: ${escapeHtml(serviceLaunchMode)}</span><span>Workspace: ${escapeHtml(workspaceName)}</span><span>Compatibility: ${escapeHtml(compatibility)}</span><span>Controls: ${Number(qlcServiceStatus?.compatibility?.productionButtonCount) || 0} production buttons discovered</span></div>
+        <div class="row-actions"><button id="qlc-service-start" ${serviceConnected ? 'disabled' : ''}>START QLC+</button><button id="qlc-service-restart" ${qlcServiceStatus?.owned ? '' : 'disabled'}>RESTART QLC+</button><button id="qlc-service-refresh">REFRESH STATUS</button><button id="qlc-open-configuration">OPEN QLC+ CONFIGURATION</button></div>
+      </section>
+      <section class="panel settings-form" id="qlc-service-configuration"><span class="eyebrow wide">QLC+ SERVICE SETTINGS</span>
+        <label class="checkbox-label"><input type="checkbox" data-qlc-service-field="manageAutomatically" ${serviceSettings.manageAutomatically ? 'checked' : ''}> Manage QLC+ Automatically</label>
+        <label class="wide">QLC+ Application<div class="path-picker"><input data-qlc-service-field="applicationPath" value="${escapeHtml(serviceSettings.applicationPath || '')}" placeholder="/Applications/QLC+.app"><button type="button" id="qlc-browse-application">BROWSE</button></div></label>
+        <label class="wide">QLC+ Workspace<div class="path-picker"><input data-qlc-service-field="workspacePath" value="${escapeHtml(serviceSettings.workspacePath || '')}" placeholder="Choose a .qxw workspace"><button type="button" id="qlc-browse-workspace">BROWSE</button></div></label>
+        <label>Startup Timeout (ms)<input type="number" min="1000" max="120000" data-qlc-service-field="startupTimeoutMs" value="${serviceSettings.startupTimeoutMs || 15000}"></label>
+        <label>Health Check Interval (ms)<input type="number" min="1000" max="60000" data-qlc-service-field="healthCheckIntervalMs" value="${serviceSettings.healthCheckIntervalMs || 5000}"></label>
+        <label class="checkbox-label"><input type="checkbox" data-qlc-service-field="restartIfClosed" ${serviceSettings.restartIfClosed ? 'checked' : ''}> Restart If Closed</label>
+      </section>
       ${lightingDevice ? `<section class="panel settings-form">
         <label>Adapter<select data-lighting-device-field="adapterType"><option value="" ${!lightingDevice.adapterType || lightingDevice.adapterType === 'qlc-plus' ? 'selected' : ''}>Not configured</option><option value="qlcplus-websocket" ${lightingDevice.adapterType === 'qlcplus-websocket' ? 'selected' : ''}>QLC+ WebSocket</option></select></label>
         <label>Host<input data-lighting-device-field="ipAddress" value="${escapeHtml(lightingDevice.ipAddress || lightingDevice.connection?.host || '')}"></label>
@@ -2433,6 +2460,31 @@ function settingsPage() {
     showAllDiscoveredLightingControls = event.target.checked;
     render();
   });
+  document.querySelectorAll('[data-qlc-service-field]').forEach(input => input.addEventListener('change', async () => {
+    const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
+    state = await window.trinity.updateQlcServiceSettings({ [input.dataset.qlcServiceField]: value });
+    render();
+  }));
+  const browseServicePath = async (browse, field) => {
+    const selectedPath = await browse();
+    if (!selectedPath) return;
+    state = await window.trinity.updateQlcServiceSettings({ [field]: selectedPath });
+    render();
+  };
+  document.getElementById('qlc-browse-application')?.addEventListener('click', () => browseServicePath(window.trinity.browseQlcApplication, 'applicationPath'));
+  document.getElementById('qlc-browse-workspace')?.addEventListener('click', () => browseServicePath(window.trinity.browseQlcWorkspace, 'workspacePath'));
+  const runServiceAction = async action => {
+    await action();
+    qlcServiceStatus = await window.trinity.getQlcServiceStatus();
+    render();
+  };
+  document.getElementById('qlc-service-start')?.addEventListener('click', () => runServiceAction(window.trinity.startQlcService));
+  document.getElementById('qlc-service-restart')?.addEventListener('click', () => runServiceAction(window.trinity.restartQlcService));
+  document.getElementById('qlc-service-refresh')?.addEventListener('click', () => runServiceAction(window.trinity.refreshQlcService));
+  document.getElementById('qlc-open-configuration')?.addEventListener('click', () => {
+    document.getElementById('qlc-service-configuration')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.querySelector('[data-lighting-device-field="ipAddress"]')?.focus();
+  });
 }
 
 function render() {
@@ -2483,12 +2535,18 @@ document.addEventListener('keydown', async event => {
         render();
       }
     });
-    const [initialState, initialServerStatus] = await Promise.all([
+    window.trinity.onQlcServiceStatusChanged(status => {
+      qlcServiceStatus = status;
+      if (state) render();
+    });
+    const [initialState, initialServerStatus, initialQlcServiceStatus] = await Promise.all([
       window.trinity.getState(),
-      window.trinity.getOperatorServerStatus()
+      window.trinity.getOperatorServerStatus(),
+      window.trinity.getQlcServiceStatus()
     ]);
     state = pendingState || initialState;
     operatorServerStatus = initialServerStatus;
+    qlcServiceStatus = initialQlcServiceStatus;
 
     render();
   } catch (error) {

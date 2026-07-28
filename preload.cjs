@@ -2,6 +2,18 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("trinity", {
   getState: () => ipcRenderer.invoke("state:get"),
   getOperatorServerStatus: () => ipcRenderer.invoke("operator-server:status"),
+  getQlcServiceStatus: () => ipcRenderer.invoke("qlc-service:status"),
+  onQlcServiceStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("qlc-service:status-changed", listener);
+    return () => ipcRenderer.removeListener("qlc-service:status-changed", listener);
+  },
+  updateQlcServiceSettings: patch => ipcRenderer.invoke("qlc-service:update-settings", patch),
+  browseQlcApplication: () => ipcRenderer.invoke("qlc-service:browse-application"),
+  browseQlcWorkspace: () => ipcRenderer.invoke("qlc-service:browse-workspace"),
+  startQlcService: () => ipcRenderer.invoke("qlc-service:start"),
+  restartQlcService: () => ipcRenderer.invoke("qlc-service:restart"),
+  refreshQlcService: () => ipcRenderer.invoke("qlc-service:refresh"),
   onStateChanged: subscriber => {
     const listener = (_event, state) => subscriber(state);
     ipcRenderer.on("operator:state-changed", listener);

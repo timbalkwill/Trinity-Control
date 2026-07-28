@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const { createHomeAssistantController } = require("./home-assistant-operations.cjs");
 const path = require("path");
 const fs = require("fs");
@@ -11,6 +11,7 @@ const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
 const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
+const { createQlcServiceManager, normalizeQlcServiceSettings } = require("./qlcplus-service-manager.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
@@ -21,6 +22,8 @@ app.setName("Trinity Control Refresh");
 
 let mainWindow;
 let operatorServer;
+let qlcServiceManager;
+let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
   running: false,
   port: DEFAULT_PORT,
@@ -40,6 +43,9 @@ function defaultState() {
     cameraPresetSchemaVersion: CAMERA_PRESET_SCHEMA_VERSION,
     shotSchemaVersion: SHOT_SCHEMA_VERSION,
     cameraPreparationSchemaVersion: CAMERA_PREPARATION_SCHEMA_VERSION,
+    settings: {
+      qlcplusService: normalizeQlcServiceSettings()
+    },
     cameras: [
       { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
       { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
@@ -709,6 +715,10 @@ function defaultState() {
 function migrate(state) {
   const fresh = defaultState();
   const merged = { ...fresh, ...state, version: fresh.version, schemaVersion: fresh.schemaVersion };
+  merged.settings = {
+    ...(state?.settings || {}),
+    qlcplusService: normalizeQlcServiceSettings(state?.settings?.qlcplusService)
+  };
   for (const key of ["lightingScenes", "cameraLayouts", "cueTemplates"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
@@ -777,6 +787,31 @@ app.whenReady().then(async () => {
   ipcMain.handle("state:get", () => commands.getState());
   ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
   ipcMain.handle("operator-server:status", () => operatorServerStatus);
+  ipcMain.handle("qlc-service:status", () => qlcServiceStatus);
+  ipcMain.handle("qlc-service:update-settings", (_e, patch) => commands.updateState(state => {
+    state.settings = {
+      ...(state.settings || {}),
+      qlcplusService: normalizeQlcServiceSettings({
+        ...state.settings?.qlcplusService,
+        ...(patch || {})
+      })
+    };
+  }));
+  ipcMain.handle("qlc-service:browse-application", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose QLC+ Application",
+      properties: process.platform === "darwin" ? ["openFile", "openDirectory"] : ["openFile"]
+    });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
+  ipcMain.handle("qlc-service:browse-workspace", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose QLC+ Workspace",
+      properties: ["openFile"],
+      filters: [{ name: "QLC+ Workspace", extensions: ["qxw"] }, { name: "All Files", extensions: ["*"] }]
+    });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
   ipcMain.handle("cue:addTemplate", (_e, templateId) => commands.updateState(s => {
     const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return;
     s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
@@ -827,6 +862,33 @@ app.whenReady().then(async () => {
   ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
   ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());
 
+  const serviceContext = () => {
+    const state = commands.getState();
+    return {
+      settings: state.settings?.qlcplusService,
+      device: (state.devices || []).find(device => device.type === "lighting"),
+      lightingScenes: state.lightingScenes || []
+    };
+  };
+  qlcServiceManager = createQlcServiceManager({
+    getContext: serviceContext,
+    discover: async device => {
+      if (!device) return { ok: false, code: "configurationIncomplete", message: "Lighting device is not configured" };
+      const state = await commands.discoverLightingControls(device.id);
+      const updated = (state.devices || []).find(item => item.id === device.id);
+      return updated?.metadata?.lightingDiagnostic || { ok: false, message: "QLC+ discovery failed" };
+    },
+    onStatus: status => {
+      qlcServiceStatus = status;
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qlc-service:status-changed", status);
+    }
+  });
+  ipcMain.handle("qlc-service:start", () => qlcServiceManager.start());
+  ipcMain.handle("qlc-service:restart", () => qlcServiceManager.restart());
+  ipcMain.handle("qlc-service:refresh", () => qlcServiceManager.refresh());
+
+  createWindow();
+  void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,
     assetsDirectory: path.join(__dirname, "public")
@@ -837,10 +899,10 @@ app.whenReady().then(async () => {
     operatorServerStatus = { ...operatorServerStatus, error: error.message };
     console.error(`[Trinity Operator] Server failed to start on port ${DEFAULT_PORT}: ${error.message}`);
   }
-  createWindow();
 });
 app.on("activate", () => { if (!mainWindow) createWindow(); });
 app.on("before-quit", event => {
+  qlcServiceManager?.shutdown();
   if (!operatorServer) return;
   event.preventDefault();
   const server = operatorServer;

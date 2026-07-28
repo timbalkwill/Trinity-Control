@@ -39,7 +39,14 @@ function sourceLabel(source, requested) {
 
 function normalizeExecutionSnapshot(input) {
   if (!input || typeof input !== "object") return null;
+  const lightingExecutions = Array.isArray(input.lightingExecutions)
+    ? input.lightingExecutions.filter(item => item && typeof item === "object").map(item => Object.freeze({ ...item }))
+    : [];
+  const lightingValidationErrors = Array.isArray(input.lightingValidationErrors)
+    ? input.lightingValidationErrors.filter(item => item && typeof item === "object").map(item => Object.freeze({ ...item }))
+    : [];
   return {
+    ...input,
     cueId: input.cueId || null,
     cueName: input.cueName || null,
     productionLookId: input.productionLookId || null,
@@ -75,6 +82,8 @@ function normalizeExecutionSnapshot(input) {
     cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
     shotExecutions: Array.isArray(input.shotExecutions) ? JSON.parse(JSON.stringify(input.shotExecutions)) : [],
     shotValidationErrors: Array.isArray(input.shotValidationErrors) ? input.shotValidationErrors.map(String) : [],
+    lightingExecutions: Object.freeze(lightingExecutions),
+    lightingValidationErrors: Object.freeze(lightingValidationErrors),
     shotExecutionResults: Array.isArray(input.shotExecutionResults) ? JSON.parse(JSON.stringify(input.shotExecutionResults)) : [],
     simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
     motion: {
@@ -148,7 +157,8 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
   if (!cue) return state;
   const resolvedCameraExecutor = cameraExecutor || createCameraExecutor(state) || unavailableCameraExecutor;
 
-  const plan = buildCueExecutionPlan(state, cue);
+  const executedAt = now();
+  const plan = buildCueExecutionPlan(state, cue, { resolvedAt: executedAt });
   applyResources(state, {
     lightingSceneId: plan.lighting.sceneId,
     cameraLayoutId: plan.video.cameraLayoutId,
@@ -159,7 +169,6 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
     previewPreset: plan.video.previewPreset
   });
   const live = state.live;
-  const executedAt = now();
   applyCueStartPreparations(state, plan, { now: () => executedAt });
   live.cueIndex = index;
   live.activeCueId = cue.id || null;

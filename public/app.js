@@ -6,6 +6,7 @@ let homeAssistantBusy = false;
 let selectedLightingSceneId = null;
 let showAllLightingControls = false;
 let showAllDiscoveredLightingControls = false;
+let lightingSceneFilter = 'production';
 let operatorServerStatus;
 let page = 'live';
 let cueEditorOpen = false;
@@ -39,6 +40,20 @@ const nav = [
 ];
 
 const byId = (items, id) => items.find(item => item.id === id);
+
+function lightingScenePickerOptions(current, emptyLabel) {
+  const scenes = state.lightingScenes || [];
+  const currentScene = byId(scenes, current);
+  const currentOption = current && currentScene?.productionScene === false
+    ? `<option value="${escapeHtml(currentScene.id)}" selected>${escapeHtml(currentScene.name)} (Utility — referenced)</option>`
+    : current && !currentScene
+      ? `<option value="${escapeHtml(current)}" selected>Missing reference</option>`
+      : '';
+  return `<option value="">${emptyLabel}</option>${currentOption}${scenes
+    .filter(scene => scene.productionScene !== false)
+    .map(scene => `<option value="${scene.id}" ${scene.id === current ? 'selected' : ''}>${escapeHtml(scene.name)}</option>`)
+    .join('')}`;
+}
 
 const normalizedLightingName = value => String(value || '')
   .replace(/^\s*trinity\s*[-–—:]\s*/i, '')
@@ -592,8 +607,7 @@ function openCueEditor(index) {
         <label>
           Lighting Override
           <select id="cue-edit-lighting">
-            <option value="">Use Production Look</option>
-            ${state.lightingScenes.map(scene => `<option value="${scene.id}" ${scene.id === cue.lightingSceneId ? 'selected' : ''}>${escapeHtml(scene.name)}</option>`).join('')}
+            ${lightingScenePickerOptions(cue.lightingSceneId, 'Use Production Look')}
           </select>
           <small class="field-help">Leave this set to Use Production Look unless this cue needs different lighting.</small>
         </label>
@@ -673,6 +687,7 @@ function openCueEditor(index) {
 
     if (!look) warnings.push('Choose a Production Look.');
     if (!lighting) warnings.push('No lighting scene will be recalled.');
+    if (lighting?.productionScene === false) warnings.push('Scene is marked Utility but is still referenced.');
     if (look?.enabled === false) warnings.push('The selected Production Look is disabled.');
 
     for (const role of ['main', 'left', 'right']) {
@@ -1551,10 +1566,7 @@ function looksPage() {
   const filtered = state.productionLooks.filter(look => String(look.name || '').toLowerCase().includes(lookSearch.toLowerCase()));
   const roleCamera = role => (state.devices || []).find(device => device.type === 'camera' && (device.logicalRole === role || (role === 'main' && (device.id === 'main' || device.logicalRole === 'center'))));
   const selectedOption = (value, current) => value === current ? 'selected' : '';
-  const lightingOptions = current => {
-    const exists = (state.lightingScenes || []).some(item => item.id === current);
-    return `<option value="">Not assigned</option>${current && !exists ? `<option value="${escapeHtml(current)}" selected>Missing reference</option>` : ''}${(state.lightingScenes || []).map(item => `<option value="${item.id}" ${selectedOption(item.id, current)}>${escapeHtml(item.name)}</option>`).join('')}`;
-  };
+  const lightingOptions = current => lightingScenePickerOptions(current, 'Not assigned');
   const presetEditor = role => {
     const label = role[0].toUpperCase() + role.slice(1);
     const camera = roleCamera(role);
@@ -1579,7 +1591,7 @@ function looksPage() {
     </aside>
     <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">HOW SHOULD THIS CUE BEGIN?</span><h1>${escapeHtml(selected.name)}</h1></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-delete" class="danger">DELETE</button></div></div>
       <div class="look-sections simplified-look-form">
-        <fieldset><legend>LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select></label></fieldset>
+        <fieldset><legend>LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select>${byId(state.lightingScenes || [], selected.lightingSceneId)?.productionScene === false ? '<small class="look-warning">Scene is marked Utility but is still referenced.</small>' : ''}</label></fieldset>
         <fieldset><legend>CAMERA STARTING PRESETS</legend>${['main', 'left', 'right'].map(presetEditor).join('')}</fieldset>
         <fieldset><legend>STARTING LIVE CAMERA</legend><label>Priority Camera<select id="look-priority">${priorityOptions(selected.priorityCameraId)}</select></label><label class="checkbox-label"><input type="checkbox" id="look-main-tracking" ${selected.startMainTracking ? 'checked' : ''} ${trackingUnsupported ? 'disabled' : ''}> Start Main Camera Tracking</label>${trackingUnsupported ? `<small class="look-warning">${mainCamera ? 'Main camera tracking is not supported.' : 'No Main camera configured.'}</small>` : ''}</fieldset>
       </div>
@@ -1642,6 +1654,16 @@ function lightingPage() {
     ? allCompatibleControls.filter(control => control.pageName === productionPage)
     : allCompatibleControls;
   const selectedScene = byId(state.lightingScenes || [], selectedLightingSceneId);
+  const productionScenes = (state.lightingScenes || []).filter(scene => scene.productionScene !== false);
+  const utilityScenes = (state.lightingScenes || []).filter(scene => scene.productionScene === false);
+  const filteredScenes = lightingSceneFilter === 'all'
+    ? state.lightingScenes
+    : lightingSceneFilter === 'utility' ? utilityScenes : productionScenes;
+  const selectedLookReferences = selectedScene ? (state.productionLooks || []).filter(look => look.lightingSceneId === selectedScene.id) : [];
+  const selectedCueReferences = selectedScene ? (state.runOfService || []).filter(cue => cueLightingId(cue) === selectedScene.id) : [];
+  const selectedUtilityWarning = selectedScene?.productionScene === false && (selectedLookReferences.length || selectedCueReferences.length)
+    ? 'Scene is marked Utility but is still referenced.'
+    : null;
   const mapping = selectedScene?.externalControl || null;
   const mappedControl = mapping ? discoveredControls.find(control => String(control.widgetId) === String(mapping.widgetId)) : null;
   const suggestionMatches = selectedScene && !mapping ? compatibleControls.filter(control => normalizedLightingName(control.name) === normalizedLightingName(selectedScene.name)) : [];
@@ -1656,6 +1678,11 @@ function lightingPage() {
   const editor = selectedScene ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
     <div class="look-editor-header"><div><span class="eyebrow">LIGHTING SCENE</span><h1>${escapeHtml(selectedScene.name)}</h1></div><button id="lighting-editor-close">×</button></div>
     <div class="settings-form">
+      <section class="wide panel"><span class="eyebrow">PRODUCTION SCENE</span>
+        <label class="checkbox-label"><input type="checkbox" id="lighting-production-scene" ${selectedScene.productionScene !== false ? 'checked' : ''}> Use in Service Planning</label>
+        <small>Production scenes are available in Service cues and can be executed during GO. Utility scenes remain available in the Lighting Library for manual recall.</small>
+        ${selectedUtilityWarning ? `<p class="look-warning">${selectedUtilityWarning}</p>` : ''}
+      </section>
       <section class="wide panel"><span class="eyebrow">QLC+ MAPPING</span>
         <p><strong>${escapeHtml(mappingStatus)}</strong> · ${discoveredControls.length} discovered · ${compatibleControls.length} compatible buttons${productionPage ? ` on ${escapeHtml(productionPage)}` : ''}</p>
         <label>Control<select id="lighting-control-mapping">
@@ -1695,13 +1722,13 @@ function lightingPage() {
           <span>LIGHTING LIBRARY</span>
 
           <strong>
-            ${state.lightingScenes.length}
-            scenes
+            ${productionScenes.length} Production · ${utilityScenes.length} Utility · ${state.productionLooks.length} Looks · ${state.runOfService.length} Cues
           </strong>
         </div>
+        <div class="look-toolbar"><select id="lighting-scene-filter"><option value="production" ${lightingSceneFilter === 'production' ? 'selected' : ''}>Production Scenes (${productionScenes.length})</option><option value="utility" ${lightingSceneFilter === 'utility' ? 'selected' : ''}>Utility Scenes (${utilityScenes.length})</option><option value="all" ${lightingSceneFilter === 'all' ? 'selected' : ''}>All Scenes (${state.lightingScenes.length})</option></select></div>
 
         <div class="card-grid lighting-scene-grid">
-          ${state.lightingScenes
+          ${filteredScenes
             .map(scene => {
               const lookReferences = (state.productionLooks || [])
                 .filter(look => look.lightingSceneId === scene.id);
@@ -1718,7 +1745,7 @@ function lightingPage() {
               return `<article class="edit-card lighting-scene-card ${scene.favorite ? 'favorite' : ''} ${state.live?.lightingOverrideId === scene.id ? 'selected' : ''}" data-select-lighting="${scene.id}">
                 <header class="lighting-scene-card-header">
                   <div>
-                    <small>${escapeHtml(scene.category || 'Custom')}</small>
+                    <small>${escapeHtml(scene.category || 'Custom')} · <span class="scene-classification-badge ${scene.productionScene === false ? 'utility' : 'production'}">${scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
                     <h2>${escapeHtml(scene.name)}</h2>
                   </div>
                   <button class="lighting-favorite-button" data-favorite-lighting="${scene.id}" title="${scene.favorite ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${scene.favorite ? 'Remove' : 'Add'} ${escapeHtml(scene.name)} ${scene.favorite ? 'from' : 'to'} favorites">${scene.favorite ? '★' : '☆'}</button>
@@ -1741,7 +1768,7 @@ function lightingPage() {
                 <button data-edit-lighting="${scene.id}">EDIT</button>
               </article>`;
             })
-            .join('')}
+            .join('') || '<p class="empty-state">No scenes in this classification.</p>'}
         </div>
       </section>
     </div>${editor}
@@ -1775,6 +1802,10 @@ function lightingPage() {
     try { homeAssistantStatus = await window.trinity.turnLightingPowerOff(); }
     catch (error) { window.alert(error.message); }
     finally { homeAssistantBusy = false; render(); }
+  });
+  document.getElementById('lighting-scene-filter')?.addEventListener('change', event => {
+    lightingSceneFilter = event.target.value;
+    render();
   });
 
   document.querySelectorAll('[data-select-lighting]').forEach(card => {
@@ -1829,7 +1860,10 @@ function lightingPage() {
       widgetName: control?.name || mapping?.widgetName || null,
       widgetType: control?.widgetType || mapping?.widgetType || null
     } : null;
-    state = await window.trinity.updateLightingScene(selectedScene.id, { externalControl });
+    state = await window.trinity.updateLightingScene(selectedScene.id, {
+      externalControl,
+      productionScene: document.getElementById('lighting-production-scene').checked
+    });
     render();
   });
   document.getElementById('lighting-duplicate-scene')?.addEventListener('click', async () => {

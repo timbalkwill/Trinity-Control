@@ -8,12 +8,15 @@ const { createOperatorCommands } = require("../operator-commands.cjs");
 const {
   duplicateLightingScene,
   filterLightingControls,
+  filterLightingScenes,
   lightingDiscoveryView,
   lightingMappingView,
+  lightingSceneCounts,
   migrateLightingScenes,
   normalizeLightingScene,
   suggestLightingControl,
-  updateLightingScene
+  updateLightingScene,
+  utilitySceneReferenceWarning
 } = require("../lighting-scene-operations.cjs");
 
 const widgets = [
@@ -37,9 +40,44 @@ test("legacy Lighting Scenes normalize deterministically with no mapping", () =>
   const once = normalizeLightingScene(source);
   const twice = normalizeLightingScene(once);
   assert.equal(once.externalControl, null);
+  assert.equal(once.productionScene, true);
   assert.equal(once.customLegacy, "preserved");
   assert.deepEqual(twice, once);
   assert.deepEqual(migrateLightingScenes([source]), [once]);
+});
+
+test("Production Scene defaults true, persists toggles, and preserves unknown fields", () => {
+  const current = { lightingScenes: [{ id: "scene", name: "Scene", futureMetadata: { retained: true } }] };
+  updateLightingScene(current, "scene", { productionScene: false });
+  assert.equal(current.lightingScenes[0].productionScene, false);
+  assert.deepEqual(current.lightingScenes[0].futureMetadata, { retained: true });
+  updateLightingScene(current, "scene", { productionScene: true });
+  assert.equal(current.lightingScenes[0].productionScene, true);
+});
+
+test("Production, Utility, and All filters and counts are calculated without mutation", () => {
+  const scenes = [
+    normalizeLightingScene({ id: "production", name: "Production" }),
+    normalizeLightingScene({ id: "utility", name: "Utility", productionScene: false }),
+    normalizeLightingScene({ id: "production-2", name: "Production 2", productionScene: true })
+  ];
+  const before = structuredClone(scenes);
+  assert.deepEqual(filterLightingScenes(scenes).map(item => item.id), ["production", "production-2"]);
+  assert.deepEqual(filterLightingScenes(scenes, "utility").map(item => item.id), ["utility"]);
+  assert.deepEqual(filterLightingScenes(scenes, "all").map(item => item.id), ["production", "utility", "production-2"]);
+  assert.deepEqual(lightingSceneCounts(scenes), { production: 2, utility: 1, total: 3 });
+  assert.deepEqual(scenes, before);
+});
+
+test("referenced Utility scenes retain identity and report the required warning", () => {
+  const current = {
+    lightingScenes: [normalizeLightingScene({ id: "utility", productionScene: false })],
+    productionLooks: [{ id: "look", lightingSceneId: "utility" }],
+    runOfService: [{ id: "cue", lightingSceneId: "utility" }]
+  };
+  assert.equal(utilitySceneReferenceWarning(current, "utility"), "Scene is marked Utility but is still referenced.");
+  assert.equal(current.productionLooks[0].lightingSceneId, "utility");
+  assert.equal(current.runOfService[0].lightingSceneId, "utility");
 });
 
 test("valid mapping persists with widget ID authoritative and safe metadata only", () => {
@@ -170,7 +208,7 @@ test("mapping UI selects and saves without any activation command", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.match(renderer, /data-edit-lighting/);
   assert.match(renderer, /Previously mapped control not found — Widget ID/);
-  assert.match(renderer, /updateLightingScene\(selectedScene\.id, \{ externalControl \}\)/);
+  assert.match(renderer, /updateLightingScene\(selectedScene\.id, \{\s*externalControl,\s*productionScene:/);
   assert.doesNotMatch(renderer.slice(renderer.indexOf("function lightingPage"), renderer.indexOf("function camerasPage")), /activateControl/);
 });
 
@@ -190,6 +228,21 @@ test("Lighting Settings refresh and diagnostic filtering remain read-only", () =
   assert.match(settings, /widget\.canActivateScene \? 'Scene-capable' : 'Read only'/);
   assert.match(settings, /widget\.pageName \|\| 'Page unavailable'/);
   assert.doesNotMatch(settings, /activateControl/);
+});
+
+test("classification UI filters the library and production-only planning pickers", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  assert.match(renderer, /let lightingSceneFilter = 'production'/);
+  assert.match(renderer, /Use in Service Planning/);
+  assert.match(renderer, /Production scenes are available in Service cues and can be executed during GO\. Utility scenes remain available in the Lighting Library for manual recall\./);
+  assert.match(renderer, /Production Scenes \(\$\{productionScenes\.length\}\)/);
+  assert.match(renderer, /Utility Scenes \(\$\{utilityScenes\.length\}\)/);
+  assert.match(renderer, /All Scenes \(\$\{state\.lightingScenes\.length\}\)/);
+  assert.match(renderer, /scene\.productionScene !== false/);
+  assert.match(renderer, /Utility — referenced/);
+  assert.match(renderer, /Scene is marked Utility but is still referenced\./);
+  assert.match(renderer, /scene-classification-badge/);
+  assert.doesNotMatch(renderer.slice(renderer.indexOf("function lightingPage"), renderer.indexOf("function camerasPage")), /activateControl/);
 });
 
 test("cue execution remains independent of QLC+ mapping", () => {

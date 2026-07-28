@@ -2,6 +2,7 @@
 
 const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
 const { resolveShotExecution } = require("./shot-operations.cjs");
+const { resolveLightingExecution, utilitySceneReferenceWarning } = require("./lighting-scene-operations.cjs");
 
 function byId(items, id) {
   return id && Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -13,7 +14,7 @@ function resolveId(items, cueId, lookId) {
   return { id: null, source: "fallback" };
 }
 
-function buildCueExecutionPlan(state, cue) {
+function buildCueExecutionPlan(state, cue, { resolvedAt = Date.now() } = {}) {
   const warnings = [];
   const look = byId(state?.productionLooks, cue?.productionLookId);
   const effectiveLook = look?.enabled === false ? null : look;
@@ -47,6 +48,17 @@ function buildCueExecutionPlan(state, cue) {
   }));
   const shotValidationErrors = shotExecutions.flatMap(item => item.errors);
   warnings.push(...shotValidationErrors);
+  const requestedLightingSceneId = lighting.id || cue?.lightingSceneId || effectiveLook?.lightingSceneId || null;
+  const lightingResolution = requestedLightingSceneId
+    ? resolveLightingExecution(state, requestedLightingSceneId, { resolvedAt })
+    : null;
+  const lightingExecutions = lightingResolution?.execution ? [lightingResolution.execution] : [];
+  const lightingValidationErrors = lightingResolution && lightingResolution.validation?.state !== "valid"
+    ? [lightingResolution.validation]
+    : [];
+  warnings.push(...lightingValidationErrors.map(item => item.message));
+  const utilityWarning = utilitySceneReferenceWarning(state, requestedLightingSceneId);
+  if (utilityWarning) warnings.push(utilityWarning);
 
   return {
     cueId: cue?.id || null,
@@ -112,6 +124,8 @@ function buildCueExecutionPlan(state, cue) {
     })),
     shotExecutions,
     shotValidationErrors,
+    lightingExecutions,
+    lightingValidationErrors,
     motion: {
       enabled: effectiveLook?.motionEnabled === true,
       profileId: effectiveLook?.motionProfileId || null,

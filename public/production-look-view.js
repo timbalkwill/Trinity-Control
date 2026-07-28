@@ -52,11 +52,12 @@
 
   function summarizeSnapshot(snapshot) {
     const assignments = snapshot.cameraAssignments || snapshot.cameras || [];
+    const lightingExecution = snapshot.lightingExecutions?.[0];
     const byRole = Object.fromEntries(roles.map(role => [role, assignments.find(item => item?.role === role)]));
     const cameraParts = roles.map(role => byRole[role]?.presetName).filter(Boolean);
     return {
       name: snapshot.productionLookName || (snapshot.productionLookId ? "Missing reference" : "Not assigned"),
-      lighting: snapshot.lighting?.sceneName || (snapshot.lighting?.sceneId ? "Missing reference" : "Not assigned"),
+      lighting: lightingExecution?.widgetName || snapshot.lighting?.sceneName || (snapshot.lighting?.sceneId ? "Missing reference" : "Not assigned"),
       priorityCamera: snapshot.video?.programCameraName || "Not assigned",
       programCamera: snapshot.video?.programCameraName || (snapshot.video?.programCameraId ? "Missing reference" : "Not assigned"),
       previewCamera: snapshot.video?.previewCameraName || (snapshot.video?.previewCameraId ? "Missing reference" : "Not assigned"),

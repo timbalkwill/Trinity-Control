@@ -16,7 +16,11 @@ function normalizeExternalControl(input) {
 }
 
 function normalizeLightingScene(input = {}) {
-  return { ...input, externalControl: normalizeExternalControl(input.externalControl) };
+  return {
+    ...input,
+    productionScene: input.productionScene !== false,
+    externalControl: normalizeExternalControl(input.externalControl)
+  };
 }
 
 function migrateLightingScenes(scenes) {
@@ -36,6 +40,27 @@ function duplicateLightingScene(state, sceneId, { id = uniqueId() } = {}) {
   const duplicate = normalizeLightingScene({ ...clone(source), id, name: `${source.name || "Lighting Scene"} Copy`, externalControl: null });
   state.lightingScenes.push(duplicate);
   return duplicate;
+}
+
+function filterLightingScenes(scenes, filter = "production") {
+  const items = Array.isArray(scenes) ? scenes : [];
+  if (filter === "all") return [...items];
+  if (filter === "utility") return items.filter(item => item?.productionScene === false);
+  return items.filter(item => item?.productionScene !== false);
+}
+
+function lightingSceneCounts(scenes) {
+  const items = Array.isArray(scenes) ? scenes : [];
+  const production = items.filter(item => item?.productionScene !== false).length;
+  return { production, utility: items.length - production, total: items.length };
+}
+
+function utilitySceneReferenceWarning(state, lightingSceneId) {
+  const scene = (state?.lightingScenes || []).find(item => item?.id === lightingSceneId);
+  if (!scene || scene.productionScene !== false) return null;
+  const lookCount = (state?.productionLooks || []).filter(item => item?.lightingSceneId === lightingSceneId).length;
+  const cueCount = (state?.runOfService || []).filter(item => item?.lightingSceneId === lightingSceneId).length;
+  return lookCount || cueCount ? "Scene is marked Utility but is still referenced." : null;
 }
 
 function normalizedName(value) {
@@ -109,15 +134,116 @@ function lightingMappingView(scene, device, { showAll = false } = {}) {
   };
 }
 
+function lightingValidation(state, lightingSceneId, message, severity = "error", details = {}) {
+  return {
+    lightingSceneId: lightingSceneId || null,
+    state,
+    severity,
+    message,
+    ...details
+  };
+}
+
+function resolveLightingExecution(state, lightingSceneId, { resolvedAt = Date.now() } = {}) {
+  const scene = (state?.lightingScenes || []).find(item => item?.id === lightingSceneId);
+  if (!scene) {
+    return {
+      execution: null,
+      validation: lightingValidation("lighting-scene-missing", lightingSceneId, `Lighting Scene is missing: ${lightingSceneId || "unassigned"}`)
+    };
+  }
+  if (scene.enabled === false) {
+    return {
+      execution: null,
+      validation: lightingValidation("lighting-scene-disabled", scene.id, `Lighting Scene is disabled: ${scene.name || scene.id}`)
+    };
+  }
+
+  const rawMapping = scene.externalControl;
+  if (!rawMapping || typeof rawMapping !== "object") {
+    return {
+      execution: null,
+      validation: lightingValidation("mapping-missing", scene.id, `Lighting Scene has no QLC+ mapping: ${scene.name || scene.id}`)
+    };
+  }
+  const widgetId = nullable(rawMapping.widgetId);
+  if (!widgetId) {
+    return {
+      execution: null,
+      validation: lightingValidation("widget-missing", scene.id, `Lighting Scene mapping has no widget ID: ${scene.name || scene.id}`)
+    };
+  }
+
+  const adapterType = nullable(rawMapping.adapterType);
+  const lightingDevices = (state?.devices || []).filter(item => item?.type === "lighting");
+  const device = lightingDevices.find(item => item?.adapterType === adapterType) || lightingDevices[0];
+  if (!device || !device.adapterType) {
+    return {
+      execution: null,
+      validation: lightingValidation("adapter-not-configured", scene.id, `Lighting adapter is not configured for: ${scene.name || scene.id}`, "error", { widgetId })
+    };
+  }
+  if (device.enabled === false) {
+    return {
+      execution: null,
+      validation: lightingValidation("adapter-disabled", scene.id, `Lighting adapter is disabled: ${device.name || device.id}`, "error", { widgetId })
+    };
+  }
+  if (adapterType !== "qlcplus-websocket" || device.adapterType !== "qlcplus-websocket") {
+    return {
+      execution: null,
+      validation: lightingValidation("unknown-adapter", scene.id, `Unknown lighting adapter: ${adapterType || device.adapterType}`, "error", { widgetId })
+    };
+  }
+
+  const widgets = Array.isArray(device.metadata?.qlcplusWidgets) ? device.metadata.qlcplusWidgets : [];
+  const widget = widgets.find(item => String(item?.widgetId) === widgetId);
+  if (!widget) {
+    return {
+      execution: null,
+      validation: lightingValidation("widget-not-discovered", scene.id, `Mapped QLC+ widget is not currently discovered: ${widgetId}`, "error", { widgetId })
+    };
+  }
+  if (String(widget.widgetType || "").toLocaleLowerCase() !== "button" || widget.canActivateScene !== true) {
+    return {
+      execution: null,
+      validation: lightingValidation("widget-not-button", scene.id, `Mapped QLC+ widget is not a scene-capable button: ${widgetId}`, "error", { widgetId })
+    };
+  }
+
+  const execution = Object.freeze({
+    lightingSceneId: scene.id,
+    adapterType,
+    widgetId,
+    widgetName: widget.name || rawMapping.widgetName || null,
+    pageName: widget.pageName || null,
+    executionType: "qlc-button",
+    resolvedAt: Number(resolvedAt) || 0
+  });
+  const productionPage = device.metadata?.qlcplusProductionPage || null;
+  const validation = productionPage && widget.pageName !== productionPage
+    ? lightingValidation("page-mismatch", scene.id, `Mapped QLC+ widget is outside Production Page ${productionPage}`, "warning", {
+      widgetId,
+      pageName: widget.pageName || null,
+      productionPage
+    })
+    : lightingValidation("valid", scene.id, `Lighting Scene resolved: ${scene.name || scene.id}`, "info", { widgetId });
+  return { execution, validation };
+}
+
 module.exports = {
   duplicateLightingScene,
   filterLightingControls,
+  filterLightingScenes,
   lightingDiscoveryView,
   lightingMappingView,
+  lightingSceneCounts,
   migrateLightingScenes,
   normalizeExternalControl,
   normalizeLightingScene,
   normalizedName,
+  resolveLightingExecution,
   suggestLightingControl,
-  updateLightingScene
+  updateLightingScene,
+  utilitySceneReferenceWarning
 };

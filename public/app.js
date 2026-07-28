@@ -37,6 +37,16 @@ const nav = [
 
 const byId = (items, id) => items.find(item => item.id === id);
 
+function cameraScopedPresets(presets, cameraDeviceId) {
+  const scoped = new Map();
+  for (const preset of presets || []) {
+    if (!preset?.id || preset.cameraDeviceId !== cameraDeviceId) continue;
+    const key = `${preset.cameraDeviceId}\u0000${preset.id}`;
+    if (!scoped.has(key)) scoped.set(key, preset);
+  }
+  return [...scoped.values()];
+}
+
 const escapeHtml = (value = '') =>
   String(value).replace(
     /[&<>"']/g,
@@ -1974,19 +1984,39 @@ function shotsPage() {
     </article>`;
   };
   const resolved = selected ? shotResolution(selected) : null;
-  const references = selected ? shotReferenceSummary(selected.id) : null;
+  const selectedType = selected?.shotType || 'static';
+  const selectedCameraId = selected?.cameraDeviceId || resolved?.camera?.id || null;
+  const scopedPresets = cameraScopedPresets(state.cameraPresets, selectedCameraId);
   const textField = (label, name, value = '') => `<label>${label}<input data-shot-field="${name}" value="${escapeHtml(value ?? '')}"></label>`;
+  const presetOptions = (current, empty) => {
+    const currentPreset = scopedPresets.find(item => item.id === current);
+    return `<option value="">${empty}</option>${current && !currentPreset ? `<option value="${escapeHtml(current)}" selected>Missing or assigned to another camera</option>` : ''}${scopedPresets.map(item => `<option value="${item.id}" ${item.id === current ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
+  };
+  const motionSpeedOptions = [
+    ['verySlow', 'Very Slow'],
+    ['slow', 'Slow'],
+    ['medium', 'Medium'],
+    ['fast', 'Fast']
+  ].map(([value, label]) => `<option value="${value}" ${(selected?.motionSpeedSetting || 'medium') === value ? 'selected' : ''}>${label}</option>`).join('');
   const editor = selected ? `<div class="shot-editor">
-    <div class="shot-editor-heading"><div><span class="eyebrow">SHOT DETAILS</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(resolved.readiness)}</p></div><div class="row-actions"><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
+    <div class="shot-editor-heading"><div><span class="eyebrow">SHOT DETAILS</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(resolved.readiness)}</p></div><div class="row-actions"><button id="shot-save" class="live-button">SAVE</button><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
     <div class="shot-section-grid">
-      <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Shot Type<select data-shot-field="shotType"><option value="static" ${(selected.shotType || 'static') === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${selected.shotType === 'motion' ? 'selected' : ''}>Motion</option><option value="tracking" ${selected.shotType === 'tracking' ? 'selected' : ''}>Tracking</option></select></label><label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label><label>Color<input type="color" data-shot-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label>${textField('Icon','icon',selected.icon)}</fieldset>
-      <fieldset><legend>CAMERA TARGET</legend><label>Specific camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select></label>${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}<label>Camera preset<select data-shot-field="cameraPresetId">${options(state.cameraPresets || [], selected.cameraPresetId, 'No preset')}</select></label><div class="resolved-shot"><strong>${escapeHtml(resolved.camera?.name || 'No camera resolved')}</strong><span>${escapeHtml(resolved.preset?.name || 'No preset resolved')}</span><em>${escapeHtml(resolved.readiness)}</em></div></fieldset>
-      <fieldset><legend>FRAMING</legend>${textField('Subject','subject',selected.subject)}${textField('Framing type','framingType',selected.framingType)}${textField('Composition','composition',selected.composition)}${textField('Orientation','orientation',selected.orientation)}${textField('Safe area','safeArea',selected.safeArea)}<label>Framing notes<textarea data-shot-field="framingNotes">${escapeHtml(selected.framingNotes || '')}</textarea></label></fieldset>
-      <fieldset><legend>TRACKING</legend>${textField('Tracking mode','trackingMode',selected.trackingMode)}<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Tracking preferred</label>${textField('Tracking subject','trackingSubject',selected.trackingSubject)}<label>Tracking notes<textarea data-shot-field="trackingNotes">${escapeHtml(selected.trackingNotes || '')}</textarea></label></fieldset>
-      <fieldset><legend>MOTION</legend><label class="checkbox-label"><input type="checkbox" data-shot-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion intended</label>${textField('Motion profile (future)','motionProfileId',selected.motionProfileId)}<label>Duration (ms)<input type="number" min="0" data-shot-field="motionDurationMs" value="${selected.motionDurationMs || 0}"></label><label>Speed<input type="number" min="0" step="0.1" data-shot-field="motionSpeed" value="${selected.motionSpeed || 1}"></label><label>Motion notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label></fieldset>
-      <fieldset><legend>OPERATOR</legend><label>Operator notes<textarea data-shot-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label>${textField('Thumbnail reference','thumbnailReference',selected.thumbnailReference)}<div class="thumbnail-placeholder">SHOT THUMBNAIL<br><small>Preview adapter not implemented</small></div><p>${escapeHtml(resolved.readiness)}. Hardware connection is not reported.</p></fieldset>
+      <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Shot Type<select data-shot-field="shotType"><option value="static" ${(selected.shotType || 'static') === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${selected.shotType === 'motion' ? 'selected' : ''}>Motion</option><option value="tracking" ${selected.shotType === 'tracking' ? 'selected' : ''}>Tracking</option></select></label><label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label></fieldset>
+      <fieldset><legend>CAMERA TARGET</legend><label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'Start Preset' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<label>End Preset<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select></label><label>Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(resolved.readiness)}</em></div></fieldset>
     </div>
-    <section class="danger-zone shot-danger-zone"><div><span class="eyebrow">ACTIONS · DANGER ZONE</span><strong>Delete ${escapeHtml(selected.name)}</strong><p>${references.total} saved reference${references.total === 1 ? '' : 's'} will remain as missing Shot references.</p><ul>${Object.entries(references.counts).map(([label,count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><button class="danger" id="shot-delete-danger">DELETE SHOT</button></section>
+    <details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES</summary><div class="advanced-camera-notes-grid">
+      ${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}
+      ${textField('Subject','subject',selected.subject)}
+      ${textField('Framing type','framingType',selected.framingType)}
+      ${textField('Composition','composition',selected.composition)}
+      ${textField('Orientation','orientation',selected.orientation)}
+      ${textField('Safe area','safeArea',selected.safeArea)}
+      <label>Framing notes<textarea data-shot-field="framingNotes">${escapeHtml(selected.framingNotes || '')}</textarea></label>
+      <label>Color<input type="color" data-shot-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label>
+      ${textField('Icon','icon',selected.icon)}
+      <label>Operator notes<textarea data-shot-field="operatorNotes">${escapeHtml(selected.operatorNotes || '')}</textarea></label>
+      ${textField('Thumbnail reference','thumbnailReference',selected.thumbnailReference)}
+    </div></details>
   </div>` : '<div class="empty-state">Create a Shot to begin.</div>';
 
   shell(`<div class="shot-library page-scroll"><aside class="panel shot-sidebar"><div class="section-title"><span>SHOT LIBRARY</span><strong>${shots.length} reusable Shots</strong></div><div class="shot-filters"><input id="shot-search" value="${escapeHtml(shotSearch)}" placeholder="Search Shots"><select id="shot-category"><option value="">All categories</option>${[...categories.values()].map(category => `<option ${shotCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><select id="shot-camera"><option value="">All cameras / roles</option>${cameras.map(camera => `<option value="${camera.id}" ${shotCamera === camera.id ? 'selected' : ''}>${escapeHtml(camera.name)}</option>`).join('')}${[...new Set(cameras.map(camera => camera.logicalRole).filter(Boolean))].map(role => `<option value="${escapeHtml(role)}" ${shotCamera === role ? 'selected' : ''}>Role: ${escapeHtml(role)}</option>`).join('')}</select><select id="shot-favorite"><option value="">All favorites</option><option value="true" ${shotFavorite === 'true' ? 'selected' : ''}>Favorites only</option></select><select id="shot-enabled"><option value="">Enabled and disabled</option><option value="true" ${shotEnabled === 'true' ? 'selected' : ''}>Enabled</option><option value="false" ${shotEnabled === 'false' ? 'selected' : ''}>Disabled</option></select><button id="shot-new">NEW SHOT</button></div><div class="shot-list">${filtered.map(card).join('') || '<div class="empty-state">No matching Shots.</div>'}</div></aside><main class="panel">${editor}</main></div>`);
@@ -2001,11 +2031,30 @@ function shotsPage() {
   document.querySelectorAll('[data-move-shot]').forEach(button => button.onclick = async event => { event.stopPropagation(); const from = state.shots.findIndex(shot => shot.id === button.dataset.moveShot); state = await window.trinity.reorderShot(from, from + Number(button.dataset.direction)); render(); });
   if (!selected) return;
   const save = async patch => { try { state = await window.trinity.updateShot(selected.id, patch); render(); } catch (error) { window.alert(error.message); render(); } };
-  document.querySelectorAll('[data-shot-field]').forEach(input => input.onchange = () => {
+  const shotFieldValue = input => {
     let value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value || null;
     if (input.dataset.shotField === 'tags') value = input.value.split(',').map(tag => tag.trim()).filter(Boolean);
+    return value;
+  };
+  const visibleShotPatch = () => Object.fromEntries(
+    [...document.querySelectorAll('[data-shot-field]')].map(input => [input.dataset.shotField, shotFieldValue(input)])
+  );
+  document.querySelectorAll('[data-shot-field]').forEach(input => input.onchange = () => {
+    const value = shotFieldValue(input);
+    if (input.dataset.shotField === 'cameraDeviceId') {
+      const patch = { cameraDeviceId: value };
+      if (value !== selectedCameraId) {
+        if (selected.cameraPresetId) patch.cameraPresetId = null;
+        if (selected.motionEndPresetId) patch.motionEndPresetId = null;
+      }
+      save(patch);
+      return;
+    }
     save({ [input.dataset.shotField]: value });
   });
+  const saveButton = document.getElementById('shot-save');
+  saveButton.onpointerdown = event => { event.preventDefault(); save(visibleShotPatch()); };
+  saveButton.onclick = event => { if (event.detail === 0) save(visibleShotPatch()); };
   document.getElementById('shot-duplicate').onclick = async () => { state = await window.trinity.duplicateShot(selected.id); selectedShotId = state.shots.at(-1).id; render(); };
   document.getElementById('shot-toggle').onclick = () => save({ enabled: !selected.enabled });
   const remove = async () => {
@@ -2016,7 +2065,6 @@ function shotsPage() {
     render();
   };
   document.getElementById('shot-delete').onclick = remove;
-  document.getElementById('shot-delete-danger').onclick = remove;
 }
 
 function deviceConfigured(device) {

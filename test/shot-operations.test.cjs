@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   DEFAULT_SHOT_DEFINITIONS,
+  MOTION_SPEED_SETTINGS,
   SUGGESTED_SHOT_CATEGORIES,
   SHOT_TYPES,
   countShotReferences,
@@ -81,6 +82,7 @@ test("malformed partial Shots normalize safely and preserve unknown fields", () 
 
 test("Shot types migrate, default, and persist through CRUD", () => {
   assert.deepEqual(SHOT_TYPES, ["static", "motion", "tracking"]);
+  assert.deepEqual(MOTION_SPEED_SETTINGS, ["verySlow", "slow", "medium", "fast"]);
   assert.equal(migrateShots([{ id: "legacy", name: "Legacy Shot" }])[0].shotType, "static");
   assert.equal(normalizeShot({ name: "Unknown Type", shotType: "other" }).shotType, "static");
 
@@ -96,6 +98,36 @@ test("Shot types migrate, default, and persist through CRUD", () => {
 
   updateShot(current, "shot", { shotType: "tracking" }, { now: 4000 });
   assert.equal(current.shots[0].shotType, "tracking");
+});
+
+test("type-specific Shot fields normalize, persist, and duplicate", () => {
+  const current = state();
+  const legacy = normalizeShot({ id: "legacy", name: "Legacy", cameraPresetId: "pastor-tight", trackingPreferred: true, motionSpeed: 0.5 });
+  assert.equal(legacy.shotType, "static");
+  assert.equal(legacy.cameraPresetId, "pastor-tight");
+  assert.equal(legacy.trackingPreferred, true);
+  assert.equal(legacy.motionSpeed, 0.5);
+  assert.equal(legacy.motionEndPresetId, null);
+  assert.equal(legacy.motionSpeedSetting, "medium");
+
+  createShot(current, {
+    name: "Motion Shot",
+    shotType: "motion",
+    cameraDeviceId: "main",
+    cameraPresetId: "pastor-tight",
+    motionEndPresetId: "left-wide",
+    motionSpeedSetting: "verySlow"
+  }, { id: "motion", now: 1000 });
+  const copy = duplicateShot(current, "motion", { id: "motion-copy", now: 2000 });
+  assert.equal(copy.shotType, "motion");
+  assert.equal(copy.cameraDeviceId, "main");
+  assert.equal(copy.cameraPresetId, "pastor-tight");
+  assert.equal(copy.motionEndPresetId, "left-wide");
+  assert.equal(copy.motionSpeedSetting, "verySlow");
+
+  updateShot(current, "motion", { motionSpeedSetting: "fast" }, { now: 3000 });
+  assert.equal(current.shots[0].motionSpeedSetting, "fast");
+  assert.equal(normalizeShot({ name: "Invalid speed", motionSpeedSetting: "warp" }).motionSpeedSetting, "medium");
 });
 
 test("Shot reference summary renders without undefined camera variables", () => {
@@ -117,9 +149,41 @@ test("Shot reference summary renders without undefined camera variables", () => 
 
 test("renderer wires Shot Type persistence and Lighting card interactions", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const scopedPresetSource = renderer.match(/function cameraScopedPresets\(presets, cameraDeviceId\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(scopedPresetSource, "camera-scoped preset helper is present");
+  const scopePresets = new Function(`${scopedPresetSource}; return cameraScopedPresets;`)();
+  assert.deepEqual(scopePresets([
+    { id: "wide", cameraDeviceId: "main", name: "Wide" },
+    { id: "wide", cameraDeviceId: "left", name: "Wide" },
+    { id: "wide", cameraDeviceId: "main", name: "Duplicate exact pair" },
+    { id: "tight", cameraDeviceId: "main", name: "Wide" }
+  ], "main"), [
+    { id: "wide", cameraDeviceId: "main", name: "Wide" },
+    { id: "tight", cameraDeviceId: "main", name: "Wide" }
+  ]);
+
   const shotsPage = renderer.slice(renderer.indexOf("function shotsPage()"), renderer.indexOf("function deviceConfigured"));
   assert.match(shotsPage, /select data-shot-field="shotType"/);
   assert.match(shotsPage, /window\.trinity\.updateShot\(selected\.id, patch\)/);
+  assert.match(shotsPage, /id="shot-save" class="live-button">SAVE</);
+  assert.match(shotsPage, /saveButton\.onpointerdown/);
+  assert.match(shotsPage, /visibleShotPatch\(\)/);
+  assert.match(shotsPage, /<details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES<\/summary>/);
+  assert.doesNotMatch(shotsPage, /<details class="advanced-camera-notes" open/);
+  assert.doesNotMatch(shotsPage, /ACTIONS · DANGER ZONE|shot-delete-danger/);
+  assert.equal((shotsPage.match(/id="shot-delete"/g) || []).length, 1);
+  for (const field of ["logicalCameraRole", "subject", "framingType", "composition", "orientation", "safeArea", "framingNotes", "color", "icon", "operatorNotes", "thumbnailReference"]) {
+    const advanced = shotsPage.slice(shotsPage.indexOf('<details class="advanced-camera-notes"'), shotsPage.indexOf('<section class="danger-zone'));
+    assert.ok(advanced.includes(`data-shot-field="${field}"`) || advanced.includes(`'${field}'`), `${field} is in Advanced Camera Notes`);
+  }
+  const cameraTarget = shotsPage.slice(shotsPage.indexOf("<fieldset><legend>CAMERA TARGET"), shotsPage.indexOf("</fieldset>", shotsPage.indexOf("<fieldset><legend>CAMERA TARGET")));
+  assert.match(cameraTarget, /selectedType === 'motion'.*data-shot-field="motionEndPresetId"/s);
+  assert.match(cameraTarget, /selectedType === 'motion'.*data-shot-field="motionSpeedSetting"/s);
+  assert.match(cameraTarget, /selectedType === 'tracking'.*data-shot-field="trackingPreferred"/s);
+  assert.doesNotMatch(shotsPage, /<legend>MOTION<\/legend>|<legend>TRACKING<\/legend>/);
+  assert.match(shotsPage, /cameraScopedPresets\(state\.cameraPresets, selectedCameraId\)/);
+  assert.match(shotsPage, /patch\.cameraPresetId = null/);
+  assert.match(shotsPage, /patch\.motionEndPresetId = null/);
 
   const lightingPage = renderer.slice(renderer.indexOf("function lightingPage()"), renderer.indexOf("function camerasPage()"));
   assert.match(lightingPage, /data-select-lighting="\$\{scene\.id\}"/);

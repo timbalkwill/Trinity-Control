@@ -1,7 +1,8 @@
 "use strict";
 
-const SHOT_SCHEMA_VERSION = 2;
+const SHOT_SCHEMA_VERSION = 3;
 const SHOT_TYPES = ["static", "motion", "tracking"];
+const MOTION_SPEED_SETTINGS = ["verySlow", "slow", "medium", "fast"];
 const SUGGESTED_SHOT_CATEGORIES = ["Pastor", "Platform", "Music", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"];
 const EPOCH = "1970-01-01T00:00:00.000Z";
 const nullable = value => typeof value === "string" && value.trim() ? value.trim() : null;
@@ -11,6 +12,7 @@ const finite = (value, fallback = 0, minimum = 0) => Number.isFinite(Number(valu
 const uniqueId = () => `shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
 const shotType = value => SHOT_TYPES.includes(value) ? value : "static";
+const motionSpeedSetting = value => MOTION_SPEED_SETTINGS.includes(value) ? value : "medium";
 
 const DEFAULT_SHOT_DEFINITIONS = [
   ["shot-pastor-tight", "Pastor Tight", "Pastor", "main", "Pastor", "Tight"],
@@ -58,6 +60,8 @@ function normalizeShot(input = {}, { id, now, order = 0 } = {}) {
     trackingNotes: text(input.trackingNotes),
     motionEnabled: input.motionEnabled === true,
     motionProfileId: nullable(input.motionProfileId),
+    motionEndPresetId: nullable(input.motionEndPresetId),
+    motionSpeedSetting: motionSpeedSetting(input.motionSpeedSetting),
     motionDurationMs: finite(input.motionDurationMs, 0),
     motionSpeed: finite(input.motionSpeed, 1),
     motionNotes: text(input.motionNotes),
@@ -295,6 +299,7 @@ function filterShots(state, filters = {}) {
 
 module.exports = {
   DEFAULT_SHOT_DEFINITIONS,
+  MOTION_SPEED_SETTINGS,
   SHOT_SCHEMA_VERSION,
   SHOT_TYPES,
   SUGGESTED_SHOT_CATEGORIES,

@@ -2515,12 +2515,12 @@ function settingsPage() {
   const cameraCard = (camera, index) => {
     const legacy = byId(state.cameras, camera.id);
     return `<article class="device-card camera-config-card ${camera.enabled ? '' : 'disabled'}">
-      <div class="device-card-head"><span class="role-pill">${escapeHtml(camera.logicalRole)}</span><strong>${escapeHtml(camera.name)}</strong></div>
+      <div class="device-card-head camera-config-card-head"><span class="role-pill">${escapeHtml(camera.logicalRole)}</span><strong class="camera-config-name" title="${escapeHtml(camera.name)}">${escapeHtml(camera.name)}</strong></div>
       <div class="device-facts"><span>${camera.enabled ? 'Enabled' : 'Disabled'}</span><span>${deviceConfigured(camera) ? 'Configured' : 'Not configured'}</span><span>${escapeHtml(deviceStatusLabel(camera.connectionStatus))}</span></div>
       <small>${escapeHtml([camera.manufacturer, camera.model].filter(Boolean).join(' ') || 'Manufacturer/model not assigned')}</small>
       <small>${escapeHtml(camera.ipAddress || 'No IP address')} · ${escapeHtml(camera.protocol || 'No protocol')}</small>
       <small>Tracking ${camera.trackingEnabled ? 'Yes' : 'No'} · Motion ${camera.motionEnabled ? 'Yes' : 'No'} · Presets ${camera.presetSupport ? (legacy?.savedPositions?.length || 'Supported') : 'No'}</small>
-      <div class="row-actions"><button data-configure-device="${camera.id}">RENAME / EDIT</button><button data-duplicate-device="${camera.id}">DUPLICATE</button><button data-toggle-device="${camera.id}">${camera.enabled ? 'DISABLE' : 'ENABLE'}</button><button data-test-device="${camera.id}">TEST</button><button data-move-device="${camera.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-device="${camera.id}" data-direction="1" ${index === cameras.length - 1 ? 'disabled' : ''}>↓</button><button class="danger" data-delete-device="${camera.id}">DELETE</button></div>
+      <div class="row-actions settings-card-actions"><button data-configure-device="${camera.id}">RENAME / EDIT</button><button data-duplicate-device="${camera.id}">DUPLICATE</button><button data-toggle-device="${camera.id}">${camera.enabled ? 'DISABLE' : 'ENABLE'}</button><button data-test-device="${camera.id}">TEST</button><button data-move-device="${camera.id}" data-direction="-1" aria-label="Move ${escapeHtml(camera.name)} up" title="Move up" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-device="${camera.id}" data-direction="1" aria-label="Move ${escapeHtml(camera.name)} down" title="Move down" ${index === cameras.length - 1 ? 'disabled' : ''}>↓</button><button class="danger" data-delete-device="${camera.id}">DELETE</button></div>
     </article>`;
   };
   const editor = selected ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
@@ -2552,7 +2552,7 @@ function settingsPage() {
   } else if (settingsSection === 'cameras') {
     body = `<div class="settings-heading"><div><span class="eyebrow">CAMERA COLLECTION</span><h1>Cameras</h1><p>Suggested roles are optional. Custom logical roles are supported.</p></div><button id="add-camera">ADD CAMERA</button></div>
       ${roleWarnings.length ? `<div class="settings-warning">Duplicate enabled logical role: ${escapeHtml([...new Set(roleWarnings.map(camera => camera.logicalRole))].join(', '))}. Assignments remain unchanged.</div>` : ''}
-      <div class="device-grid">${cameras.map(cameraCard).join('')}</div>`;
+      <div class="camera-settings-collection"><div class="device-grid camera-settings-grid">${cameras.map(cameraCard).join('')}</div></div>`;
   } else if (settingsSection === 'lighting') {
     const diagnostic = lightingDevice?.metadata?.lightingDiagnostic;
     const widgets = lightingDevice?.metadata?.qlcplusWidgets || [];

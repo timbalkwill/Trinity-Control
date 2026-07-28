@@ -1,23 +1,34 @@
 .bottom-nav { grid-template-columns: repeat(7, 1fr); }
-.settings-layout { height: 100%; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
+.settings-layout { height: 100%; min-width: 0; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 14px; }
 .settings-nav { background: #0a151f; border: 1px solid #3d5263; border-radius: 16px; padding: 12px; display: grid; align-content: start; gap: 7px; }
 .settings-admin-label { padding: 10px; color: var(--amber); font-size: 10px; font-weight: 900; letter-spacing: .1em; }
 .settings-nav button { text-align: left; }
 .settings-nav button.active { background: #294b67; border-color: var(--blue); }
-.settings-content { padding: 2px; }
+.settings-content { min-width: 0; padding: 2px; }
 .settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
 .settings-heading h1 { margin: 4px 0; }
 .settings-heading p { margin: 0; color: var(--muted); }
 .device-filters { display: flex; gap: 8px; margin-bottom: 12px; }
-.device-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
-.device-card { background: #101c27; border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 8px; }
+.device-grid { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.device-card { min-width: 0; max-width: 100%; background: #101c27; border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: grid; gap: 8px; }
 .device-card.disabled { opacity: .68; }
-.device-card-head { display: flex; justify-content: space-between; gap: 10px; }
+.device-card-head { min-width: 0; display: flex; justify-content: space-between; gap: 10px; }
 .device-type, .role-pill { text-transform: uppercase; color: var(--blue); font-size: 10px; font-weight: 900; letter-spacing: .1em; }
 .role-pill { background: #173149; border-radius: 999px; padding: 4px 8px; }
-.device-facts { display: flex; flex-wrap: wrap; gap: 6px; }
+.device-facts { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .device-facts span { background: #1a3041; border-radius: 999px; padding: 5px 8px; font-size: 11px; }
-.device-card small { color: var(--muted); }
+.device-card small { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.camera-settings-collection { width: 100%; min-width: 0; max-width: 100%; container-type: inline-size; container-name: camera-collection; }
+.camera-settings-grid { width: 100%; min-width: 0; max-width: 100%; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.camera-config-card { position: static; width: 100%; max-width: 100%; overflow: visible; align-content: start; }
+.camera-config-card-head { align-items: flex-start; }
+.camera-config-card-head .role-pill { flex: 0 0 auto; }
+.camera-config-name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.camera-config-card .settings-card-actions { position: static; width: 100%; max-width: 100%; min-width: 0; margin: 0; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: var(--space-2, 8px); }
+.camera-config-card .settings-card-actions button { position: static; flex: 0 0 auto; min-width: 44px; max-width: 100%; margin: 0; overflow: visible; text-overflow: clip; white-space: normal; }
+@container camera-collection (min-width: 1144px) {
+  .camera-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .device-error { color: #ffaaa6; }
 .diagnostic-result { color: var(--amber); margin: 0; }
 .settings-warning { background: #493514; color: #ffd77a; border: 1px solid #8a641f; border-radius: 11px; padding: 11px; margin-bottom: 12px; }

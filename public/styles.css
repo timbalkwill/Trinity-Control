@@ -510,3 +510,222 @@
   position:static !important;
 }
 
+/* Sprint 3.5 shared application polish */
+:root {
+  --surface-background: #071019;
+  --surface-elevated: #101c27;
+  --surface-control: #172838;
+  --border-default: #2b4254;
+  --text-primary: #f6f9fc;
+  --text-secondary: #91a8ba;
+  --accent: #4da9ff;
+  --status-success: #48e0a0;
+  --status-warning: #f6bd4d;
+  --status-danger: #ff716b;
+  --focus-ring: #8ac8ff;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --radius-control: 10px;
+  --radius-panel: 16px;
+  --shadow-elevated: 0 18px 48px rgba(0, 0, 0, .38);
+  --control-height: 42px;
+}
+
+button,
+input,
+select,
+textarea {
+  min-height: var(--control-height);
+}
+
+button {
+  transition: border-color .15s ease, background-color .15s ease, transform .08s ease, opacity .15s ease;
+}
+
+button:hover:not(:disabled) {
+  background-color: #20364a;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+:where(button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.primary-button {
+  background: var(--accent);
+  border-color: #79c1ff;
+  color: #04111c;
+}
+
+.secondary-button {
+  background: var(--surface-control);
+}
+
+.danger,
+.cue-delete {
+  background: rgba(255, 113, 107, .14);
+  border-color: rgba(255, 113, 107, .65);
+  color: #ffaaa6;
+}
+
+.bottom-nav button {
+  min-width: 0;
+  padding-inline: 10px;
+  white-space: normal;
+  line-height: 1.15;
+}
+
+.bottom-nav button:hover:not(:disabled) {
+  border-color: var(--focus-ring);
+}
+
+.bottom-nav .active {
+  box-shadow: inset 0 -3px 0 #d8efff;
+}
+
+.topbar .ready {
+  min-width: 190px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.empty-state-card {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  padding: 32px;
+  text-align: center;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-panel);
+  background: rgba(7, 16, 25, .48);
+}
+
+.empty-state-card > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-control);
+  color: var(--accent);
+  font-size: 24px;
+}
+
+.empty-state-card h2,
+.empty-state-card h3,
+.empty-state-card p {
+  margin: 0;
+}
+
+.lighting-page-scroll > .disabled-state {
+  margin-bottom: var(--space-4);
+}
+
+.notification-stack {
+  position: fixed;
+  z-index: 10000;
+  top: 78px;
+  right: 20px;
+  width: min(380px, calc(100vw - 40px));
+  display: grid;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.notification {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: #0c1823;
+  box-shadow: var(--shadow-elevated);
+}
+
+.notification > span {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+
+.notification-success { color: var(--status-success); }
+.notification-warning { color: var(--status-warning); }
+.notification-error { color: #ffaaa6; }
+.notification button { min-width: 32px; min-height: 32px; padding: 0; }
+
+.application-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 11000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 8, 13, .78);
+}
+
+.application-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  display: grid;
+  gap: var(--space-3);
+  box-shadow: var(--shadow-elevated);
+}
+
+.application-dialog img {
+  width: min(330px, 80%);
+  height: auto;
+  justify-self: center;
+  margin-bottom: 8px;
+}
+
+.application-dialog h2,
+.application-dialog p {
+  margin: 0;
+}
+
+.application-dialog dl {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.application-dialog dl > div {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) 1fr;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.application-dialog dt { color: var(--text-secondary); }
+.application-dialog dd { margin: 0; text-align: right; }
+.application-dialog .dialog-close { justify-self: end; min-width: 110px; }
+.modal-open { overflow: hidden; }
+
+@media (max-width: 1120px) {
+  .bottom-nav { gap: 6px; padding-inline: 10px; }
+  .bottom-nav button { font-size: 12px; padding-inline: 6px; }
+  .ready { min-width: 164px; }
+}

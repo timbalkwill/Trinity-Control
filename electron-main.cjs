@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const { createHomeAssistantController } = require("./home-assistant-operations.cjs");
 const path = require("path");
 const fs = require("fs");
@@ -17,8 +17,11 @@ const {
   defaultPlaceholders,
   normalizeDeviceCollection
 } = require("./device-operations.cjs");
+const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 
-app.setName("Trinity Control Refresh");
+const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
+app.setName("Trinity Control");
+app.setPath("userData", existingUserDataPath);
 
 let mainWindow;
 let operatorServer;
@@ -776,6 +779,23 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, "public", "index.html"));
 }
 
+function sendApplicationCommand(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+function installApplicationMenu() {
+  const template = createApplicationMenuTemplate({
+    isMac: process.platform === "darwin",
+    isDevelopment: !app.isPackaged,
+    navigate: page => sendApplicationCommand("app:navigate", page),
+    showAbout: () => sendApplicationCommand("app:show-about"),
+    showKeyboardShortcuts: () => sendApplicationCommand("app:show-keyboard-shortcuts"),
+    showSystemStatus: () => sendApplicationCommand("app:navigate", "settings"),
+    closeWindow: () => mainWindow?.close()
+  });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(async () => {
   const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
@@ -785,6 +805,16 @@ app.whenReady().then(async () => {
     }
   });
   ipcMain.handle("state:get", () => commands.getState());
+  ipcMain.handle("app:info", () => ({
+    name: "Trinity Control",
+    version: app.getVersion(),
+    buildVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    platform: process.platform,
+    architecture: process.arch,
+    isPackaged: app.isPackaged
+  }));
   ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
   ipcMain.handle("operator-server:status", () => operatorServerStatus);
   ipcMain.handle("qlc-service:status", () => qlcServiceStatus);
@@ -907,6 +937,7 @@ app.whenReady().then(async () => {
   });
 
   createWindow();
+  installApplicationMenu();
   void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,

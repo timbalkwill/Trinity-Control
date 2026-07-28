@@ -9,6 +9,7 @@ let showAllDiscoveredLightingControls = false;
 let lightingSceneFilter = 'production';
 let qlcServiceStatus = null;
 let operatorServerStatus;
+let appInfo = null;
 let page = 'live';
 let cueEditorOpen = false;
 let servicePageError = '';
@@ -34,13 +35,13 @@ const suggestedPresetCategories = ['Pastor', 'Platform', 'Piano', 'Choir', 'Bapt
 const suggestedShotCategories = ['Pastor', 'Platform', 'Music', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 
 const nav = [
-  ['live', 'LIVE'],
-  ['service', 'SERVICE'],
-  ['looks', 'LOOKS'],
-  ['lighting', 'LIGHTING'],
-  ['cameras', 'CAMERAS'],
-  ['shots', 'SHOTS'],
-  ['settings', '⚙ SETTINGS']
+  ['live', 'Live'],
+  ['service', 'Service'],
+  ['looks', 'Production Looks'],
+  ['lighting', 'Lighting Library'],
+  ['cameras', 'Camera Library'],
+  ['shots', 'Shot Library'],
+  ['settings', 'Settings']
 ];
 
 const byId = (items, id) => items.find(item => item.id === id);
@@ -88,6 +89,88 @@ const escapeHtml = (value = '') =>
         "'": '&#39;'
       })[ch]
   );
+
+const activeNotifications = new Map();
+
+function ensureNotificationRegion() {
+  let region = document.getElementById('trinity-notifications');
+  if (region) return region;
+  region = document.createElement('section');
+  region.id = 'trinity-notifications';
+  region.className = 'notification-stack';
+  region.setAttribute('aria-label', 'Notifications');
+  region.setAttribute('aria-live', 'polite');
+  region.setAttribute('aria-relevant', 'additions text');
+  document.body.appendChild(region);
+  return region;
+}
+
+function showNotification(message, { type = 'information', persistent = false } = {}) {
+  const key = `${type}:${message}`;
+  if (activeNotifications.has(key)) return activeNotifications.get(key);
+  const region = ensureNotificationRegion();
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  notification.tabIndex = 0;
+  notification.innerHTML = `<span aria-hidden="true">${type === 'success' ? '✓' : type === 'error' ? '!' : type === 'warning' ? '▲' : 'i'}</span><strong>${escapeHtml(message)}</strong><button type="button" aria-label="Dismiss notification" title="Dismiss">×</button>`;
+  const dismiss = () => {
+    activeNotifications.delete(key);
+    notification.remove();
+  };
+  notification.querySelector('button').onclick = dismiss;
+  region.appendChild(notification);
+  activeNotifications.set(key, notification);
+  if (!persistent) setTimeout(dismiss, type === 'error' ? 8000 : 4000);
+  return notification;
+}
+
+function navigateToPage(nextPage) {
+  if (!nav.some(([id]) => id === nextPage)) return;
+  if (page === nextPage) return;
+  page = nextPage;
+  const label = nav.find(([id]) => id === page)?.[1] || 'Trinity Control';
+  document.title = `Trinity Control — ${label}`;
+  render({ reason: 'navigation', preserveScroll: false });
+}
+
+async function openApplicationDialog(kind, trigger = document.activeElement) {
+  const info = appInfo || await window.trinity.getAppInfo();
+  appInfo = info;
+  const isAbout = kind === 'about';
+  const backdrop = document.createElement('div');
+  backdrop.className = 'application-dialog-backdrop';
+  backdrop.innerHTML = `<section class="application-dialog panel" role="dialog" aria-modal="true" aria-labelledby="application-dialog-title">
+    <img src="assets/trinity-logo.png" alt="Trinity Baptist Church">
+    <span class="eyebrow">${isAbout ? 'APPLICATION INFORMATION' : 'KEYBOARD REFERENCE'}</span>
+    <h2 id="application-dialog-title">${isAbout ? 'Trinity Control' : 'Keyboard Shortcuts'}</h2>
+    ${isAbout
+      ? `<p>Version ${escapeHtml(info.version)}</p><p>Production control system for Trinity Baptist Church<br>Hendersonville, Tennessee</p><dl><div><dt>Build</dt><dd>${escapeHtml(info.buildVersion)}</dd></div><div><dt>Electron</dt><dd>${escapeHtml(info.electronVersion)}</dd></div><div><dt>Node</dt><dd>${escapeHtml(info.nodeVersion)}</dd></div><div><dt>Platform</dt><dd>${escapeHtml(info.platform)} · ${escapeHtml(info.architecture)}</dd></div></dl><small>© ${new Date().getFullYear()} Trinity Baptist Church</small>`
+      : `<dl class="shortcut-list"><div><dt>Command/Ctrl+1</dt><dd>Live</dd></div><div><dt>Command/Ctrl+2</dt><dd>Service</dd></div><div><dt>Command/Ctrl+3</dt><dd>Production Looks</dd></div><div><dt>Command/Ctrl+4</dt><dd>Camera Library</dd></div><div><dt>Command/Ctrl+5</dt><dd>Lighting Library</dd></div><div><dt>Command/Ctrl+,</dt><dd>Settings</dd></div><div><dt>Escape</dt><dd>Close this dialog</dd></div></dl>`}
+    <button type="button" class="dialog-close primary-button">Done</button>
+  </section>`;
+  document.body.appendChild(backdrop);
+  document.body.classList.add('modal-open');
+  const closeButton = backdrop.querySelector('.dialog-close');
+  const close = () => {
+    backdrop.remove();
+    document.body.classList.remove('modal-open');
+    trigger?.focus?.({ preventScroll: true });
+  };
+  closeButton.onclick = close;
+  backdrop.onclick = event => { if (event.target === backdrop) close(); };
+  backdrop.onkeydown = event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    }
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      closeButton.focus();
+    }
+  };
+  closeButton.focus();
+}
 
 const currentCue = () =>
   state.runOfService[state.live.cueIndex];
@@ -457,7 +540,7 @@ function shell(content) {
       <header class="topbar">
         <div class="brand">
           Trinity Control
-          <span>${escapeHtml(state.version)}</span>
+          <span>${escapeHtml(appInfo?.version || state.version)}</span>
         </div>
 
         <div class="header-logo">
@@ -493,8 +576,7 @@ function shell(content) {
 
   document.querySelectorAll('[data-page]').forEach(button => {
     button.onclick = () => {
-      page = button.dataset.page;
-      render({ reason: 'navigation', preserveScroll: false });
+      navigateToPage(button.dataset.page);
     };
   });
 }
@@ -1379,6 +1461,7 @@ function openCueDeleteModal(cueId, trigger) {
       state = await window.trinity.deleteCueById(cueId, { confirmActive: true });
       backdrop.remove();
       servicePageError = '';
+      showNotification('Cue deleted', { type: 'success' });
       render();
     } catch (error) {
       submitting = false;
@@ -1539,7 +1622,9 @@ function servicePage() {
         </section>
 
         <div class="service-card-list">
-          ${state.runOfService.map(cueCard).join('')}
+          ${state.runOfService.length
+            ? state.runOfService.map(cueCard).join('')
+            : '<div class="empty-state-card"><span aria-hidden="true">＋</span><h3>No cues have been added to this service.</h3><p>Choose a prepared template to begin building the service.</p><button type="button" id="service-add-first-cue" class="primary-button">Add First Cue</button></div>'}
         </div>
       </section>
 
@@ -1570,8 +1655,13 @@ function servicePage() {
   document.querySelectorAll('[data-template]').forEach(button => {
     button.onclick = async () => {
       state = await window.trinity.addCueTemplate(button.dataset.template);
+      showNotification('Cue added', { type: 'success' });
       render();
     };
+  });
+  document.getElementById('service-add-first-cue')?.addEventListener('click', () => {
+    document.querySelector('[data-template]')?.focus({ preventScroll: false });
+    document.querySelector('.service-add-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   document.querySelectorAll('[data-go]').forEach(button => {
@@ -1613,6 +1703,7 @@ function servicePage() {
       try {
         state = await window.trinity.moveCueById(button.dataset.moveCue, button.dataset.direction);
         servicePageError = '';
+        showNotification('Order updated', { type: 'success' });
         render();
       } catch (error) {
         servicePageError = error.message || 'Cue order could not be saved.';
@@ -1652,6 +1743,7 @@ function servicePage() {
       try {
         if (draggedCueId !== targetCueId) state = await window.trinity.reorderCueById(draggedCueId, targetCueId, placement);
         servicePageError = '';
+        showNotification('Order updated', { type: 'success' });
       } catch (error) {
         servicePageError = error.message || 'Cue order could not be saved.';
       }
@@ -1798,6 +1890,7 @@ function lightingPage() {
   </section></div>` : '';
   shell(`
     <div class="page-scroll lighting-page-scroll">
+      ${lightingDevice?.enabled === false ? `<section class="empty-state-card disabled-state" role="status"><span aria-hidden="true">◌</span><h2>Lighting is disabled in Trinity.</h2><p>QLC+ may still be running, but discovery and cue lighting execution are unavailable.</p><button type="button" id="lighting-open-device-settings" class="secondary-button">Open Device Settings</button></section>` : ''}
 
       <section class="panel home-assistant-lighting-panel">
         <div class="section-title">
@@ -1873,6 +1966,10 @@ function lightingPage() {
       </section>
     </div>${editor}
   `);
+  document.getElementById('lighting-open-device-settings')?.addEventListener('click', () => {
+    settingsSection = 'devices';
+    navigateToPage('settings');
+  });
 
   const refreshHomeAssistant = async () => {
     homeAssistantBusy = true;
@@ -2671,7 +2768,7 @@ document.addEventListener('keydown', async event => {
     if (event.key === 'Escape' && cueEditorOpen) document.querySelector('.cue-editor-close')?.click();
     return;
   }
-  const command = ({ ' ': 'go', Enter: 'go', ArrowRight: 'next', ArrowLeft: 'back', h: 'hold', H: 'hold', Escape: 'escape' })[event.key];
+  const command = ({ ArrowRight: 'next', ArrowLeft: 'back', h: 'hold', H: 'hold', Escape: 'escape' })[event.key];
   if (!command) return;
   event.preventDefault();
   if (command === 'escape') return document.querySelector('.cue-editor-close')?.click();
@@ -2684,6 +2781,9 @@ document.addEventListener('keydown', async event => {
 (async () => {
   try {
     let pendingState;
+    window.trinity.onNavigate(nextPage => navigateToPage(nextPage));
+    window.trinity.onShowAbout(() => { void openApplicationDialog('about'); });
+    window.trinity.onShowKeyboardShortcuts(() => { void openApplicationDialog('shortcuts'); });
     window.trinity.onStateChanged(nextState => {
       if (!state) pendingState = nextState;
       else {
@@ -2703,14 +2803,16 @@ document.addEventListener('keydown', async event => {
       if (unchanged) updateQlcStatusElements();
       else render({ reason: 'qlc-service-status-changed' });
     });
-    const [initialState, initialServerStatus, initialQlcServiceStatus] = await Promise.all([
+    const [initialState, initialServerStatus, initialQlcServiceStatus, initialAppInfo] = await Promise.all([
       window.trinity.getState(),
       window.trinity.getOperatorServerStatus(),
-      window.trinity.getQlcServiceStatus()
+      window.trinity.getQlcServiceStatus(),
+      window.trinity.getAppInfo()
     ]);
     state = pendingState || initialState;
     operatorServerStatus = initialServerStatus;
     qlcServiceStatus = initialQlcServiceStatus;
+    appInfo = initialAppInfo;
 
     render({ reason: 'initial-load', preserveScroll: false });
   } catch (error) {

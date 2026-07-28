@@ -1,6 +1,22 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("trinity", {
   getState: () => ipcRenderer.invoke("state:get"),
+  getAppInfo: () => ipcRenderer.invoke("app:info"),
+  onNavigate: subscriber => {
+    const listener = (_event, page) => subscriber(page);
+    ipcRenderer.on("app:navigate", listener);
+    return () => ipcRenderer.removeListener("app:navigate", listener);
+  },
+  onShowAbout: subscriber => {
+    const listener = () => subscriber();
+    ipcRenderer.on("app:show-about", listener);
+    return () => ipcRenderer.removeListener("app:show-about", listener);
+  },
+  onShowKeyboardShortcuts: subscriber => {
+    const listener = () => subscriber();
+    ipcRenderer.on("app:show-keyboard-shortcuts", listener);
+    return () => ipcRenderer.removeListener("app:show-keyboard-shortcuts", listener);
+  },
   getOperatorServerStatus: () => ipcRenderer.invoke("operator-server:status"),
   getQlcServiceStatus: () => ipcRenderer.invoke("qlc-service:status"),
   onQlcServiceStatusChanged: subscriber => {

@@ -1,6 +1,6 @@
-# Trinity Control Refresh
+# Trinity Control
 
-A clean, separate development build for Trinity Baptist Church in Hendersonville, Tennessee.
+A production control system for Trinity Baptist Church in Hendersonville, Tennessee.
 
 ## Included in Alpha 5 Refresh
 
@@ -13,7 +13,7 @@ A clean, separate development build for Trinity Baptist Church in Hendersonville
 - Direct cue selection from the Order of Service.
 - TAKE NEXT, BACK, and HOLD removed from the Live page.
 - Correct scrolling above the fixed bottom navigation bar.
-- Separate app name and data folder so the previous Trinity Control installation remains untouched.
+- Existing application data remains available when upgrading from earlier builds.
 
 ## Run on a Mac
 

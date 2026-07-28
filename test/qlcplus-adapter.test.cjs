@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { createLightingAdapterRegistry, safeConfiguration } = require("../lighting-adapter-registry.cjs");
-const { createQlcPlusTransport, endpointFor, parseNumberResponse, parseWidgetList } = require("../qlcplus-websocket-transport.cjs");
+const { createQlcPlusTransport, endpointFor, parseNumberResponse, parseVirtualConsoleHierarchy, parseWidgetList, virtualConsoleEndpointFor } = require("../qlcplus-websocket-transport.cjs");
 const { normalizeDevice } = require("../device-operations.cjs");
 
 function device(patch = {}) {
@@ -62,6 +62,7 @@ test("safe endpoint uses WebSocket configuration without credentials", () => {
   const configured = safeConfiguration(device({ protocol: "wss", username: "test-user", credentialReference: "test-value" }));
   assert.equal(endpointFor(configured), "wss://qlc-host.local:9999/qlcplusWS");
   assert.doesNotMatch(endpointFor(configured), /test-user|test-value|@/);
+  assert.equal(virtualConsoleEndpointFor(configured), "https://qlc-host.local:9999/vc.json");
 });
 
 class MockSocket extends EventEmitter {
@@ -138,13 +139,33 @@ test("widget discovery preserves IDs, duplicate names, types, and status", async
     "QLC+API|getWidgetType|29": "QLC+API|getWidgetType|29|Slider",
     "QLC+API|getWidgetStatus|29": "QLC+API|getWidgetStatus|29|0"
   } });
-  const result = await createQlcPlusTransport({ webSocketFactory: harness.factory.bind(harness) })
+  const fetchImpl = async () => ({ ok: true, async json() {
+    return { pages: [
+      { id: 100, caption: "Sunday Morning", children: [{ id: 90, caption: "Scenes", children: [{ id: 11, caption: "Sunday" }] }] },
+      { id: 101, caption: "Live Adjustments", children: [{ id: 29, caption: "Sunday" }] }
+    ] };
+  } });
+  const result = await createQlcPlusTransport({ webSocketFactory: harness.factory.bind(harness), fetchImpl })
     .discoverControls(safeConfiguration(device()));
   assert.equal(result.ok, true);
   assert.deepEqual(result.widgets.map(item => [item.widgetId, item.name]), [["11", "Sunday"], ["29", "Sunday"]]);
   assert.equal(result.widgets[0].canActivateScene, true);
   assert.equal(result.widgets[1].canActivateScene, false);
+  assert.equal(result.widgets[0].pageName, "Sunday Morning");
+  assert.equal(result.widgets[0].parentName, "Scenes");
+  assert.equal(result.widgets[1].pageName, "Live Adjustments");
+  assert.deepEqual(result.pages.map(item => item.pageName), ["Sunday Morning", "Live Adjustments"]);
   assert.equal(harness.calls.some(command => /^\d+\|/.test(command)), false);
+});
+
+test("Virtual Console hierarchy uses explicit page and parent relationships", () => {
+  const parsed = parseVirtualConsoleHierarchy({
+    pages: [{ id: 1, caption: "Production", children: [{ id: 2, caption: "Frame", children: [{ id: 3, caption: "Sermon" }] }] }]
+  });
+  assert.deepEqual(parsed.pages, [{ pageIndex: 0, pageName: "Production", pageId: "1" }]);
+  assert.deepEqual(parsed.controls.get("3"), {
+    pageIndex: 0, pageName: "Production", parentWidgetId: "2", parentName: "Frame", containerPath: ["Frame"]
+  });
 });
 
 test("malformed widget responses fail safely", async () => {

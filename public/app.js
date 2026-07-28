@@ -3,6 +3,9 @@ const root = document.getElementById('app');
 let state;
 let homeAssistantStatus = null;
 let homeAssistantBusy = false;
+let selectedLightingSceneId = null;
+let showAllLightingControls = false;
+let showAllDiscoveredLightingControls = false;
 let operatorServerStatus;
 let page = 'live';
 let cueEditorOpen = false;
@@ -36,6 +39,13 @@ const nav = [
 ];
 
 const byId = (items, id) => items.find(item => item.id === id);
+
+const normalizedLightingName = value => String(value || '')
+  .replace(/^\s*trinity\s*[-–—:]\s*/i, '')
+  .toLocaleLowerCase()
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim()
+  .replace(/\s+/g, ' ');
 
 function cameraScopedPresets(presets, cameraDeviceId) {
   const scoped = new Map();
@@ -1624,6 +1634,41 @@ function looksPage() {
 }
 
 function lightingPage() {
+  const lightingDevice = (state.devices || []).find(device => device.type === 'lighting');
+  const discoveredControls = lightingDevice?.metadata?.qlcplusWidgets || [];
+  const productionPage = lightingDevice?.metadata?.qlcplusProductionPage || null;
+  const allCompatibleControls = discoveredControls.filter(control => String(control.widgetType || '').toLocaleLowerCase() === 'button');
+  const compatibleControls = productionPage
+    ? allCompatibleControls.filter(control => control.pageName === productionPage)
+    : allCompatibleControls;
+  const selectedScene = byId(state.lightingScenes || [], selectedLightingSceneId);
+  const mapping = selectedScene?.externalControl || null;
+  const mappedControl = mapping ? discoveredControls.find(control => String(control.widgetId) === String(mapping.widgetId)) : null;
+  const suggestionMatches = selectedScene && !mapping ? compatibleControls.filter(control => normalizedLightingName(control.name) === normalizedLightingName(selectedScene.name)) : [];
+  const suggestion = suggestionMatches.length === 1 ? suggestionMatches[0] : null;
+  const mappingStatus = !lightingDevice || lightingDevice.adapterType !== 'qlcplus-websocket' ? 'Adapter not configured'
+    : lightingDevice.metadata?.lightingDiagnostic?.ok !== true ? 'QLC+ unreachable'
+    : mapping && !mappedControl ? 'Mapped control not currently discovered'
+    : mapping && String(mappedControl.widgetType || '').toLocaleLowerCase() !== 'button' ? 'Mapped control is not a button'
+    : mapping ? 'Mapped' : 'Not mapped';
+  const visibleControls = showAllLightingControls ? discoveredControls : compatibleControls;
+  const controlOption = control => `${control.name || 'Unnamed'} — ${control.widgetType || 'Unknown'} — ID ${control.widgetId}${control.status !== undefined ? ` — ${control.status}` : ''}`;
+  const editor = selectedScene ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
+    <div class="look-editor-header"><div><span class="eyebrow">LIGHTING SCENE</span><h1>${escapeHtml(selectedScene.name)}</h1></div><button id="lighting-editor-close">×</button></div>
+    <div class="settings-form">
+      <section class="wide panel"><span class="eyebrow">QLC+ MAPPING</span>
+        <p><strong>${escapeHtml(mappingStatus)}</strong> · ${discoveredControls.length} discovered · ${compatibleControls.length} compatible buttons${productionPage ? ` on ${escapeHtml(productionPage)}` : ''}</p>
+        <label>Control<select id="lighting-control-mapping">
+          <option value="">Not mapped</option>
+          ${mapping && (!mappedControl || !visibleControls.some(control => String(control.widgetId) === String(mapping.widgetId))) ? `<option value="${escapeHtml(mapping.widgetId)}" selected>${mappedControl ? escapeHtml(controlOption(mappedControl)) : `Previously mapped control not found — Widget ID ${escapeHtml(mapping.widgetId)}`}</option>` : ''}
+          ${visibleControls.map(control => `<option value="${escapeHtml(control.widgetId)}" ${String(mapping?.widgetId) === String(control.widgetId) ? 'selected' : ''}>${escapeHtml(controlOption(control))}</option>`).join('')}
+        </select></label>
+        <label class="checkbox-label"><input type="checkbox" id="lighting-show-all-controls" ${showAllLightingControls ? 'checked' : ''}> Show all controls for diagnostics</label>
+        ${suggestion ? `<p>Suggested match: <strong>${escapeHtml(controlOption(suggestion))}</strong> <button id="lighting-use-suggestion" type="button">USE SUGGESTION</button></p>` : ''}
+      </section>
+    </div>
+    <div class="settings-editor-actions"><button id="lighting-refresh-controls">REFRESH DISCOVERED CONTROLS</button><button id="lighting-clear-mapping">CLEAR MAPPING</button><button id="lighting-duplicate-scene">DUPLICATE</button><button id="lighting-save-mapping">SAVE</button></div>
+  </section></div>` : '';
   shell(`
     <div class="page-scroll lighting-page-scroll">
 
@@ -1693,12 +1738,13 @@ function lightingPage() {
                   </div>
                   <small title="${escapeHtml(referenceNames.join(' · '))}">${usageSummary}</small>
                 </div>
+                <button data-edit-lighting="${scene.id}">EDIT</button>
               </article>`;
             })
             .join('')}
         </div>
       </section>
-    </div>
+    </div>${editor}
   `);
 
   const refreshHomeAssistant = async () => {
@@ -1733,7 +1779,7 @@ function lightingPage() {
 
   document.querySelectorAll('[data-select-lighting]').forEach(card => {
     card.addEventListener('click', async event => {
-      if (event.target.closest('[data-favorite-lighting]')) return;
+      if (event.target.closest('[data-favorite-lighting], [data-edit-lighting]')) return;
       state = await window.trinity.lightingOverride(card.dataset.selectLighting);
       render();
     });
@@ -1750,6 +1796,47 @@ function lightingPage() {
       });
       render();
     });
+  });
+  document.querySelectorAll('[data-edit-lighting]').forEach(button => {
+    button.addEventListener('click', event => {
+      event.stopPropagation();
+      selectedLightingSceneId = button.dataset.editLighting;
+      showAllLightingControls = false;
+      render();
+    });
+  });
+  document.getElementById('lighting-editor-close')?.addEventListener('click', () => { selectedLightingSceneId = null; render(); });
+  document.getElementById('lighting-show-all-controls')?.addEventListener('change', event => { showAllLightingControls = event.target.checked; render(); });
+  document.getElementById('lighting-use-suggestion')?.addEventListener('click', () => {
+    const select = document.getElementById('lighting-control-mapping');
+    if (select && suggestion) select.value = String(suggestion.widgetId);
+  });
+  document.getElementById('lighting-clear-mapping')?.addEventListener('click', () => {
+    const select = document.getElementById('lighting-control-mapping');
+    if (select) select.value = '';
+  });
+  document.getElementById('lighting-refresh-controls')?.addEventListener('click', async () => {
+    if (!lightingDevice) return;
+    state = await window.trinity.discoverLightingControls(lightingDevice.id);
+    render();
+  });
+  document.getElementById('lighting-save-mapping')?.addEventListener('click', async () => {
+    const widgetId = document.getElementById('lighting-control-mapping')?.value || null;
+    const control = discoveredControls.find(item => String(item.widgetId) === String(widgetId));
+    const externalControl = widgetId ? {
+      adapterType: 'qlcplus-websocket',
+      widgetId,
+      widgetName: control?.name || mapping?.widgetName || null,
+      widgetType: control?.widgetType || mapping?.widgetType || null
+    } : null;
+    state = await window.trinity.updateLightingScene(selectedScene.id, { externalControl });
+    render();
+  });
+  document.getElementById('lighting-duplicate-scene')?.addEventListener('click', async () => {
+    const previous = new Set(state.lightingScenes.map(scene => scene.id));
+    state = await window.trinity.duplicateLightingScene(selectedScene.id);
+    selectedLightingSceneId = state.lightingScenes.find(scene => !previous.has(scene.id))?.id || null;
+    render();
   });
 
   if (homeAssistantStatus === null && !homeAssistantBusy) {
@@ -2154,6 +2241,7 @@ function settingsPage() {
   );
   const cameras = devices.filter(device => device.type === 'camera');
   const lightingDevice = devices.find(device => device.type === 'lighting') || null;
+  const qlcplusPages = lightingDevice?.metadata?.qlcplusPages || [];
   const roleWarnings = cameras.filter(camera => camera.enabled && cameras.some(other => other.id !== camera.id && other.enabled && other.logicalRole === camera.logicalRole));
   const selected = byId(devices, selectedDeviceId) || null;
   const selectedReferences = selected?.type === 'camera' ? cameraReferenceSummary(selected.id) : null;
@@ -2215,6 +2303,17 @@ function settingsPage() {
   } else if (settingsSection === 'lighting') {
     const diagnostic = lightingDevice?.metadata?.lightingDiagnostic;
     const widgets = lightingDevice?.metadata?.qlcplusWidgets || [];
+    const productionPage = lightingDevice?.metadata?.qlcplusProductionPage || null;
+    const compatibleButtons = widgets.filter(widget => String(widget.widgetType || '').toLocaleLowerCase() === 'button' && widget.canActivateScene === true);
+    const pageWidgets = productionPage ? widgets.filter(widget => widget.pageName === productionPage) : widgets;
+    const pageButtons = compatibleButtons.filter(widget => !productionPage || widget.pageName === productionPage);
+    const visibleWidgets = showAllDiscoveredLightingControls ? widgets : pageButtons;
+    const elapsedMs = diagnostic?.elapsedMs || 0;
+    const discoverySummary = showAllDiscoveredLightingControls
+      ? `<strong>Showing all controls</strong><span>${compatibleButtons.length} compatible buttons · ${widgets.length} total widgets · ${elapsedMs} ms</span>`
+      : productionPage
+        ? `<strong>Production Page: ${escapeHtml(productionPage)}</strong><span>${pageButtons.length} production buttons · ${pageWidgets.length} page widgets · ${widgets.length} total widgets · ${elapsedMs} ms</span>`
+        : `<span>${compatibleButtons.length} compatible buttons · ${widgets.length} total widgets · ${elapsedMs} ms</span>`;
     body = `<div class="settings-heading"><div><span class="eyebrow">LIGHTING INTEGRATION</span><h1>QLC+</h1><p>Configure and inspect QLC+ without activating any lighting controls.</p></div></div>
       ${lightingDevice ? `<section class="panel settings-form">
         <label>Adapter<select data-lighting-device-field="adapterType"><option value="" ${!lightingDevice.adapterType || lightingDevice.adapterType === 'qlc-plus' ? 'selected' : ''}>Not configured</option><option value="qlcplus-websocket" ${lightingDevice.adapterType === 'qlcplus-websocket' ? 'selected' : ''}>QLC+ WebSocket</option></select></label>
@@ -2224,10 +2323,11 @@ function settingsPage() {
         <label>Username<input data-lighting-device-field="username" value="${escapeHtml(lightingDevice.username || lightingDevice.connection?.username || '')}"></label>
         <label>Credential<input type="password" data-lighting-device-field="credentialReference" value="${escapeHtml(lightingDevice.credentialReference || lightingDevice.connection?.credentialReference || '')}" autocomplete="new-password"></label>
         <label>Timeout (ms)<input type="number" min="250" max="30000" data-lighting-device-field="timeoutMs" value="${lightingDevice.timeoutMs || lightingDevice.connection?.timeoutMs || 3000}"></label>
+        <label>Production Page<select id="qlc-production-page"><option value="">All pages</option>${qlcplusPages.map(item => `<option value="${escapeHtml(item.pageName)}" ${lightingDevice.metadata?.qlcplusProductionPage === item.pageName ? 'selected' : ''}>${escapeHtml(item.pageName)}</option>`).join('')}</select></label>
         <label class="checkbox-label"><input type="checkbox" data-lighting-device-field="enabled" ${lightingDevice.enabled ? 'checked' : ''}> Enabled</label>
       </section>
-      <div class="settings-editor-actions"><span>${escapeHtml(diagnostic?.message || 'QLC+ has not been tested.')}${diagnostic?.widgetCount !== undefined ? ` · ${diagnostic.widgetCount} widgets · ${diagnostic.elapsedMs || 0} ms` : ''}</span><button id="qlc-test-connection">TEST CONNECTION</button><button id="qlc-discover-controls">DISCOVER CONTROLS</button></div>
-      ${widgets.length ? `<div class="diagnostic-table">${widgets.map(widget => `<div><strong>${escapeHtml(widget.name)}</strong><span>ID ${escapeHtml(widget.widgetId)}</span><span>${escapeHtml(widget.widgetType || 'Unknown')}</span><span>${escapeHtml(widget.status || 'Unknown')}</span><span>${widget.canActivateScene ? 'Scene-capable' : 'Read only'}</span></div>`).join('')}</div>` : ''}` : '<div class="settings-warning">No lighting device is configured.</div>'}`;
+      <div class="settings-editor-actions"><div class="qlc-discovery-summary">${diagnostic?.widgetCount !== undefined ? discoverySummary : escapeHtml(diagnostic?.message || 'QLC+ has not been tested.')}</div><label class="checkbox-label"><input type="checkbox" id="qlc-show-all-controls" ${showAllDiscoveredLightingControls ? 'checked' : ''}> Show All Controls</label><button id="qlc-test-connection">TEST CONNECTION</button><button id="qlc-discover-controls">REFRESH CONTROLS</button></div>
+      ${widgets.length ? `<div class="section-title"><span>${escapeHtml(showAllDiscoveredLightingControls ? 'All QLC+ Controls' : productionPage ? `${productionPage} Controls` : 'Compatible QLC+ Controls')}</span></div><div class="diagnostic-table">${visibleWidgets.map(widget => `<div><strong>${escapeHtml(widget.name)}</strong><span>ID ${escapeHtml(widget.widgetId)}</span><span>${escapeHtml(widget.widgetType || 'Unknown')}</span><span>${escapeHtml(widget.status || 'Unknown')}</span><span>${widget.canActivateScene ? 'Scene-capable' : 'Read only'}</span>${showAllDiscoveredLightingControls ? `<span>${escapeHtml(widget.pageName || 'Page unavailable')}</span>` : ''}</div>`).join('')}</div>` : ''}` : '<div class="settings-warning">No lighting device is configured.</div>'}`;
   } else if (settingsSection === 'diagnostics') {
     body = `<div class="settings-heading"><div><span class="eyebrow">STUB ADAPTER STATUS</span><h1>Diagnostics</h1><p>Results are configuration checks only; no hardware connection is attempted.</p></div><button id="run-all-tests">RUN ALL TESTS</button></div>
       <div class="diagnostic-table">${devices.map(device => { const result = device.metadata?.diagnostic; return `<div><strong>${escapeHtml(device.name)}</strong><span>${escapeHtml(device.type)}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span><span>${escapeHtml(result?.message || 'Not tested')}</span><button data-test-device="${device.id}">TEST</button><button data-clear-diagnostic="${device.id}">CLEAR</button></div>`; }).join('')}</div>`;
@@ -2287,6 +2387,16 @@ function settingsPage() {
   });
   document.getElementById('qlc-discover-controls')?.addEventListener('click', async () => {
     state = await window.trinity.discoverLightingControls(lightingDevice.id);
+    render();
+  });
+  document.getElementById('qlc-production-page')?.addEventListener('change', async event => {
+    state = await window.trinity.updateDevice(lightingDevice.id, {
+      metadata: { ...lightingDevice.metadata, qlcplusProductionPage: event.target.value || null }
+    });
+    render();
+  });
+  document.getElementById('qlc-show-all-controls')?.addEventListener('change', event => {
+    showAllDiscoveredLightingControls = event.target.checked;
     render();
   });
 }

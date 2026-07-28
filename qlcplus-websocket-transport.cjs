@@ -19,6 +19,14 @@ function endpointFor(config = {}) {
   return `${secure ? "wss" : "ws"}://${host}:${port}/qlcplusWS`;
 }
 
+function virtualConsoleEndpointFor(config = {}) {
+  const host = safeHost(config.host);
+  if (!host) return null;
+  const secure = config.protocol === "wss" || config.protocol === "wss:";
+  const port = Number.isInteger(Number(config.port)) && Number(config.port) > 0 ? Number(config.port) : DEFAULT_QLC_PORT;
+  return `${secure ? "https" : "http"}://${host}:${port}/vc.json`;
+}
+
 function authorizationHeaders(config = {}) {
   if (!config.username && !config.password) return {};
   return { Authorization: `Basic ${Buffer.from(`${config.username || ""}:${config.password || ""}`).toString("base64")}` };
@@ -172,8 +180,53 @@ function responseValue(response, command) {
   return fields.at(-1);
 }
 
+function parseVirtualConsoleHierarchy(input) {
+  if (!input || !Array.isArray(input.pages)) throw Object.assign(new Error("invalid"), { code: "invalidResponse" });
+  const controls = new Map();
+  const pages = input.pages.map((page, pageIndex) => {
+    const pageName = String(page?.caption || `Page ${pageIndex + 1}`);
+    const visit = (children, parent = null, containerPath = []) => {
+      for (const child of Array.isArray(children) ? children : []) {
+        const widgetId = String(child?.id ?? "");
+        if (!widgetId) continue;
+        const parentName = parent?.caption ? String(parent.caption) : null;
+        const nextPath = child?.caption ? [...containerPath, String(child.caption)] : [...containerPath];
+        controls.set(widgetId, {
+          pageIndex,
+          pageName,
+          parentWidgetId: parent?.id === undefined ? null : String(parent.id),
+          parentName,
+          containerPath: [...containerPath]
+        });
+        visit(child.children, child, nextPath);
+      }
+    };
+    visit(page?.children);
+    return { pageIndex, pageName, pageId: page?.id === undefined ? null : String(page.id) };
+  });
+  return { pages, controls };
+}
+
 function createQlcPlusTransport(options = {}) {
   const now = options.now || Date.now;
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  async function discoverHierarchy(config) {
+    if (typeof fetchImpl !== "function") return { pages: [], controls: new Map() };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), boundedTimeout(config.timeoutMs));
+    try {
+      const response = await fetchImpl(virtualConsoleEndpointFor(config), {
+        headers: authorizationHeaders(config),
+        signal: controller.signal
+      });
+      if (!response?.ok) return { pages: [], controls: new Map() };
+      return parseVirtualConsoleHierarchy(await response.json());
+    } catch {
+      return { pages: [], controls: new Map() };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   async function withSession(config, operation) {
     const startedAt = now();
     const session = new QlcPlusWebSocketSession(config, options);
@@ -199,14 +252,18 @@ function createQlcPlusTransport(options = {}) {
       message: "QLC+ is reachable"
     })),
     discoverControls: config => withSession(config, async session => {
+      const hierarchy = await discoverHierarchy(config);
       const widgetCount = parseNumberResponse(await session.request("getWidgetsNumber"));
       const widgets = parseWidgetList(await session.request("getWidgetsList"));
       for (const widget of widgets) {
         widget.widgetType = responseValue(await session.request("getWidgetType", widget.widgetId), "getWidgetType");
         widget.status = responseValue(await session.request("getWidgetStatus", widget.widgetId), "getWidgetStatus");
         widget.canActivateScene = widget.widgetType.toLowerCase() === "button";
+        Object.assign(widget, hierarchy.controls.get(widget.widgetId) || {
+          pageIndex: null, pageName: null, parentWidgetId: null, parentName: null, containerPath: []
+        });
       }
-      return { code: "qlcConnected", widgetCount, widgets, message: `Discovered ${widgets.length} QLC+ controls` };
+      return { code: "qlcConnected", widgetCount, widgets, pages: hierarchy.pages, message: `Discovered ${widgets.length} QLC+ controls` };
     }),
     activateControl: (config, { externalControlId, value = 255 } = {}) =>
       withSession(config, async session => {
@@ -221,6 +278,8 @@ module.exports = {
   QlcPlusWebSocketSession,
   createQlcPlusTransport,
   endpointFor,
+  parseVirtualConsoleHierarchy,
   parseNumberResponse,
-  parseWidgetList
+  parseWidgetList,
+  virtualConsoleEndpointFor
 };

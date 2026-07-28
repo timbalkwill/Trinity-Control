@@ -9,6 +9,7 @@ const shots = require("./shot-operations.cjs");
 const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
 const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
+const lightingScenes = require("./lighting-scene-operations.cjs");
 
 function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue, lightingAdapters = createLightingAdapterRegistry() }) {
   const subscribers = new Set();
@@ -80,6 +81,8 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
       ].slice(0, 8);
     }),
+    updateLightingScene: (sceneId, patch) => mutate(state => lightingScenes.updateLightingScene(state, sceneId, patch)),
+    duplicateLightingScene: sceneId => mutate(state => lightingScenes.duplicateLightingScene(state, sceneId)),
     reorderCue: (from, to) => mutate(state => service.reorderCue(state, from, to)),
     duplicateCue: index => mutate(state => service.duplicateCue(state, index)),
     insertCue: (index, position) => mutate(state => service.insertCue(state, index, position)),
@@ -113,7 +116,8 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
       device.metadata = {
         ...device.metadata,
         lightingDiagnostic: result,
-        qlcplusWidgets: result.ok ? result.widgets : device.metadata?.qlcplusWidgets || []
+        qlcplusWidgets: result.ok ? result.widgets : device.metadata?.qlcplusWidgets || [],
+        qlcplusPages: result.ok ? result.pages || [] : device.metadata?.qlcplusPages || []
       };
       device.lastCheckedAt = new Date().toISOString();
       device.lastError = result.ok ? null : result.message;

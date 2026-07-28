@@ -10,6 +10,7 @@ const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.c
 const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
+const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
@@ -725,11 +726,11 @@ function migrate(state) {
   merged.cameraManagerSchemaVersion = CAMERA_MANAGER_SCHEMA_VERSION;
   merged.cameraPresetSchemaVersion = CAMERA_PRESET_SCHEMA_VERSION;
   merged.shotSchemaVersion = SHOT_SCHEMA_VERSION;
-    merged.lightingScenes = merged.lightingScenes.map(scene => ({
+    merged.lightingScenes = migrateLightingScenes(merged.lightingScenes.map(scene => ({
     category: "Custom",
     favorite: false,
     ...scene
-  }));
+  })));
 merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     category: "Custom",
     favorite: false,
@@ -798,6 +799,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("device:testAll", () => commands.testAllDevices());
   ipcMain.handle("lighting-adapter:test", (_e, deviceId) => commands.testLightingConnection(deviceId));
   ipcMain.handle("lighting-adapter:discover", (_e, deviceId) => commands.discoverLightingControls(deviceId));
+  ipcMain.handle("lighting-scene:update", (_e, { sceneId, patch }) => commands.updateLightingScene(sceneId, patch));
+  ipcMain.handle("lighting-scene:duplicate", (_e, sceneId) => commands.duplicateLightingScene(sceneId));
   ipcMain.handle("device:clearDiagnostic", (_e, deviceId) => commands.clearDeviceDiagnostic(deviceId));
   ipcMain.handle("camera-preset:create", (_e, input) => commands.createCameraPreset(input));
   ipcMain.handle("camera-preset:update", (_e, { presetId, patch }) => commands.updateCameraPreset(presetId, patch));

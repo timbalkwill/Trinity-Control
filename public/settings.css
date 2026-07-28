@@ -29,6 +29,8 @@
 .settings-form .wide { grid-column: 1 / -1; }
 .settings-editor-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 15px; }
 .settings-editor-actions span { margin-right: auto; color: var(--muted); font-size: 11px; }
+.qlc-discovery-summary { display: grid; gap: 3px; margin-right: auto; }
+.qlc-discovery-summary span { margin-right: 0; }
 .danger-zone { margin-top: 18px; padding: 14px; border: 1px solid #8e3f3b; border-radius: 12px; background: #2a1111; display: flex; justify-content: space-between; align-items: center; gap: 18px; }
 .danger-zone > div:first-child { display: grid; gap: 6px; }
 .danger-zone strong { font-size: 17px; }

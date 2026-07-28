@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("trinity", {
   testAllDevices: () => ipcRenderer.invoke("device:testAll"),
   testLightingConnection: deviceId => ipcRenderer.invoke("lighting-adapter:test", deviceId),
   discoverLightingControls: deviceId => ipcRenderer.invoke("lighting-adapter:discover", deviceId),
+  updateLightingScene: (sceneId, patch) => ipcRenderer.invoke("lighting-scene:update", { sceneId, patch }),
+  duplicateLightingScene: sceneId => ipcRenderer.invoke("lighting-scene:duplicate", sceneId),
   clearDeviceDiagnostic: deviceId => ipcRenderer.invoke("device:clearDiagnostic", deviceId),
   createCameraPreset: input => ipcRenderer.invoke("camera-preset:create", input),
   updateCameraPreset: (presetId, patch) => ipcRenderer.invoke("camera-preset:update", { presetId, patch }),

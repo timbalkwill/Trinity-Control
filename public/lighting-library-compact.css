@@ -22,6 +22,11 @@
   display: flex;
   flex-direction: column;
   align-content: start;
+  cursor: pointer;
+}
+
+.lighting-page-scroll .lighting-scene-card.selected {
+  border-color: var(--green);
 }
 
 .lighting-scene-card-header {
@@ -52,11 +57,14 @@
   overflow-wrap: anywhere;
 }
 
-.lighting-favorite-badge {
+.lighting-favorite-button {
   flex: 0 0 auto;
   color: #ffc94d;
   font-size: 17px;
   line-height: 1;
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
 }
 
 .lighting-page-scroll .lighting-scene-card .metrics {

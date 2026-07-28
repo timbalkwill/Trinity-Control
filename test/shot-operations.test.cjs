@@ -2,9 +2,12 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   DEFAULT_SHOT_DEFINITIONS,
   SUGGESTED_SHOT_CATEGORIES,
+  SHOT_TYPES,
   countShotReferences,
   createShot,
   deleteShot,
@@ -74,6 +77,55 @@ test("malformed partial Shots normalize safely and preserve unknown fields", () 
   assert.deepEqual(migrated[0].tags, []);
   assert.equal(migrated[0].customFutureField, "preserved");
   assert.equal(validateShot(migrated[0]).valid, true);
+});
+
+test("Shot types migrate, default, and persist through CRUD", () => {
+  assert.deepEqual(SHOT_TYPES, ["static", "motion", "tracking"]);
+  assert.equal(migrateShots([{ id: "legacy", name: "Legacy Shot" }])[0].shotType, "static");
+  assert.equal(normalizeShot({ name: "Unknown Type", shotType: "other" }).shotType, "static");
+
+  const current = state();
+  const created = createShot(current, { name: "New Shot" }, { id: "shot", now: 1000 });
+  assert.equal(created.shotType, "static");
+
+  updateShot(current, "shot", { shotType: "motion" }, { now: 2000 });
+  assert.equal(current.shots[0].shotType, "motion");
+
+  const copy = duplicateShot(current, "shot", { id: "copy", now: 3000 });
+  assert.equal(copy.shotType, "motion");
+
+  updateShot(current, "shot", { shotType: "tracking" }, { now: 4000 });
+  assert.equal(current.shots[0].shotType, "tracking");
+});
+
+test("Shot reference summary renders without undefined camera variables", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const source = renderer.match(/function shotReferenceSummary\(shotId\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(source, "Shot reference summary function is present");
+  const summarize = new Function("state", `${source}; return shotReferenceSummary("shot");`);
+  const summary = summarize({
+    productionLooks: [{ selectedShotId: "shot", cameraAssignments: [{ shotId: "shot" }] }],
+    runOfService: [],
+    cueTemplates: [],
+    motionStudioReferences: []
+  });
+  assert.deepEqual(summary, {
+    counts: { "Production Looks": 2, Cues: 0, Templates: 0, "Motion Studio": 0 },
+    total: 2
+  });
+});
+
+test("renderer wires Shot Type persistence and Lighting card interactions", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const shotsPage = renderer.slice(renderer.indexOf("function shotsPage()"), renderer.indexOf("function deviceConfigured"));
+  assert.match(shotsPage, /select data-shot-field="shotType"/);
+  assert.match(shotsPage, /window\.trinity\.updateShot\(selected\.id, patch\)/);
+
+  const lightingPage = renderer.slice(renderer.indexOf("function lightingPage()"), renderer.indexOf("function camerasPage()"));
+  assert.match(lightingPage, /data-select-lighting="\$\{scene\.id\}"/);
+  assert.match(lightingPage, /data-favorite-lighting="\$\{scene\.id\}"/);
+  assert.match(lightingPage, /window\.trinity\.lightingOverride\(card\.dataset\.selectLighting\)/);
+  assert.match(lightingPage, /favorite: !scene\.favorite/);
 });
 
 test("Shot CRUD, favorite, enable, reorder, and duplicate isolation", () => {

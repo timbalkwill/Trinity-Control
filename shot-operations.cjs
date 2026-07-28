@@ -1,6 +1,7 @@
 "use strict";
 
-const SHOT_SCHEMA_VERSION = 1;
+const SHOT_SCHEMA_VERSION = 2;
+const SHOT_TYPES = ["static", "motion", "tracking"];
 const SUGGESTED_SHOT_CATEGORIES = ["Pastor", "Platform", "Music", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"];
 const EPOCH = "1970-01-01T00:00:00.000Z";
 const nullable = value => typeof value === "string" && value.trim() ? value.trim() : null;
@@ -9,6 +10,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const finite = (value, fallback = 0, minimum = 0) => Number.isFinite(Number(value)) ? Math.max(minimum, Number(value)) : fallback;
 const uniqueId = () => `shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
+const shotType = value => SHOT_TYPES.includes(value) ? value : "static";
 
 const DEFAULT_SHOT_DEFINITIONS = [
   ["shot-pastor-tight", "Pastor Tight", "Pastor", "main", "Pastor", "Tight"],
@@ -31,6 +33,7 @@ function normalizeShot(input = {}, { id, now, order = 0 } = {}) {
     id: nullable(input.id) || id || uniqueId(),
     name: text(input.name, "Untitled Shot") || "Untitled Shot",
     description: text(input.description),
+    shotType: shotType(input.shotType),
     enabled: input.enabled !== false,
     createdAt,
     updatedAt: nullable(input.updatedAt) || createdAt,
@@ -293,6 +296,7 @@ function filterShots(state, filters = {}) {
 module.exports = {
   DEFAULT_SHOT_DEFINITIONS,
   SHOT_SCHEMA_VERSION,
+  SHOT_TYPES,
   SUGGESTED_SHOT_CATEGORIES,
   countShotReferences,
   createShot,

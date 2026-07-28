@@ -1660,13 +1660,13 @@ function lightingPage() {
                 ? referenceNames.slice(0, 3).map(escapeHtml).join(' · ') + (referenceNames.length > 3 ? ` · +${referenceNames.length - 3}` : '')
                 : 'Not currently used';
 
-              return `<article class="edit-card lighting-scene-card ${scene.favorite ? 'favorite' : ''}">
+              return `<article class="edit-card lighting-scene-card ${scene.favorite ? 'favorite' : ''} ${state.live?.lightingOverrideId === scene.id ? 'selected' : ''}" data-select-lighting="${scene.id}">
                 <header class="lighting-scene-card-header">
                   <div>
                     <small>${escapeHtml(scene.category || 'Custom')}</small>
                     <h2>${escapeHtml(scene.name)}</h2>
                   </div>
-                  ${scene.favorite ? '<span class="lighting-favorite-badge" title="Favorite scene">★</span>' : ''}
+                  <button class="lighting-favorite-button" data-favorite-lighting="${scene.id}" title="${scene.favorite ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${scene.favorite ? 'Remove' : 'Add'} ${escapeHtml(scene.name)} ${scene.favorite ? 'from' : 'to'} favorites">${scene.favorite ? '★' : '☆'}</button>
                 </header>
 
                 <div class="metrics">
@@ -1719,6 +1719,27 @@ function lightingPage() {
     try { homeAssistantStatus = await window.trinity.turnLightingPowerOff(); }
     catch (error) { window.alert(error.message); }
     finally { homeAssistantBusy = false; render(); }
+  });
+
+  document.querySelectorAll('[data-select-lighting]').forEach(card => {
+    card.addEventListener('click', async event => {
+      if (event.target.closest('[data-favorite-lighting]')) return;
+      state = await window.trinity.lightingOverride(card.dataset.selectLighting);
+      render();
+    });
+  });
+  document.querySelectorAll('[data-favorite-lighting]').forEach(button => {
+    button.addEventListener('click', async event => {
+      event.stopPropagation();
+      const sceneId = button.dataset.favoriteLighting;
+      const scene = byId(state.lightingScenes, sceneId);
+      if (!scene) return;
+      state = await window.trinity.saveState({
+        ...state,
+        lightingScenes: state.lightingScenes.map(item => item.id === sceneId ? { ...item, favorite: !scene.favorite } : item)
+      });
+      render();
+    });
   });
 
   if (homeAssistantStatus === null && !homeAssistantBusy) {
@@ -1914,8 +1935,6 @@ function shotResolution(shot) {
 function shotReferenceSummary(shotId) {
   const counts = { 'Production Looks': 0, Cues: 0, Templates: 0, 'Motion Studio': 0 };
   for (const look of state.productionLooks || []) {
-    if (look.priorityCameraId === deviceId) counts['Production Looks'] += 1;
-    counts['Production Looks'] += Object.values(look.cameraPresets || {}).filter(item => item.cameraId === deviceId).length;
     if (look.selectedShotId === shotId) counts['Production Looks'] += 1;
     counts['Production Looks'] += (look.cameraAssignments || []).filter(item => item.shotId === shotId).length;
   }
@@ -1960,7 +1979,7 @@ function shotsPage() {
   const editor = selected ? `<div class="shot-editor">
     <div class="shot-editor-heading"><div><span class="eyebrow">SHOT DETAILS</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(resolved.readiness)}</p></div><div class="row-actions"><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
     <div class="shot-section-grid">
-      <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label><label>Color<input type="color" data-shot-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label>${textField('Icon','icon',selected.icon)}</fieldset>
+      <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Shot Type<select data-shot-field="shotType"><option value="static" ${(selected.shotType || 'static') === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${selected.shotType === 'motion' ? 'selected' : ''}>Motion</option><option value="tracking" ${selected.shotType === 'tracking' ? 'selected' : ''}>Tracking</option></select></label><label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label><label>Color<input type="color" data-shot-field="color" value="${escapeHtml(selected.color || '#4da9ff')}"></label>${textField('Icon','icon',selected.icon)}</fieldset>
       <fieldset><legend>CAMERA TARGET</legend><label>Specific camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select></label>${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}<label>Camera preset<select data-shot-field="cameraPresetId">${options(state.cameraPresets || [], selected.cameraPresetId, 'No preset')}</select></label><div class="resolved-shot"><strong>${escapeHtml(resolved.camera?.name || 'No camera resolved')}</strong><span>${escapeHtml(resolved.preset?.name || 'No preset resolved')}</span><em>${escapeHtml(resolved.readiness)}</em></div></fieldset>
       <fieldset><legend>FRAMING</legend>${textField('Subject','subject',selected.subject)}${textField('Framing type','framingType',selected.framingType)}${textField('Composition','composition',selected.composition)}${textField('Orientation','orientation',selected.orientation)}${textField('Safe area','safeArea',selected.safeArea)}<label>Framing notes<textarea data-shot-field="framingNotes">${escapeHtml(selected.framingNotes || '')}</textarea></label></fieldset>
       <fieldset><legend>TRACKING</legend>${textField('Tracking mode','trackingMode',selected.trackingMode)}<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Tracking preferred</label>${textField('Tracking subject','trackingSubject',selected.trackingSubject)}<label>Tracking notes<textarea data-shot-field="trackingNotes">${escapeHtml(selected.trackingNotes || '')}</textarea></label></fieldset>
@@ -1977,7 +1996,7 @@ function shotsPage() {
   document.getElementById('shot-camera').onchange = event => { shotCamera = event.target.value; render(); };
   document.getElementById('shot-favorite').onchange = event => { shotFavorite = event.target.value; render(); };
   document.getElementById('shot-enabled').onchange = event => { shotEnabled = event.target.value; render(); };
-  document.getElementById('shot-new').onclick = async () => { state = await window.trinity.createShot({ name: 'New Shot', enabled: true }); selectedShotId = state.shots.at(-1).id; render(); };
+  document.getElementById('shot-new').onclick = async () => { state = await window.trinity.createShot({ name: 'New Shot', shotType: 'static', enabled: true }); selectedShotId = state.shots.at(-1).id; render(); };
   document.querySelectorAll('[data-select-shot]').forEach(cardElement => cardElement.onclick = event => { if (event.target.closest('[data-move-shot]')) return; selectedShotId = cardElement.dataset.selectShot; render(); });
   document.querySelectorAll('[data-move-shot]').forEach(button => button.onclick = async event => { event.stopPropagation(); const from = state.shots.findIndex(shot => shot.id === button.dataset.moveShot); state = await window.trinity.reorderShot(from, from + Number(button.dataset.direction)); render(); });
   if (!selected) return;

@@ -3,6 +3,7 @@
 const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
 const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
 const { applyCueStartPreparations, synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
+const { executeShotSnapshot, unavailableCameraExecutor } = require("./camera-shot-execution.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -73,6 +74,7 @@ function normalizeExecutionSnapshot(input) {
     cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
     shotExecutions: Array.isArray(input.shotExecutions) ? JSON.parse(JSON.stringify(input.shotExecutions)) : [],
     shotValidationErrors: Array.isArray(input.shotValidationErrors) ? input.shotValidationErrors.map(String) : [],
+    shotExecutionResults: Array.isArray(input.shotExecutionResults) ? JSON.parse(JSON.stringify(input.shotExecutionResults)) : [],
     simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
     motion: {
       enabled: input.motion?.enabled === true,
@@ -136,7 +138,7 @@ function applyLook(state, lookId) {
   });
 }
 
-function executeCue(state, requestedIndex, { now = Date.now } = {}) {
+function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = unavailableCameraExecutor } = {}) {
   const cues = Array.isArray(state?.runOfService) ? state.runOfService : [];
   if (!cues.length) return state;
 
@@ -160,7 +162,13 @@ function executeCue(state, requestedIndex, { now = Date.now } = {}) {
   live.cueIndex = index;
   live.activeCueId = cue.id || null;
   live.activeProductionLookId = plan.productionLookId;
-  live.executionSnapshot = createExecutionSnapshot(state, cue, plan, executedAt);
+  const snapshot = createExecutionSnapshot(state, cue, plan, executedAt);
+  snapshot.shotExecutionResults = executeShotSnapshot(snapshot, { cameraExecutor });
+  const executionWarnings = snapshot.shotExecutionResults
+    .filter(item => item.status === "static-failed")
+    .map(item => `Static Shot failed: ${item.shotName || item.shotId || "Unknown Shot"} — ${item.message}`);
+  snapshot.warnings = [...new Set([...snapshot.warnings, ...executionWarnings])];
+  live.executionSnapshot = snapshot;
   synchronizeLiveCameraFromSnapshot(state);
   live.cueStartedAt = executedAt;
   live.activityLog = [

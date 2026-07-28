@@ -216,7 +216,7 @@ test("registry execution rejects unavailable, disabled, and unconfigured adapter
   });
   const registry = createLightingAdapterRegistry({ transports: { "qlcplus-websocket": transport } });
   assert.equal((await registry.execute(null, { widgetId: "101" })).code, "adapterUnavailable");
-  assert.equal((await registry.execute(device({ enabled: false }), { widgetId: "101" })).code, "adapterDisabled");
+  assert.equal((await registry.execute(device({ enabled: false }), { widgetId: "101" })).code, "lightingDisabled");
   assert.equal((await registry.execute(device({ ipAddress: null, connection: {} }), { widgetId: "101" })).code, "configurationIncomplete");
   assert.equal(transport.calls.length, 0);
 });

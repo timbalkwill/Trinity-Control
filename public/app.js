@@ -439,14 +439,18 @@ function ensureAppStyles() {
 
 function shell(content) {
   ensureAppStyles();
-  const qlcManagementEnabled = state?.settings?.qlcplusService?.manageAutomatically === true;
-  const qlcReadiness = !qlcManagementEnabled
+  const qlcDevice = (state?.devices || []).find(device =>
+    device.type === 'lighting' && device.adapterType === 'qlcplus-websocket'
+  );
+  const qlcReadiness = !qlcDevice
     ? 'All Systems Ready'
-    : qlcServiceStatus?.state !== 'connected'
-      ? 'Lighting Not Ready'
-      : qlcServiceStatus?.compatibility?.severity === 'warning'
-        ? 'Systems Ready · Lighting Warning'
-        : 'All Systems Ready';
+    : qlcDevice.enabled === false
+      ? 'Ready with Lighting Disabled'
+      : qlcServiceStatus?.state !== 'connected'
+        ? 'Attention Required'
+        : qlcServiceStatus?.compatibility?.severity === 'warning'
+          ? 'Systems Ready · Lighting Warning'
+          : 'All Systems Ready';
 
   root.innerHTML = `
     <div class="shell">
@@ -2377,6 +2381,28 @@ function settingsPage() {
   const selectedReferences = selected?.type === 'camera' ? cameraReferenceSummary(selected.id) : null;
   const summary = device => {
     const diagnostic = device.metadata?.diagnostic;
+    if (device.type === 'lighting' && device.adapterType === 'qlcplus-websocket') {
+      const enabled = device.enabled !== false;
+      const processLabel = qlcServiceStatus?.processState === 'running-managed'
+        ? 'Running · Trinity-owned'
+        : qlcServiceStatus?.processState === 'running-external'
+          ? 'Running · External'
+          : 'Stopped';
+      const connectionLabel = enabled && qlcServiceStatus?.connectionState === 'connected'
+        ? 'Connected'
+        : enabled ? 'Disconnected' : 'Not managed';
+      const executionLabel = enabled && qlcServiceStatus?.executionAvailability === 'available'
+        ? 'Available'
+        : 'Unavailable';
+      const controls = Number(qlcServiceStatus?.compatibility?.productionButtonCount)
+        || (device.metadata?.qlcplusWidgets || []).filter(widget => widget.canActivateScene === true).length;
+      return `<article class="device-card ${enabled ? '' : 'disabled'}">
+        <div class="device-card-head"><span class="device-type">lighting</span><strong>${escapeHtml(device.name)}</strong></div>
+        <div class="device-facts"><span>${enabled ? 'Enabled in Trinity' : 'Disabled in Trinity'}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>Process: ${escapeHtml(processLabel)}</span><span>Connection: ${escapeHtml(connectionLabel)}</span><span>Lighting execution: ${escapeHtml(executionLabel)}</span><span>Controls discovered: ${controls}</span></div>
+        <small>${escapeHtml(!enabled && processLabel !== 'Stopped' ? 'QLC+ process still running. Trinity monitoring and execution are disabled.' : qlcServiceStatus?.message || diagnostic?.message || 'Status not checked')}</small>
+        <div class="row-actions"><button data-configure-device="${device.id}">CONFIGURE</button><button data-toggle-device="${device.id}">${enabled ? 'DISABLE IN TRINITY' : 'ENABLE IN TRINITY'}</button><button data-duplicate-device="${device.id}">DUPLICATE</button><button class="danger" data-delete-device="${device.id}">DELETE</button></div>
+      </article>`;
+    }
     return `<article class="device-card ${device.enabled ? '' : 'disabled'}">
       <div class="device-card-head"><span class="device-type">${escapeHtml(device.type)}</span><strong>${escapeHtml(device.name)}</strong></div>
       ${device.logicalRole ? `<span class="role-pill">${escapeHtml(device.logicalRole)}</span>` : ''}
@@ -2453,7 +2479,7 @@ function settingsPage() {
     body = `<div class="settings-heading"><div><span class="eyebrow">LIGHTING INTEGRATION</span><h1>QLC+</h1><p>Configure and inspect QLC+ without activating any lighting controls.</p></div></div>
       <section class="panel qlc-service-panel"><div class="section-title"><span>QLC+ SERVICE</span><strong id="qlc-service-message">${escapeHtml(qlcServiceStatus?.message || 'Status not checked')}</strong></div>
         <div class="device-facts"><span>Status: <b id="qlc-service-state">${escapeHtml(qlcServiceStatus?.state || 'unknown')}</b></span><span>Launch mode: ${escapeHtml(serviceLaunchMode)}</span><span>Workspace: ${escapeHtml(workspaceName)}</span><span>Compatibility: ${escapeHtml(compatibility)}</span><span>Controls: ${Number(qlcServiceStatus?.compatibility?.productionButtonCount) || 0} production buttons discovered</span></div>
-        <div class="row-actions"><button id="qlc-service-start" ${serviceConnected ? 'disabled' : ''}>START QLC+</button><button id="qlc-service-restart" ${qlcServiceStatus?.owned ? '' : 'disabled'}>RESTART QLC+</button><button id="qlc-service-refresh">REFRESH STATUS</button><button id="qlc-open-configuration">OPEN QLC+ CONFIGURATION</button></div>
+        <div class="row-actions"><button id="qlc-service-start" ${serviceConnected || lightingDevice?.enabled === false ? 'disabled' : ''}>START QLC+</button><button id="qlc-service-restart" ${qlcServiceStatus?.owned && lightingDevice?.enabled !== false ? '' : 'disabled'}>RESTART QLC+</button><button id="qlc-service-refresh" ${lightingDevice?.enabled === false ? 'disabled' : ''}>RECONNECT</button><button id="qlc-open-configuration">OPEN QLC+ CONFIGURATION</button></div>
       </section>
       <section class="panel settings-form" id="qlc-service-configuration"><span class="eyebrow wide">QLC+ SERVICE SETTINGS</span>
         <label class="checkbox-label"><input type="checkbox" data-qlc-service-field="manageAutomatically" ${serviceSettings.manageAutomatically ? 'checked' : ''}> Manage QLC+ Automatically</label>
@@ -2472,7 +2498,7 @@ function settingsPage() {
         <label>Credential<input type="password" data-lighting-device-field="credentialReference" value="${escapeHtml(lightingDevice.credentialReference || lightingDevice.connection?.credentialReference || '')}" autocomplete="new-password"></label>
         <label>Timeout (ms)<input type="number" min="250" max="30000" data-lighting-device-field="timeoutMs" value="${lightingDevice.timeoutMs || lightingDevice.connection?.timeoutMs || 3000}"></label>
         <label>Production Page<select id="qlc-production-page"><option value="">All pages</option>${qlcplusPages.map(item => `<option value="${escapeHtml(item.pageName)}" ${lightingDevice.metadata?.qlcplusProductionPage === item.pageName ? 'selected' : ''}>${escapeHtml(item.pageName)}</option>`).join('')}</select></label>
-        <label class="checkbox-label"><input type="checkbox" data-lighting-device-field="enabled" ${lightingDevice.enabled ? 'checked' : ''}> Enabled</label>
+        <label class="checkbox-label"><input type="checkbox" data-lighting-device-field="enabled" ${lightingDevice.enabled ? 'checked' : ''}> Enabled in Trinity</label>
       </section>
       <div class="settings-editor-actions"><div class="qlc-discovery-summary">${diagnostic?.widgetCount !== undefined ? discoverySummary : escapeHtml(diagnostic?.message || 'QLC+ has not been tested.')}</div><label class="checkbox-label"><input type="checkbox" id="qlc-show-all-controls" ${showAllDiscoveredLightingControls ? 'checked' : ''}> Show All Controls</label><button id="qlc-test-connection">TEST CONNECTION</button><button id="qlc-discover-controls">REFRESH CONTROLS</button></div>
       ${widgets.length ? `<div class="section-title"><span>${escapeHtml(showAllDiscoveredLightingControls ? 'All QLC+ Controls' : productionPage ? `${productionPage} Controls` : 'Compatible QLC+ Controls')}</span></div><div class="diagnostic-table">${visibleWidgets.map(widget => `<div><strong>${escapeHtml(widget.name)}</strong><span>ID ${escapeHtml(widget.widgetId)}</span><span>${escapeHtml(widget.widgetType || 'Unknown')}</span><span>${escapeHtml(widget.status || 'Unknown')}</span><span>${widget.canActivateScene ? 'Scene-capable' : 'Read only'}</span>${showAllDiscoveredLightingControls ? `<span>${escapeHtml(widget.pageName || 'Page unavailable')}</span>` : ''}</div>`).join('')}</div>` : ''}` : '<div class="settings-warning">No lighting device is configured.</div>'}`;
@@ -2498,7 +2524,13 @@ function settingsPage() {
   });
   document.getElementById('add-camera')?.addEventListener('click', async () => { state = await window.trinity.createDevice({ type: 'camera', name: 'New Camera', logicalRole: 'camera', enabled: false, presetSupport: true }); selectedDeviceId = state.devices.at(-1).id; render(); });
   document.querySelectorAll('[data-configure-device]').forEach(button => button.onclick = () => { selectedDeviceId = button.dataset.configureDevice; render(); });
-  document.querySelectorAll('[data-toggle-device]').forEach(button => button.onclick = async () => { const device = byId(state.devices, button.dataset.toggleDevice); state = await window.trinity.updateDevice(device.id, { enabled: !device.enabled }); render(); });
+  document.querySelectorAll('[data-toggle-device]').forEach(button => button.onclick = async () => {
+    const device = byId(state.devices, button.dataset.toggleDevice);
+    state = device.type === 'lighting' && device.adapterType === 'qlcplus-websocket'
+      ? await window.trinity.setQlcDeviceEnabled(!device.enabled)
+      : await window.trinity.updateDevice(device.id, { enabled: !device.enabled });
+    render();
+  });
   document.querySelectorAll('[data-duplicate-device]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateDevice(button.dataset.duplicateDevice); render(); });
   document.querySelectorAll('[data-delete-device]').forEach(button => button.onclick = async () => {
     await confirmAndDeleteCamera(button.dataset.deleteDevice);
@@ -2526,7 +2558,9 @@ function settingsPage() {
   });
   document.querySelectorAll('[data-lighting-device-field]').forEach(input => input.onchange = async () => {
     const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null;
-    state = await window.trinity.updateDevice(lightingDevice.id, { [input.dataset.lightingDeviceField]: value });
+    state = input.dataset.lightingDeviceField === 'enabled'
+      ? await window.trinity.setQlcDeviceEnabled(value)
+      : await window.trinity.updateDevice(lightingDevice.id, { [input.dataset.lightingDeviceField]: value });
     render();
   });
   document.getElementById('qlc-test-connection')?.addEventListener('click', async () => {
@@ -2576,14 +2610,18 @@ function settingsPage() {
 
 function updateQlcStatusElements() {
   if (!state) return;
-  const qlcManagementEnabled = state.settings?.qlcplusService?.manageAutomatically === true;
-  const readiness = !qlcManagementEnabled
+  const qlcDevice = (state.devices || []).find(device =>
+    device.type === 'lighting' && device.adapterType === 'qlcplus-websocket'
+  );
+  const readiness = !qlcDevice
     ? 'All Systems Ready'
-    : qlcServiceStatus?.state !== 'connected'
-      ? 'Lighting Not Ready'
-      : qlcServiceStatus?.compatibility?.severity === 'warning'
-        ? 'Systems Ready · Lighting Warning'
-        : 'All Systems Ready';
+    : qlcDevice.enabled === false
+      ? 'Ready with Lighting Disabled'
+      : qlcServiceStatus?.state !== 'connected'
+        ? 'Attention Required'
+        : qlcServiceStatus?.compatibility?.severity === 'warning'
+          ? 'Systems Ready · Lighting Warning'
+          : 'All Systems Ready';
   const badge = document.querySelector('.topbar .ready');
   if (badge) badge.innerHTML = `<i></i>${escapeHtml(readiness)}`;
   const stateLabel = document.getElementById('qlc-service-state');

@@ -38,6 +38,9 @@ function createLightingAdapterRegistry({ transports = {} } = {}) {
   }
   async function run(device, operation) {
     const config = safeConfiguration(device);
+    if (device?.enabled === false) {
+      return { ok: false, code: "lightingDisabled", message: "Lighting is disabled in Trinity", ...resultDetails(config) };
+    }
     const adapter = resolve(device);
     if (!adapter) {
       return { ok: false, code: "adapterUnavailable", message: "Lighting adapter is not configured or supported", ...resultDetails(config) };
@@ -57,7 +60,7 @@ function createLightingAdapterRegistry({ transports = {} } = {}) {
       return { ok: false, code: "adapterUnavailable", message: "Lighting adapter is not configured", ...resultDetails(config) };
     }
     if (device.enabled === false) {
-      return { ok: false, code: "adapterDisabled", message: "Lighting adapter is disabled", ...resultDetails(config) };
+      return { ok: false, code: "lightingDisabled", message: "Lighting is disabled in Trinity", ...resultDetails(config) };
     }
     const adapter = resolve(device);
     if (!adapter) {

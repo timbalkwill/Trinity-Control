@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld("trinity", {
   startQlcService: () => ipcRenderer.invoke("qlc-service:start"),
   restartQlcService: () => ipcRenderer.invoke("qlc-service:restart"),
   refreshQlcService: () => ipcRenderer.invoke("qlc-service:refresh"),
+  setQlcDeviceEnabled: enabled => ipcRenderer.invoke("qlc-service:set-enabled", enabled),
   onStateChanged: subscriber => {
     const listener = (_event, state) => subscriber(state);
     ipcRenderer.on("operator:state-changed", listener);

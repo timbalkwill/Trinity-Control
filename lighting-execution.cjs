@@ -34,8 +34,14 @@ function createLightingExecutor(state, { registry, activeState = null, logger = 
       );
       if (!registry?.execute) return unavailableResult(execution);
       if (device?.enabled === false) {
-        activeState?.reset?.("adapter-disabled");
-        return { ok: false, code: "adapterDisabled", message: "Lighting adapter is disabled" };
+        activeState?.reset?.("lighting-disabled");
+        return {
+          ok: true,
+          skipped: true,
+          reason: "lighting-disabled",
+          activationMessageCount: 0,
+          message: "Lighting is disabled in Trinity"
+        };
       }
       logger?.info?.(`[Lighting Execution] ${context.cueExecutionId || "unknown"} index=${context.lightingExecutionIndex ?? "unknown"} scene=${execution?.lightingSceneId || "unknown"} adapter=${execution?.adapterType || "unknown"} widget=${execution?.widgetId || "unknown"} started`);
       if (typeof registry.testConnection === "function") {

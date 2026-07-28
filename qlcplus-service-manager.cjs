@@ -172,6 +172,7 @@ function createQlcServiceManager({
   let currentLaunchAttemptId = 0;
   let readinessPollCount = 0;
   let restartingChild = null;
+  let monitoringEnabled = true;
   let status = {
     state: "disabled",
     launchMode: null,
@@ -217,6 +218,10 @@ function createQlcServiceManager({
       ownedChild = null;
       managedLaunch = false;
       if (restartingChild === child) return;
+      if (!monitoringEnabled || context().device?.enabled === false) {
+        publish({ state: "disabled", processState: "stopped", owned: false, childPid: null, message: "Disabled in Trinity" });
+        return;
+      }
       publish({
         state: "failed",
         launchMode: "managed",
@@ -244,6 +249,9 @@ function createQlcServiceManager({
 
   async function check({ externalIfReachable = false, attemptId = null } = {}) {
     const current = context();
+    if (current.device?.enabled === false || !monitoringEnabled) {
+      return { ok: false, disabled: true, current };
+    }
     const wasConnected = status.state === "connected";
     const result = await discover(current.device);
     if (attemptId !== null && attemptId !== currentLaunchAttemptId) {
@@ -267,6 +275,9 @@ function createQlcServiceManager({
     const compatibility = workspaceCompatibility(current);
     publish({
       state: "connected",
+      serviceEnabled: true,
+      connectionState: "connected",
+      executionAvailability: "available",
       processState,
       launchMode: managedLaunch ? "managed" : externalIfReachable ? "external" : status.launchMode,
       owned: managedLaunch,
@@ -312,6 +323,7 @@ function createQlcServiceManager({
   }
 
   async function launchManaged({ restarting = false } = {}) {
+    if (!monitoringEnabled || context().device?.enabled === false) return disable();
     if (activeLaunch) return activeLaunch;
     if (childIsLive()) {
       logger?.info?.("[QLC+ Service] Duplicate launch suppressed: owned process is still running");
@@ -363,16 +375,28 @@ function createQlcServiceManager({
   async function initialize() {
     stopped = false;
     const current = context();
-    if (!current.settings.manageAutomatically) {
-      return publish({ state: "disabled", launchMode: null, owned: false, message: "Automatic QLC+ management is disabled" });
+    monitoringEnabled = current.device?.enabled !== false;
+    if (!monitoringEnabled) {
+      return disable();
     }
     const existing = await check({ externalIfReachable: true });
     if (existing.ok) return existing;
+    if (!current.settings.manageAutomatically) {
+      return publish({
+        state: "stopped",
+        serviceEnabled: true,
+        connectionState: "disconnected",
+        executionAvailability: "unavailable",
+        message: "QLC+ is enabled in Trinity but is not connected"
+      });
+    }
     return launchManaged();
   }
 
   async function start() {
     stopped = false;
+    monitoringEnabled = context().device?.enabled !== false;
+    if (!monitoringEnabled) return disable();
     const existing = await check({ externalIfReachable: true });
     if (existing.ok) return existing;
     if (childIsLive()) {
@@ -390,6 +414,7 @@ function createQlcServiceManager({
   }
 
   async function refresh() {
+    if (context().device?.enabled === false || !monitoringEnabled) return disable();
     const result = await check({ externalIfReachable: !ownedChild });
     if (!result.ok) publish({
       state: childIsLive() ? "degraded" : "stopped",
@@ -400,6 +425,7 @@ function createQlcServiceManager({
   }
 
   async function restart() {
+    if (!monitoringEnabled || context().device?.enabled === false) return disable();
     if (!managedLaunch) {
       return publish({ message: "Trinity cannot safely restart an externally managed QLC+ instance" });
     }
@@ -443,12 +469,42 @@ function createQlcServiceManager({
 
   function scheduleMonitor() {
     if (monitorTimer) clearTimer(monitorTimer);
+    monitorTimer = null;
     const settings = context().settings;
-    if (stopped || (!settings.manageAutomatically && !settings.restartIfClosed)) return;
+    if (stopped || !monitoringEnabled || context().device?.enabled === false) return;
     monitorTimer = setTimer(async () => {
       await monitorOnce();
       scheduleMonitor();
     }, settings.healthCheckIntervalMs);
+  }
+
+  function disable() {
+    monitoringEnabled = false;
+    currentLaunchAttemptId = ++launchAttemptSequence;
+    if (monitorTimer) clearTimer(monitorTimer);
+    monitorTimer = null;
+    const processStillRunning = childIsLive()
+      || status.state === "connected"
+      || String(status.processState || "").startsWith("running");
+    return publish({
+      state: "disabled",
+      serviceEnabled: false,
+      connectionState: "disconnected",
+      executionAvailability: "unavailable",
+      processState: processStillRunning
+        ? (managedLaunch ? "running-managed" : "running-external")
+        : "stopped",
+      message: processStillRunning
+        ? "Disabled in Trinity · QLC+ process still running"
+        : "Disabled in Trinity"
+    });
+  }
+
+  async function enable() {
+    monitoringEnabled = true;
+    const result = await initialize();
+    scheduleMonitor();
+    return result;
   }
 
   function shutdown() {
@@ -458,6 +514,8 @@ function createQlcServiceManager({
   }
 
   return {
+    disable,
+    enable,
     getStatus: () => ({ ...status }),
     initialize,
     launchManaged,

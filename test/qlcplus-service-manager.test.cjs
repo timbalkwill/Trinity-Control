@@ -141,6 +141,7 @@ test("macOS bundle resolution falls back safely and validates every path before 
 test("disabled automatic management performs no health check or launch", async () => {
   let calls = 0;
   const current = context({ manageAutomatically: false });
+  current.device.enabled = false;
   const manager = createQlcServiceManager({
     getContext: () => current,
     discover: async () => { calls += 1; return { ok: true }; },

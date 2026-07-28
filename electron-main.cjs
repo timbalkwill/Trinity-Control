@@ -894,6 +894,17 @@ app.whenReady().then(async () => {
   ipcMain.handle("qlc-service:start", () => qlcServiceManager.start());
   ipcMain.handle("qlc-service:restart", () => qlcServiceManager.restart());
   ipcMain.handle("qlc-service:refresh", () => qlcServiceManager.refresh());
+  ipcMain.handle("qlc-service:set-enabled", async (_event, enabled) => {
+    const current = commands.getState();
+    const lightingDevice = (current.devices || []).find(device =>
+      device.type === "lighting" && device.adapterType === "qlcplus-websocket"
+    );
+    if (!lightingDevice) throw new RangeError("QLC+ lighting device is not configured");
+    await commands.updateDevice(lightingDevice.id, { enabled: enabled === true });
+    if (enabled === true) await qlcServiceManager.enable();
+    else qlcServiceManager.disable();
+    return commands.getState();
+  });
 
   createWindow();
   void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());

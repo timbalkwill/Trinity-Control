@@ -8,8 +8,9 @@ const presets = require("./camera-preset-operations.cjs");
 const shots = require("./shot-operations.cjs");
 const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
+const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
 
-function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue }) {
+function createOperatorCommands({ loadState, saveState, normalizeState = state => state, cueExecutor = executeCue, lightingAdapters = createLightingAdapterRegistry() }) {
   const subscribers = new Set();
   let queue = Promise.resolve();
 
@@ -96,6 +97,26 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
     testDevice: deviceId => mutate(state => devices.runDeviceDiagnostic(state, deviceId)),
     testAllDevices: () => mutate(state => {
       for (const device of state.devices || []) devices.runDeviceDiagnostic(state, device.id);
+    }),
+    testLightingConnection: deviceId => mutate(async state => {
+      const device = devices.getDeviceById(state, deviceId);
+      if (!device || device.type !== "lighting") throw new RangeError(`Unknown lighting device: ${deviceId}`);
+      const result = await lightingAdapters.testConnection(device);
+      device.metadata = { ...device.metadata, lightingDiagnostic: result };
+      device.lastCheckedAt = new Date().toISOString();
+      device.lastError = result.ok ? null : result.message;
+    }),
+    discoverLightingControls: deviceId => mutate(async state => {
+      const device = devices.getDeviceById(state, deviceId);
+      if (!device || device.type !== "lighting") throw new RangeError(`Unknown lighting device: ${deviceId}`);
+      const result = await lightingAdapters.discoverControls(device);
+      device.metadata = {
+        ...device.metadata,
+        lightingDiagnostic: result,
+        qlcplusWidgets: result.ok ? result.widgets : device.metadata?.qlcplusWidgets || []
+      };
+      device.lastCheckedAt = new Date().toISOString();
+      device.lastError = result.ok ? null : result.message;
     }),
     clearDeviceDiagnostic: deviceId => mutate(state => devices.clearDeviceDiagnostic(state, deviceId)),
     createCameraPreset: input => mutate(state => presets.createCameraPreset(state, input)),

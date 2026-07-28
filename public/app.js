@@ -2153,6 +2153,7 @@ function settingsPage() {
     (!deviceEnabledFilter || String(device.enabled) === deviceEnabledFilter)
   );
   const cameras = devices.filter(device => device.type === 'camera');
+  const lightingDevice = devices.find(device => device.type === 'lighting') || null;
   const roleWarnings = cameras.filter(camera => camera.enabled && cameras.some(other => other.id !== camera.id && other.enabled && other.logicalRole === camera.logicalRole));
   const selected = byId(devices, selectedDeviceId) || null;
   const selectedReferences = selected?.type === 'camera' ? cameraReferenceSummary(selected.id) : null;
@@ -2211,6 +2212,22 @@ function settingsPage() {
     body = `<div class="settings-heading"><div><span class="eyebrow">CAMERA COLLECTION</span><h1>Cameras</h1><p>Suggested roles are optional. Custom logical roles are supported.</p></div><button id="add-camera">ADD CAMERA</button></div>
       ${roleWarnings.length ? `<div class="settings-warning">Duplicate enabled logical role: ${escapeHtml([...new Set(roleWarnings.map(camera => camera.logicalRole))].join(', '))}. Assignments remain unchanged.</div>` : ''}
       <div class="device-grid">${cameras.map(cameraCard).join('')}</div>`;
+  } else if (settingsSection === 'lighting') {
+    const diagnostic = lightingDevice?.metadata?.lightingDiagnostic;
+    const widgets = lightingDevice?.metadata?.qlcplusWidgets || [];
+    body = `<div class="settings-heading"><div><span class="eyebrow">LIGHTING INTEGRATION</span><h1>QLC+</h1><p>Configure and inspect QLC+ without activating any lighting controls.</p></div></div>
+      ${lightingDevice ? `<section class="panel settings-form">
+        <label>Adapter<select data-lighting-device-field="adapterType"><option value="" ${!lightingDevice.adapterType || lightingDevice.adapterType === 'qlc-plus' ? 'selected' : ''}>Not configured</option><option value="qlcplus-websocket" ${lightingDevice.adapterType === 'qlcplus-websocket' ? 'selected' : ''}>QLC+ WebSocket</option></select></label>
+        <label>Host<input data-lighting-device-field="ipAddress" value="${escapeHtml(lightingDevice.ipAddress || lightingDevice.connection?.host || '')}"></label>
+        <label>Web port<input type="number" min="1" max="65535" data-lighting-device-field="port" value="${lightingDevice.port || lightingDevice.connection?.port || 9999}"></label>
+        <label>WebSocket protocol<select data-lighting-device-field="protocol"><option value="ws" ${(lightingDevice.protocol || lightingDevice.connection?.protocol || 'ws') === 'ws' ? 'selected' : ''}>ws</option><option value="wss" ${(lightingDevice.protocol || lightingDevice.connection?.protocol) === 'wss' ? 'selected' : ''}>wss</option></select></label>
+        <label>Username<input data-lighting-device-field="username" value="${escapeHtml(lightingDevice.username || lightingDevice.connection?.username || '')}"></label>
+        <label>Credential<input type="password" data-lighting-device-field="credentialReference" value="${escapeHtml(lightingDevice.credentialReference || lightingDevice.connection?.credentialReference || '')}" autocomplete="new-password"></label>
+        <label>Timeout (ms)<input type="number" min="250" max="30000" data-lighting-device-field="timeoutMs" value="${lightingDevice.timeoutMs || lightingDevice.connection?.timeoutMs || 3000}"></label>
+        <label class="checkbox-label"><input type="checkbox" data-lighting-device-field="enabled" ${lightingDevice.enabled ? 'checked' : ''}> Enabled</label>
+      </section>
+      <div class="settings-editor-actions"><span>${escapeHtml(diagnostic?.message || 'QLC+ has not been tested.')}${diagnostic?.widgetCount !== undefined ? ` · ${diagnostic.widgetCount} widgets · ${diagnostic.elapsedMs || 0} ms` : ''}</span><button id="qlc-test-connection">TEST CONNECTION</button><button id="qlc-discover-controls">DISCOVER CONTROLS</button></div>
+      ${widgets.length ? `<div class="diagnostic-table">${widgets.map(widget => `<div><strong>${escapeHtml(widget.name)}</strong><span>ID ${escapeHtml(widget.widgetId)}</span><span>${escapeHtml(widget.widgetType || 'Unknown')}</span><span>${escapeHtml(widget.status || 'Unknown')}</span><span>${widget.canActivateScene ? 'Scene-capable' : 'Read only'}</span></div>`).join('')}</div>` : ''}` : '<div class="settings-warning">No lighting device is configured.</div>'}`;
   } else if (settingsSection === 'diagnostics') {
     body = `<div class="settings-heading"><div><span class="eyebrow">STUB ADAPTER STATUS</span><h1>Diagnostics</h1><p>Results are configuration checks only; no hardware connection is attempted.</p></div><button id="run-all-tests">RUN ALL TESTS</button></div>
       <div class="diagnostic-table">${devices.map(device => { const result = device.metadata?.diagnostic; return `<div><strong>${escapeHtml(device.name)}</strong><span>${escapeHtml(device.type)}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span><span>${escapeHtml(result?.message || 'Not tested')}</span><button data-test-device="${device.id}">TEST</button><button data-clear-diagnostic="${device.id}">CLEAR</button></div>`; }).join('')}</div>`;
@@ -2257,6 +2274,19 @@ function settingsPage() {
     const updated = byId(state.devices, selected.id);
     const duplicates = state.devices.filter(device => device.id !== updated.id && device.type === 'camera' && device.enabled && updated.enabled && device.logicalRole === updated.logicalRole);
     if (duplicates.length) window.alert(`Warning: logical role "${updated.logicalRole}" is also used by ${duplicates.map(device => device.name).join(', ')}.`);
+    render();
+  });
+  document.querySelectorAll('[data-lighting-device-field]').forEach(input => input.onchange = async () => {
+    const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null;
+    state = await window.trinity.updateDevice(lightingDevice.id, { [input.dataset.lightingDeviceField]: value });
+    render();
+  });
+  document.getElementById('qlc-test-connection')?.addEventListener('click', async () => {
+    state = await window.trinity.testLightingConnection(lightingDevice.id);
+    render();
+  });
+  document.getElementById('qlc-discover-controls')?.addEventListener('click', async () => {
+    state = await window.trinity.discoverLightingControls(lightingDevice.id);
     render();
   });
 }

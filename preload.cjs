@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("trinity", {
   reorderDevice: (from, to) => ipcRenderer.invoke("device:reorder", { from, to }),
   testDevice: deviceId => ipcRenderer.invoke("device:test", deviceId),
   testAllDevices: () => ipcRenderer.invoke("device:testAll"),
+  testLightingConnection: deviceId => ipcRenderer.invoke("lighting-adapter:test", deviceId),
+  discoverLightingControls: deviceId => ipcRenderer.invoke("lighting-adapter:discover", deviceId),
   clearDeviceDiagnostic: deviceId => ipcRenderer.invoke("device:clearDiagnostic", deviceId),
   createCameraPreset: input => ipcRenderer.invoke("camera-preset:create", input),
   updateCameraPreset: (presetId, patch) => ipcRenderer.invoke("camera-preset:update", { presetId, patch }),

@@ -6,6 +6,8 @@
 
 Camera records add a string `logicalRole`, manufacturer/model, IP address, port, protocol, username, credential reference or password, tracking and motion flags, preset support, connection status, last-check time, and last error.
 
+Lighting devices can select the `qlcplus-websocket` adapter and reuse the same connection structure for host, web port, WebSocket protocol, username, credential/password, and bounded timeout. The current application does not provide an operating-system credential vault: saved credentials follow the existing local state-file pattern and must be protected through workstation access controls. Credentials are excluded from Browser Operator projections and adapter results.
+
 Device identity is always the record ID. Array position is presentation order only.
 
 ## Defaults and migration

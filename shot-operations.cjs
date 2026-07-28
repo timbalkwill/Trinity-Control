@@ -13,6 +13,12 @@ const uniqueId = () => `shot-${Date.now()}-${Math.random().toString(36).slice(2,
 const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
 const shotType = value => SHOT_TYPES.includes(value) ? value : "static";
 const motionSpeedSetting = value => MOTION_SPEED_SETTINGS.includes(value) ? value : "medium";
+const speedLabel = value => ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[value] || "Medium";
+const freeze = value => {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.values(value).forEach(freeze);
+  return Object.freeze(value);
+};
 
 const DEFAULT_SHOT_DEFINITIONS = [
   ["shot-pastor-tight", "Pastor Tight", "Pastor", "main", "Pastor", "Tight"],
@@ -238,6 +244,98 @@ function resolveShotTarget(state, shotOrId) {
   };
 }
 
+function resolveShotExecution(state, shotOrId, { referenceRole = null, referenceSource = "production-look" } = {}) {
+  const requestedShotId = typeof shotOrId === "string" ? shotOrId : shotOrId?.id || null;
+  const rawShot = typeof shotOrId === "string" ? (state?.shots || []).find(item => item?.id === shotOrId) : shotOrId;
+  if (!rawShot || typeof rawShot !== "object") {
+    return freeze({
+      referenceRole,
+      referenceSource,
+      shotId: requestedShotId,
+      shotName: null,
+      type: null,
+      camera: null,
+      static: null,
+      motion: null,
+      tracking: null,
+      valid: false,
+      errors: [`Invalid Shot reference: ${requestedShotId || "not assigned"}`]
+    });
+  }
+
+  const shot = normalizeShot(rawShot);
+  const type = shot.shotType;
+  const errors = [];
+  const cameras = (state?.devices || []).filter(item => item?.type === "camera");
+  const requestedCamera = shot.cameraDeviceId ? cameras.find(item => item.id === shot.cameraDeviceId) : null;
+  const roleCamera = shot.logicalCameraRole
+    ? cameras.find(item => item.logicalRole === shot.logicalCameraRole || (shot.logicalCameraRole === "main" && item.logicalRole === "center"))
+    : null;
+  const camera = requestedCamera || roleCamera || null;
+  if (shot.enabled === false) errors.push(`Invalid Shot reference "${shot.name}": Shot is disabled`);
+  if (!camera) errors.push(`Missing camera for Shot "${shot.name}"`);
+  else if (camera.enabled === false) errors.push(`Invalid camera reference for Shot "${shot.name}": ${camera.name || camera.id} is disabled`);
+
+  const resolvePreset = (presetId, label) => {
+    if (!presetId) {
+      errors.push(`Missing ${label} for Shot "${shot.name}"`);
+      return null;
+    }
+    const scoped = camera
+      ? (state?.cameraPresets || []).find(item => item?.id === presetId && item?.cameraDeviceId === camera.id)
+      : null;
+    if (!scoped) {
+      const existsElsewhere = (state?.cameraPresets || []).some(item => item?.id === presetId);
+      errors.push(existsElsewhere && camera
+        ? `Invalid ${label} reference for Shot "${shot.name}": ${presetId} belongs to another camera`
+        : `Missing ${label} for Shot "${shot.name}": ${presetId}`);
+      return null;
+    }
+    if (scoped.enabled === false) {
+      errors.push(`Invalid ${label} reference for Shot "${shot.name}": ${scoped.name || scoped.id} is disabled`);
+      return null;
+    }
+    return { id: scoped.id, name: scoped.name || null, cameraDeviceId: scoped.cameraDeviceId };
+  };
+
+  const cameraExecution = camera ? {
+    id: camera.id,
+    name: camera.name || null,
+    logicalRole: camera.logicalRole || null
+  } : null;
+  let staticExecution = null;
+  let motionExecution = null;
+  let trackingExecution = null;
+  if (type === "static") {
+    staticExecution = { preset: resolvePreset(shot.cameraPresetId, "preset") };
+  } else if (type === "motion") {
+    motionExecution = {
+      startPreset: resolvePreset(shot.cameraPresetId, "start preset"),
+      endPreset: resolvePreset(shot.motionEndPresetId, "end preset"),
+      speed: { value: shot.motionSpeedSetting, label: speedLabel(shot.motionSpeedSetting) }
+    };
+  } else {
+    trackingExecution = {
+      startingPreset: resolvePreset(shot.cameraPresetId, "starting preset"),
+      enabled: shot.trackingPreferred === true
+    };
+  }
+
+  return freeze({
+    referenceRole,
+    referenceSource,
+    shotId: shot.id,
+    shotName: shot.name,
+    type,
+    camera: cameraExecution,
+    static: staticExecution,
+    motion: motionExecution,
+    tracking: trackingExecution,
+    valid: errors.length === 0,
+    errors
+  });
+}
+
 function summarizeShotReadiness(resolved) {
   const labels = {
     ready: "Ready",
@@ -318,6 +416,7 @@ module.exports = {
   normalizeShot,
   reorderShot,
   resolveShotTarget,
+  resolveShotExecution,
   summarizeShot,
   summarizeShotReadiness,
   updateShot,

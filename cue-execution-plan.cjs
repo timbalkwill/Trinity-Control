@@ -1,6 +1,7 @@
 "use strict";
 
 const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
+const { resolveShotExecution } = require("./shot-operations.cjs");
 
 function byId(items, id) {
   return id && Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
@@ -34,6 +35,18 @@ function buildCueExecutionPlan(state, cue) {
   if (programCameraId && !knownCamera(programCameraId)) warnings.push(`Missing program camera: ${programCameraId}`);
   if (previewCameraId && !knownCamera(previewCameraId)) warnings.push(`Missing preview camera: ${previewCameraId}`);
   const cameraAssignments = resolvedCameras.cameraAssignments.map(item => ({ ...item }));
+  const shotReferences = [
+    ...(effectiveLook?.selectedShotId ? [{ shotId: effectiveLook.selectedShotId, role: "selected", source: "production-look-selected" }] : []),
+    ...(effectiveLook?.cameraAssignments || [])
+      .filter(item => item?.shotId)
+      .map(item => ({ shotId: item.shotId, role: item.role || null, source: "production-look-assignment" }))
+  ];
+  const shotExecutions = shotReferences.map(reference => resolveShotExecution(state, reference.shotId, {
+    referenceRole: reference.role,
+    referenceSource: reference.source
+  }));
+  const shotValidationErrors = shotExecutions.flatMap(item => item.errors);
+  warnings.push(...shotValidationErrors);
 
   return {
     cueId: cue?.id || null,
@@ -97,6 +110,8 @@ function buildCueExecutionPlan(state, cue) {
       source: item.source,
       missing: item.missing
     })),
+    shotExecutions,
+    shotValidationErrors,
     motion: {
       enabled: effectiveLook?.motionEnabled === true,
       profileId: effectiveLook?.motionProfileId || null,

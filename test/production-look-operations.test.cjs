@@ -67,6 +67,25 @@ test("valid linked legacy Shot preset migrates while invalid Shot does not inven
   assert.equal(invalid.cameraPresets.main.presetId, null);
 });
 
+test("Production Look migration preserves Shot references for execution resolution", () => {
+  const state = fixture();
+  const normalized = normalizeProductionLook({
+    id: "shot-look",
+    name: "Shot Look",
+    selectedShotId: "legacy-shot",
+    cameraAssignments: [
+      { role: "program", shotId: "legacy-shot", cameraDeviceId: "main", cameraPresetId: "main-wide" },
+      { role: "preview", shotId: "missing-shot" }
+    ]
+  }, { state });
+  assert.equal(normalized.selectedShotId, "legacy-shot");
+  assert.deepEqual(normalized.cameraAssignments, [
+    { role: "program", shotId: "legacy-shot", cameraId: "main", presetId: "main-wide" },
+    { role: "preview", shotId: "missing-shot", cameraId: null, presetId: null }
+  ]);
+  assert.deepEqual(normalizeProductionLook(normalized, { state }), normalized);
+});
+
 
 test("v3 normalization repairs stale role camera IDs from valid role-scoped presets", () => {
   const state = fixture();

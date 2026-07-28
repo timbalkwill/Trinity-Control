@@ -23,6 +23,7 @@ const {
   normalizeShot,
   reorderShot,
   resolveShotTarget,
+  resolveShotExecution,
   summarizeShot,
   updateShot,
   validateShot
@@ -128,6 +129,107 @@ test("type-specific Shot fields normalize, persist, and duplicate", () => {
   updateShot(current, "motion", { motionSpeedSetting: "fast" }, { now: 3000 });
   assert.equal(current.shots[0].motionSpeedSetting, "fast");
   assert.equal(normalizeShot({ name: "Invalid speed", motionSpeedSetting: "warp" }).motionSpeedSetting, "medium");
+});
+
+test("Shot execution resolution creates immutable type-specific objects", () => {
+  const current = state();
+  current.cameraPresets.push(
+    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true })
+  );
+  const executions = [
+    resolveShotExecution(current, normalizeShot({
+      id: "static", name: "Static", shotType: "static", cameraDeviceId: "main", cameraPresetId: "pastor-tight"
+    })),
+    resolveShotExecution(current, normalizeShot({
+      id: "motion", name: "Motion", shotType: "motion", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", motionEndPresetId: "main-end", motionSpeedSetting: "verySlow"
+    })),
+    resolveShotExecution(current, normalizeShot({
+      id: "tracking", name: "Tracking", shotType: "tracking", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", trackingPreferred: true
+    }))
+  ];
+  assert.equal(executions[0].static.preset.id, "pastor-tight");
+  assert.equal(executions[1].motion.startPreset.id, "pastor-tight");
+  assert.equal(executions[1].motion.endPreset.id, "main-end");
+  assert.deepEqual(executions[1].motion.speed, { value: "verySlow", label: "Very Slow" });
+  assert.equal(executions[2].tracking.startingPreset.id, "pastor-tight");
+  assert.equal(executions[2].tracking.enabled, true);
+  assert.ok(executions.every(item => item.valid && Object.isFrozen(item) && Object.isFrozen(item.camera)));
+});
+
+test("Shot execution resolution reports missing and invalid references", () => {
+  const current = state();
+  const missing = resolveShotExecution(current, "missing-shot");
+  assert.equal(missing.valid, false);
+  assert.match(missing.errors[0], /Invalid Shot reference/);
+
+  const motion = resolveShotExecution(current, normalizeShot({
+    id: "bad-motion", name: "Bad Motion", shotType: "motion",
+    cameraDeviceId: "main", cameraPresetId: "missing-start", motionEndPresetId: "left-wide"
+  }));
+  assert.equal(motion.valid, false);
+  assert.match(motion.errors.join("; "), /Missing start preset/);
+  assert.match(motion.errors.join("; "), /belongs to another camera/);
+
+  const tracking = resolveShotExecution(current, normalizeShot({
+    id: "bad-tracking", name: "Bad Tracking", shotType: "tracking", cameraDeviceId: "missing-camera"
+  }));
+  assert.match(tracking.errors.join("; "), /Missing camera/);
+  assert.match(tracking.errors.join("; "), /Missing starting preset/);
+});
+
+test("GO snapshots every Production Look Shot reference as resolved execution data", () => {
+  const current = state();
+  current.cameraPresets.push(
+    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true })
+  );
+  current.shots = [
+    normalizeShot({
+      id: "static", name: "Static", shotType: "static", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", operatorNotes: "private notes"
+    }),
+    normalizeShot({
+      id: "motion", name: "Motion", shotType: "motion", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", motionEndPresetId: "main-end", motionSpeedSetting: "slow"
+    }),
+    normalizeShot({
+      id: "tracking", name: "Tracking", shotType: "tracking", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", trackingPreferred: true
+    })
+  ];
+  current.productionLooks = [{
+    schemaVersion: 3,
+    id: "look",
+    name: "Shot Look",
+    enabled: true,
+    selectedShotId: "static",
+    cameraAssignments: [
+      { role: "motion", shotId: "motion" },
+      { role: "tracking", shotId: "tracking" },
+      { role: "invalid", shotId: "missing-shot" }
+    ],
+    cameraPresets: {},
+    priorityCameraId: "main"
+  }];
+  current.runOfService = [{ id: "cue", name: "Cue", productionLookId: "look" }];
+
+  executeCue(current, 0, { now: () => 5000 });
+  const snapshot = current.live.executionSnapshot;
+  assert.deepEqual(snapshot.shotExecutions.map(item => [item.referenceRole, item.type, item.valid]), [
+    ["selected", "static", true],
+    ["motion", "motion", true],
+    ["tracking", "tracking", true],
+    ["invalid", null, false]
+  ]);
+  assert.match(snapshot.shotValidationErrors.join("; "), /Invalid Shot reference: missing-shot/);
+  assert.ok(snapshot.warnings.some(item => item.includes("missing-shot")));
+  assert.doesNotMatch(JSON.stringify(snapshot.shotExecutions), /private notes|operatorNotes|framingNotes/);
+
+  const frozen = JSON.stringify(snapshot.shotExecutions);
+  current.shots[0].name = "Edited after GO";
+  current.cameraPresets.find(item => item.id === "pastor-tight").name = "Edited preset";
+  assert.equal(JSON.stringify(current.live.executionSnapshot.shotExecutions), frozen);
 });
 
 test("Shot reference summary renders without undefined camera variables", () => {

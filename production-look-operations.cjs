@@ -125,6 +125,15 @@ function normalizeProductionLook(input = {}, { now = Date.now(), state } = {}) {
     name: typeof input.name === "string" ? input.name.trim() : "Untitled Look",
     enabled: input.enabled !== false,
     lightingSceneId: nullableString(input.lightingSceneId),
+    selectedShotId: nullableString(input.selectedShotId),
+    cameraAssignments: (Array.isArray(input.cameraAssignments) ? input.cameraAssignments : [])
+      .filter(item => item && typeof item === "object")
+      .map(item => ({
+        role: nullableString(item.role),
+        shotId: nullableString(item.shotId),
+        cameraId: nullableString(item.cameraId || item.cameraDeviceId),
+        presetId: nullableString(item.presetId || item.cameraPresetId)
+      })),
     cameraPresets: Object.fromEntries(LOOK_ROLES.map(role => [role, migratePresetAssignment(input, role, state)])),
     priorityCameraId: migratePriorityCamera(input, state),
     startMainTracking: "startMainTracking" in input ? input.startMainTracking === true : input.tracking === true,

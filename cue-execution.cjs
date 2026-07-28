@@ -71,6 +71,8 @@ function normalizeExecutionSnapshot(input) {
     },
     cameraAssignments: Array.isArray(input.cameraAssignments) ? input.cameraAssignments.map(item => ({ ...item })) : [],
     cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
+    shotExecutions: Array.isArray(input.shotExecutions) ? JSON.parse(JSON.stringify(input.shotExecutions)) : [],
+    shotValidationErrors: Array.isArray(input.shotValidationErrors) ? input.shotValidationErrors.map(String) : [],
     simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
     motion: {
       enabled: input.motion?.enabled === true,

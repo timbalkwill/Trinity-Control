@@ -182,8 +182,15 @@ function createQlcServiceManager({
   };
 
   const publish = patch => {
+    const previous = status;
     status = { ...status, ...patch, checkedAt: now() };
-    onStatus({ ...status });
+    const comparable = value => {
+      const { checkedAt, elapsedMs, ...stable } = value || {};
+      return stable;
+    };
+    if (JSON.stringify(comparable(previous)) !== JSON.stringify(comparable(status))) {
+      onStatus({ ...status });
+    }
     return { ...status };
   };
   const context = () => {
@@ -249,12 +256,14 @@ function createQlcServiceManager({
       logger?.info?.("[QLC+ Service] Discovery succeeded");
     }
     const processState = managedLaunch ? "running-managed" : "running-external";
-    publish({
-      state: processState,
-      launchMode: managedLaunch ? "managed" : "external",
-      owned: managedLaunch,
-      message: managedLaunch ? "QLC+ is running under Trinity management" : "QLC+ was already running"
-    });
+    if (!wasConnected) {
+      publish({
+        state: processState,
+        launchMode: managedLaunch ? "managed" : "external",
+        owned: managedLaunch,
+        message: managedLaunch ? "QLC+ is running under Trinity management" : "QLC+ was already running"
+      });
+    }
     const compatibility = workspaceCompatibility(current);
     publish({
       state: "connected",

@@ -11,6 +11,7 @@ let qlcServiceStatus = null;
 let operatorServerStatus;
 let page = 'live';
 let cueEditorOpen = false;
+let servicePageError = '';
 let selectedLookId = null;
 let lookSearch = '';
 let settingsSection = 'devices';
@@ -27,6 +28,8 @@ let shotCategory = '';
 let shotCamera = '';
 let shotFavorite = '';
 let shotEnabled = '';
+let renderSequence = 0;
+let renderInProgress = false;
 const suggestedPresetCategories = ['Pastor', 'Platform', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 const suggestedShotCategories = ['Pastor', 'Platform', 'Music', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 
@@ -487,7 +490,7 @@ function shell(content) {
   document.querySelectorAll('[data-page]').forEach(button => {
     button.onclick = () => {
       page = button.dataset.page;
-      render();
+      render({ reason: 'navigation', preserveScroll: false });
     };
   });
 }
@@ -1322,6 +1325,69 @@ function livePage() {
   if (returnButton) returnButton.onclick = async () => { state = await window.trinity.returnToCueLighting(); render(); };
 }
 
+function openCueDeleteModal(cueId, trigger) {
+  const cue = byId(state.runOfService || [], cueId);
+  if (!cue) return;
+  document.querySelector('.service-delete-backdrop')?.remove();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'service-delete-backdrop';
+  backdrop.innerHTML = `
+    <section class="service-delete-modal" role="dialog" aria-modal="true" aria-labelledby="service-delete-title" aria-describedby="service-delete-description">
+      <span class="eyebrow">SERVICE CUE</span>
+      <h2 id="service-delete-title">Delete cue?</h2>
+      <p id="service-delete-description">“${escapeHtml(cue.name || 'Untitled Cue')}” will be removed from this service.</p>
+      <div class="service-delete-error" role="alert" hidden></div>
+      <div class="service-delete-actions">
+        <button type="button" data-delete-cancel>Cancel</button>
+        <button type="button" class="danger" data-delete-confirm>Delete Cue</button>
+      </div>
+    </section>`;
+  document.body.appendChild(backdrop);
+  const cancel = backdrop.querySelector('[data-delete-cancel]');
+  const confirmDelete = backdrop.querySelector('[data-delete-confirm]');
+  const errorMessage = backdrop.querySelector('.service-delete-error');
+  let submitting = false;
+  const close = () => {
+    if (submitting) return;
+    backdrop.remove();
+    trigger?.focus?.();
+  };
+  cancel.onclick = close;
+  backdrop.onclick = event => { if (event.target === backdrop) close(); };
+  backdrop.onkeydown = event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    }
+    if (event.key === 'Tab') {
+      if ((event.shiftKey && document.activeElement === cancel) || (!event.shiftKey && document.activeElement === confirmDelete)) {
+        event.preventDefault();
+        (event.shiftKey ? confirmDelete : cancel).focus();
+      }
+    }
+  };
+  confirmDelete.onclick = async () => {
+    if (submitting) return;
+    submitting = true;
+    cancel.disabled = true;
+    confirmDelete.disabled = true;
+    try {
+      state = await window.trinity.deleteCueById(cueId, { confirmActive: true });
+      backdrop.remove();
+      servicePageError = '';
+      render();
+    } catch (error) {
+      submitting = false;
+      cancel.disabled = false;
+      confirmDelete.disabled = false;
+      errorMessage.hidden = false;
+      errorMessage.textContent = error.message || 'Cue could not be deleted.';
+      confirmDelete.focus();
+    }
+  };
+  cancel.focus();
+}
+
 function servicePage() {
   const categories = [...new Set(state.cueTemplates.map(template => template.category))];
 
@@ -1411,9 +1477,10 @@ function servicePage() {
     return `
       <article
         class="service-cue-card ${index === state.live.cueIndex ? 'current' : ''} ${ready ? 'ready' : 'needs-attention'}"
-        draggable="true"
-        data-cue-index="${index}"
+        data-cue-id="${escapeHtml(cue.id)}"
+        aria-label="${escapeHtml(cue.name || 'Untitled Cue')}, position ${index + 1} of ${state.runOfService.length}"
       >
+        <button type="button" class="service-drag-handle" draggable="true" data-drag-cue="${escapeHtml(cue.id)}" aria-label="Reorder “${escapeHtml(cue.name || 'Untitled Cue')}”" title="Drag to reorder">⋮⋮</button>
         <div class="service-cue-number">${index === state.live.cueIndex ? '▶' : index + 1}</div>
 
         <div class="service-cue-copy">
@@ -1431,9 +1498,11 @@ function servicePage() {
 
         <div class="service-cue-actions">
           <button class="cue-go" data-go="${index}">GO</button>
+          <button data-move-cue="${escapeHtml(cue.id)}" data-direction="up" ${index === 0 ? 'disabled' : ''} aria-label="Move ${escapeHtml(cue.name || 'cue')} up">↑ UP</button>
+          <button data-move-cue="${escapeHtml(cue.id)}" data-direction="down" ${index === state.runOfService.length - 1 ? 'disabled' : ''} aria-label="Move ${escapeHtml(cue.name || 'cue')} down">↓ DOWN</button>
           <button data-edit="${index}">EDIT</button>
           <button data-duplicate="${index}">COPY</button>
-          <button class="cue-delete" data-remove="${index}" aria-label="Remove ${escapeHtml(cue.name || 'cue')}">DELETE</button>
+          <button class="cue-delete" data-remove-cue="${escapeHtml(cue.id)}" aria-label="Delete ${escapeHtml(cue.name || 'cue')}">DELETE</button>
         </div>
       </article>`;
   };
@@ -1448,6 +1517,7 @@ function servicePage() {
           </div>
           <span class="service-count-pill">${state.runOfService.length} cues</span>
         </div>
+        ${servicePageError ? `<div class="service-operation-error" role="alert">${escapeHtml(servicePageError)}</div>` : ''}
 
         <section class="service-readiness ${issueCount === 0 ? 'ready' : 'warning'}" aria-label="Service readiness">
           <div class="service-readiness-primary">
@@ -1524,32 +1594,45 @@ function servicePage() {
     };
   });
 
-  document.querySelectorAll('[data-remove]').forEach(button => {
+  document.querySelectorAll('[data-remove-cue]').forEach(button => {
+    button.onclick = event => {
+      event.stopPropagation();
+      openCueDeleteModal(button.dataset.removeCue, button);
+    };
+  });
+
+  document.querySelectorAll('[data-move-cue]').forEach(button => {
     button.onclick = async event => {
       event.stopPropagation();
-      if (!window.confirm('Remove this cue from the service?')) return;
+      if (button.disabled) return;
+      button.disabled = true;
       try {
-        state = await window.trinity.deleteCue(Number(button.dataset.remove));
+        state = await window.trinity.moveCueById(button.dataset.moveCue, button.dataset.direction);
+        servicePageError = '';
         render();
       } catch (error) {
-        window.alert(error.message);
+        servicePageError = error.message || 'Cue order could not be saved.';
+        render();
       }
     };
   });
 
-  let draggedIndex = null;
-  document.querySelectorAll('.service-cue-card').forEach(card => {
-    card.ondragstart = event => {
-      draggedIndex = Number(card.dataset.cueIndex);
-      card.classList.add('dragging');
+  let draggedCueId = null;
+  document.querySelectorAll('[data-drag-cue]').forEach(handle => {
+    handle.ondragstart = event => {
+      draggedCueId = handle.dataset.dragCue;
+      handle.closest('.service-cue-card')?.classList.add('dragging');
       event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', draggedCueId);
     };
-    card.ondragend = () => {
-      draggedIndex = null;
-      card.classList.remove('dragging');
-      document.querySelectorAll('.service-cue-card').forEach(item => item.classList.remove('drop-before', 'drop-after'));
+    handle.ondragend = () => {
+      draggedCueId = null;
+      document.querySelectorAll('.service-cue-card').forEach(item => item.classList.remove('dragging', 'drop-before', 'drop-after'));
     };
+  });
+  document.querySelectorAll('.service-cue-card').forEach(card => {
     card.ondragover = event => {
+      if (!draggedCueId) return;
       event.preventDefault();
       const rect = card.getBoundingClientRect();
       card.classList.toggle('drop-before', event.clientY < rect.top + rect.height / 2);
@@ -1558,12 +1641,16 @@ function servicePage() {
     card.ondragleave = () => card.classList.remove('drop-before', 'drop-after');
     card.ondrop = async event => {
       event.preventDefault();
-      if (draggedIndex === null) return;
-      const targetIndex = Number(card.dataset.cueIndex);
+      if (!draggedCueId) return;
       const rect = card.getBoundingClientRect();
-      let destination = event.clientY < rect.top + rect.height / 2 ? targetIndex : targetIndex + 1;
-      if (draggedIndex < destination) destination -= 1;
-      if (destination !== draggedIndex) state = await window.trinity.reorderCue(draggedIndex, destination);
+      const placement = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+      const targetCueId = card.dataset.cueId;
+      try {
+        if (draggedCueId !== targetCueId) state = await window.trinity.reorderCueById(draggedCueId, targetCueId, placement);
+        servicePageError = '';
+      } catch (error) {
+        servicePageError = error.message || 'Cue order could not be saved.';
+      }
       render();
     };
   });
@@ -2364,8 +2451,8 @@ function settingsPage() {
     const workspaceName = serviceSettings.workspacePath ? serviceSettings.workspacePath.split(/[\\/]/).pop() : 'Not configured';
     const compatibility = qlcServiceStatus?.compatibility?.message || 'Workspace could not be verified';
     body = `<div class="settings-heading"><div><span class="eyebrow">LIGHTING INTEGRATION</span><h1>QLC+</h1><p>Configure and inspect QLC+ without activating any lighting controls.</p></div></div>
-      <section class="panel qlc-service-panel"><div class="section-title"><span>QLC+ SERVICE</span><strong>${escapeHtml(qlcServiceStatus?.message || 'Status not checked')}</strong></div>
-        <div class="device-facts"><span>Status: ${escapeHtml(qlcServiceStatus?.state || 'unknown')}</span><span>Launch mode: ${escapeHtml(serviceLaunchMode)}</span><span>Workspace: ${escapeHtml(workspaceName)}</span><span>Compatibility: ${escapeHtml(compatibility)}</span><span>Controls: ${Number(qlcServiceStatus?.compatibility?.productionButtonCount) || 0} production buttons discovered</span></div>
+      <section class="panel qlc-service-panel"><div class="section-title"><span>QLC+ SERVICE</span><strong id="qlc-service-message">${escapeHtml(qlcServiceStatus?.message || 'Status not checked')}</strong></div>
+        <div class="device-facts"><span>Status: <b id="qlc-service-state">${escapeHtml(qlcServiceStatus?.state || 'unknown')}</b></span><span>Launch mode: ${escapeHtml(serviceLaunchMode)}</span><span>Workspace: ${escapeHtml(workspaceName)}</span><span>Compatibility: ${escapeHtml(compatibility)}</span><span>Controls: ${Number(qlcServiceStatus?.compatibility?.productionButtonCount) || 0} production buttons discovered</span></div>
         <div class="row-actions"><button id="qlc-service-start" ${serviceConnected ? 'disabled' : ''}>START QLC+</button><button id="qlc-service-restart" ${qlcServiceStatus?.owned ? '' : 'disabled'}>RESTART QLC+</button><button id="qlc-service-refresh">REFRESH STATUS</button><button id="qlc-open-configuration">OPEN QLC+ CONFIGURATION</button></div>
       </section>
       <section class="panel settings-form" id="qlc-service-configuration"><span class="eyebrow wide">QLC+ SERVICE SETTINGS</span>
@@ -2487,26 +2574,57 @@ function settingsPage() {
   });
 }
 
-function render() {
+function updateQlcStatusElements() {
+  if (!state) return;
+  const qlcManagementEnabled = state.settings?.qlcplusService?.manageAutomatically === true;
+  const readiness = !qlcManagementEnabled
+    ? 'All Systems Ready'
+    : qlcServiceStatus?.state !== 'connected'
+      ? 'Lighting Not Ready'
+      : qlcServiceStatus?.compatibility?.severity === 'warning'
+        ? 'Systems Ready · Lighting Warning'
+        : 'All Systems Ready';
+  const badge = document.querySelector('.topbar .ready');
+  if (badge) badge.innerHTML = `<i></i>${escapeHtml(readiness)}`;
+  const stateLabel = document.getElementById('qlc-service-state');
+  if (stateLabel) stateLabel.textContent = qlcServiceStatus?.state || 'Unknown';
+  const messageLabel = document.getElementById('qlc-service-message');
+  if (messageLabel) messageLabel.textContent = qlcServiceStatus?.message || '';
+}
+
+function render({ reason = 'application-state-change', preserveScroll = true } = {}) {
   if (!state) {
     return;
   }
+  if (renderInProgress) return;
+  renderInProgress = true;
+  renderSequence += 1;
+  const scrollSnapshot = preserveScroll
+    ? window.TrinityRendererLifecycle.captureScrollState(page)
+    : null;
 
-  if (page === 'live') {
-    livePage();
-  } else if (page === 'service') {
-    servicePage();
-  } else if (page === 'looks') {
-    looksPage();
-  } else if (page === 'lighting') {
-    lightingPage();
-  } else if (page === 'shots') {
-    shotsPage();
-  } else if (page === 'settings') {
-    settingsPage();
-  } else {
-    camerasPage();
+  try {
+    if (page === 'live') {
+      livePage();
+    } else if (page === 'service') {
+      servicePage();
+    } else if (page === 'looks') {
+      looksPage();
+    } else if (page === 'lighting') {
+      lightingPage();
+    } else if (page === 'shots') {
+      shotsPage();
+    } else if (page === 'settings') {
+      settingsPage();
+    } else {
+      camerasPage();
+    }
+  } finally {
+    renderInProgress = false;
   }
+  if (scrollSnapshot) requestAnimationFrame(() => {
+    window.TrinityRendererLifecycle.restoreScrollState(scrollSnapshot, page);
+  });
 }
 
 document.addEventListener('keydown', async event => {
@@ -2531,13 +2649,21 @@ document.addEventListener('keydown', async event => {
     window.trinity.onStateChanged(nextState => {
       if (!state) pendingState = nextState;
       else {
+        if (window.TrinityRendererLifecycle.equivalentState(state, nextState)) {
+          state = nextState;
+          updateQlcStatusElements();
+          return;
+        }
         state = nextState;
-        render();
+        render({ reason: 'operator-state-changed' });
       }
     });
     window.trinity.onQlcServiceStatusChanged(status => {
+      const unchanged = window.TrinityRendererLifecycle.equivalentStatus(qlcServiceStatus, status);
       qlcServiceStatus = status;
-      if (state) render();
+      if (!state) return;
+      if (unchanged) updateQlcStatusElements();
+      else render({ reason: 'qlc-service-status-changed' });
     });
     const [initialState, initialServerStatus, initialQlcServiceStatus] = await Promise.all([
       window.trinity.getState(),
@@ -2548,7 +2674,7 @@ document.addEventListener('keydown', async event => {
     operatorServerStatus = initialServerStatus;
     qlcServiceStatus = initialQlcServiceStatus;
 
-    render();
+    render({ reason: 'initial-load', preserveScroll: false });
   } catch (error) {
     root.innerHTML = `
       <div class="fatal">

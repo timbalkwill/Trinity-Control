@@ -55,14 +55,13 @@
 
 .service-cue-card {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 34px 42px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 12px;
   border: 1px solid #2b4054;
   border-radius: 12px;
   background: #0d1a26;
-  cursor: grab;
   transition: border-color .15s ease, background .15s ease, transform .15s ease;
 }
 .service-cue-card:hover { border-color: #46627a; background: #102131; }
@@ -74,6 +73,55 @@
 .service-cue-card.dragging { opacity: .45; }
 .service-cue-card.drop-before { box-shadow: 0 -3px 0 #4aa8ff; }
 .service-cue-card.drop-after { box-shadow: 0 3px 0 #4aa8ff; }
+
+.service-drag-handle {
+  min-width: 32px;
+  padding: 8px 5px;
+  cursor: grab;
+  color: #9fb3c8;
+  touch-action: none;
+  user-select: none;
+}
+.service-drag-handle:active { cursor: grabbing; }
+.service-cue-actions button:disabled { opacity: .38; cursor: not-allowed; }
+.service-operation-error,
+.service-delete-error {
+  padding: 10px 12px;
+  border: 1px solid rgba(255,113,107,.65);
+  border-radius: 9px;
+  background: rgba(110,25,28,.38);
+  color: #ffd0cd;
+}
+.service-delete-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2,8,14,.78);
+}
+.service-delete-modal {
+  width: min(440px, 100%);
+  padding: 22px;
+  border: 1px solid #3a5368;
+  border-radius: 16px;
+  background: #101c27;
+  box-shadow: 0 24px 70px rgba(0,0,0,.5);
+}
+.service-delete-modal h2 { margin: 8px 0; }
+.service-delete-modal p { color: #b8c9da; }
+.service-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+.service-delete-actions .danger {
+  background: #b9363a;
+  border-color: #e15a5e;
+  color: #fff;
+}
 
 .service-cue-number {
   width: 38px;

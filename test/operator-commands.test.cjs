@@ -136,6 +136,33 @@ test("browser and Electron cue edits share serialized state logic", async () => 
   assert.equal(commands.getState().runOfService[3].notes, "Auto-saved");
 });
 
+test("ID-based Service edits persist authoritative order and delete exactly one duplicate name", async () => {
+  const { commands } = harness();
+  await commands.reorderCueById("one", "three", "after");
+  assert.deepEqual(commands.getState().runOfService.map(cue => cue.id), ["two", "three", "one"]);
+  await commands.moveCueById("one", "up");
+  assert.deepEqual(commands.getState().runOfService.map(cue => cue.id), ["two", "one", "three"]);
+  const renamed = commands.getState();
+  renamed.runOfService[0].name = "Duplicate";
+  renamed.runOfService[1].name = "Duplicate";
+  await commands.replaceState(renamed);
+  await commands.deleteCueById("two", { confirmActive: true });
+  assert.deepEqual(commands.getState().runOfService.map(cue => cue.id), ["one", "three"]);
+});
+
+test("failed Service persistence leaves authoritative stored order unchanged", async () => {
+  let persisted = initialState();
+  const commands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: () => { throw new Error("disk unavailable"); }
+  });
+  const before = persisted.runOfService.map(cue => cue.id);
+  await assert.rejects(commands.reorderCueById("one", "three", "after"), /disk unavailable/);
+  assert.deepEqual(persisted.runOfService.map(cue => cue.id), before);
+  await assert.rejects(commands.deleteCueById("one", { confirmActive: true }), /disk unavailable/);
+  assert.deepEqual(persisted.runOfService.map(cue => cue.id), before);
+});
+
 test("large cue jumps require explicit confirmation while NEXT and BACK remain immediate", async () => {
   const { commands } = harness();
   await assert.rejects(commands.goCue(3), error => error.code === "CONFIRM_CUE_JUMP");

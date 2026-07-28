@@ -817,9 +817,12 @@ app.whenReady().then(async () => {
     s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
   }));
   ipcMain.handle("cue:move", (_e, { from, to }) => commands.reorderCue(from, to));
+  ipcMain.handle("cue:move-by-id", (_e, { cueId, targetCueId, placement }) => commands.reorderCueById(cueId, targetCueId, placement));
+  ipcMain.handle("cue:nudge-by-id", (_e, { cueId, direction }) => commands.moveCueById(cueId, direction));
   ipcMain.handle("cue:duplicate", (_e, index) => commands.duplicateCue(index));
   ipcMain.handle("cue:insert", (_e, { index, position }) => commands.insertCue(index, position));
   ipcMain.handle("cue:remove", (_e, { index, options }) => commands.deleteCue(index, options));
+  ipcMain.handle("cue:remove-by-id", (_e, { cueId, options }) => commands.deleteCueById(cueId, options));
   ipcMain.handle("cue:update", (_e, { index, patch }) => commands.updateCue(index, patch));
   ipcMain.handle("look:create", (_e, input) => commands.createProductionLook(input));
   ipcMain.handle("look:update", (_e, { lookId, patch }) => commands.updateProductionLook(lookId, patch));

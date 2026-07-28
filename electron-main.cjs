@@ -11,6 +11,7 @@ const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
 const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
+const { migrateLiveState } = require("./live-operations.cjs");
 const { createQlcLauncher, createQlcServiceManager, normalizeQlcServiceSettings } = require("./qlcplus-service-manager.cjs");
 const {
   defaultCameras,
@@ -706,7 +707,6 @@ function defaultState() {
       programPreset: "Stage Wide",
       previewPreset: "Stage Left",
       hold: false,
-      lightingOverrideId: null,
       lastLightingSceneId: null,
       cueStartedAt: Date.now(),
       serviceStartedAt: Date.now(),
@@ -750,7 +750,7 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     ...layout
   }));
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
-  merged.live = { ...fresh.live, ...(state.live || {}) };
+  merged.live = migrateLiveState({ ...fresh.live, ...(state.live || {}) });
   if (state.live?.executionSnapshot) merged.live.executionSnapshot = normalizeExecutionSnapshot(state.live.executionSnapshot);
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
   if (!state.live?.serviceStartedAt) merged.live.serviceStartedAt = merged.live.cueStartedAt;
@@ -867,6 +867,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("device:testAll", () => commands.testAllDevices());
   ipcMain.handle("lighting-adapter:test", (_e, deviceId) => commands.testLightingConnection(deviceId));
   ipcMain.handle("lighting-adapter:discover", (_e, deviceId) => commands.discoverLightingControls(deviceId));
+  ipcMain.handle("lighting-scene:execute", (_e, sceneId) => commands.executeLightingScene(sceneId));
   ipcMain.handle("lighting-scene:update", (_e, { sceneId, patch }) => commands.updateLightingScene(sceneId, patch));
   ipcMain.handle("lighting-scene:duplicate", (_e, sceneId) => commands.duplicateLightingScene(sceneId));
   ipcMain.handle("device:clearDiagnostic", (_e, deviceId) => commands.clearDeviceDiagnostic(deviceId));
@@ -889,8 +890,6 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
-  ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
-  ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());
   ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
   ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
   ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());

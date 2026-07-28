@@ -34,7 +34,7 @@ function state() {
       createdAt: "1970-01-01T00:00:00.000Z", updatedAt: "1970-01-01T00:00:00.000Z"
     }],
     runOfService: [{ id: "cue", name: "Cue", productionLookId: "look" }],
-    live: { cueIndex: 0, programCamera: "main", previewCamera: "right", lightingOverrideId: "blue", activityLog: [] }
+    live: { cueIndex: 0, programCamera: "main", previewCamera: "right", activityLog: [] }
   };
 }
 
@@ -42,7 +42,6 @@ test("simplified Look cue start prepares three static presets, makes priority li
   const current = state();
   executeCue(current, 0, { now: () => 100 });
   assert.equal(current.live.lastLightingSceneId, "warm");
-  assert.equal(current.live.lightingOverrideId, null);
   assert.equal(current.live.programCamera, "left");
   assert.deepEqual(current.live.cameraPreparations.map(item => [item.cameraId, item.selectedMode, item.selectedPresetId, item.selectedMotionId]), [
     ["main", "static", "main-wide", null],

@@ -199,12 +199,6 @@ const cueLighting = cue =>
 const cueCameraLayout = cue =>
   byId(state.cameraLayouts, cueCameraLayoutId(cue));
 
-const activeLighting = () =>
-  byId(
-    state.lightingScenes,
-    state.live.lightingOverrideId || cueLightingId(currentCue())
-  );
-
 const formatElapsed = start => {
   const seconds = Math.max(
     0,
@@ -841,17 +835,12 @@ function openCueEditor(index) {
 function legacyLivePage() {
   const cue = currentCue();
   const look = currentLook();
-  const lighting = activeLighting();
+  const lighting = cueLighting(cue);
   const currentLookDetails = window.TrinityLookView.summarize(state, cue);
 
   const nextCue =
     state.runOfService[state.live.cueIndex + 1];
   const nextLookDetails = window.TrinityLookView.summarize(state, nextCue);
-
-  const favorites =
-    state.lightingScenes
-      .filter(scene => scene.favorite)
-      .slice(0, 6);
 
   const activity =
     state.live.activityLog || [];
@@ -1000,50 +989,6 @@ function legacyLivePage() {
 
         <div class="camera-grid">
         ${liveCameraTiles().map(cameraCard).join('')}
-        </div>
-
-        <div class="panel quick-panel">
-          <div class="section-title">
-            <span>
-              FAVORITE LIGHTING SCENES
-            </span>
-          </div>
-
-          <div class="quick-grid">
-            ${favorites
-              .map(
-                scene =>
-                  `<button
-                    data-lighting="${scene.id}"
-                    class="${
-                      state.live.lightingOverrideId === scene.id
-                        ? 'selected'
-                        : ''
-                    }"
-                  >
-                    ${escapeHtml(scene.name)}
-                  </button>`
-              )
-              .join('')}
-
-            <button
-              class="danger"
-              data-lighting="light-blackout"
-            >
-              ⏻ BLACKOUT
-            </button>
-          </div>
-
-          ${
-            state.live.lightingOverrideId
-              ? `<button
-                  id="return-lighting"
-                  class="return-button"
-                >
-                  Return to cue lighting
-                </button>`
-              : ''
-          }
         </div>
 
         <div class="lower-grid">
@@ -1217,30 +1162,6 @@ if (
       };
     });
 
-  document
-    .querySelectorAll('[data-lighting]')
-    .forEach(button => {
-      button.onclick = async () => {
-        state =
-          await window.trinity.lightingOverride(
-            button.dataset.lighting
-          );
-
-        render();
-      };
-    });
-
-  const returnButton =
-    document.getElementById('return-lighting');
-
-  if (returnButton) {
-    returnButton.onclick = async () => {
-      state =
-        await window.trinity.returnToCueLighting();
-
-      render();
-    };
-  }
 }
 
 function cameraPreparation(cameraId) {
@@ -1351,7 +1272,6 @@ function CameraLiveCard(camera) {
 }
 
 function livePage() {
-  const favorites = (state.lightingScenes || []).filter(scene => scene.favorite).slice(0, 6);
   const cameras = liveCameraTiles().slice(0, 3);
   shell(`<div class="simple-live-layout">
     <aside class="panel simple-cue-panel">
@@ -1369,14 +1289,6 @@ function livePage() {
     </aside>
     <section class="simple-live-main">
       <div class="camera-grid simple-camera-grid">${cameras.map(CameraLiveCard).join('')}${PcMediaLiveCard()}</div>
-      <section class="panel quick-panel simple-lighting-panel">
-        <div class="section-title"><span>FAVORITE LIGHTING</span><strong>${escapeHtml(activeLighting()?.name || 'None')}</strong></div>
-        <div class="quick-grid">
-          ${favorites.map(scene => `<button data-lighting="${scene.id}" class="${state.live.lightingOverrideId === scene.id ? 'selected' : ''}">${escapeHtml(scene.name)}</button>`).join('')}
-          <button class="danger" data-lighting="light-blackout">⏻ BLACKOUT</button>
-        </div>
-        ${state.live.lightingOverrideId ? '<button id="return-lighting" class="return-button">Return to cue lighting</button>' : ''}
-      </section>
     </section>
   </div>`);
 
@@ -1404,11 +1316,6 @@ function livePage() {
   document.querySelectorAll('[data-make-camera-live]').forEach(button => {
     button.onclick = async () => { state = await window.trinity.makeCameraLive(button.dataset.makeCameraLive); render(); };
   });
-  document.querySelectorAll('[data-lighting]').forEach(button => {
-    button.onclick = async () => { state = await window.trinity.lightingOverride(button.dataset.lighting); render(); };
-  });
-  const returnButton = document.getElementById('return-lighting');
-  if (returnButton) returnButton.onclick = async () => { state = await window.trinity.returnToCueLighting(); render(); };
 }
 
 function openCueDeleteModal(cueId, trigger) {
@@ -1935,13 +1842,12 @@ function lightingPage() {
                 ? referenceNames.slice(0, 3).map(escapeHtml).join(' · ') + (referenceNames.length > 3 ? ` · +${referenceNames.length - 3}` : '')
                 : 'Not currently used';
 
-              return `<article class="edit-card lighting-scene-card ${scene.favorite ? 'favorite' : ''} ${state.live?.lightingOverrideId === scene.id ? 'selected' : ''}" data-select-lighting="${scene.id}">
+              return `<article class="edit-card lighting-scene-card" data-select-lighting="${scene.id}">
                 <header class="lighting-scene-card-header">
                   <div>
                     <small>${escapeHtml(scene.category || 'Custom')} · <span class="scene-classification-badge ${scene.productionScene === false ? 'utility' : 'production'}">${scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
                     <h2>${escapeHtml(scene.name)}</h2>
                   </div>
-                  <button class="lighting-favorite-button" data-favorite-lighting="${scene.id}" title="${scene.favorite ? 'Remove from favorites' : 'Add to favorites'}" aria-label="${scene.favorite ? 'Remove' : 'Add'} ${escapeHtml(scene.name)} ${scene.favorite ? 'from' : 'to'} favorites">${scene.favorite ? '★' : '☆'}</button>
                 </header>
 
                 <div class="metrics">
@@ -2007,22 +1913,8 @@ function lightingPage() {
 
   document.querySelectorAll('[data-select-lighting]').forEach(card => {
     card.addEventListener('click', async event => {
-      if (event.target.closest('[data-favorite-lighting], [data-edit-lighting]')) return;
-      state = await window.trinity.lightingOverride(card.dataset.selectLighting);
-      render();
-    });
-  });
-  document.querySelectorAll('[data-favorite-lighting]').forEach(button => {
-    button.addEventListener('click', async event => {
-      event.stopPropagation();
-      const sceneId = button.dataset.favoriteLighting;
-      const scene = byId(state.lightingScenes, sceneId);
-      if (!scene) return;
-      state = await window.trinity.saveState({
-        ...state,
-        lightingScenes: state.lightingScenes.map(item => item.id === sceneId ? { ...item, favorite: !scene.favorite } : item)
-      });
-      render();
+      if (event.target.closest('[data-edit-lighting]')) return;
+      await window.trinity.executeLightingScene(card.dataset.selectLighting);
     });
   });
   document.querySelectorAll('[data-edit-lighting]').forEach(button => {

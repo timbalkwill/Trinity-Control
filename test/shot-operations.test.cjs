@@ -289,9 +289,7 @@ test("renderer wires Shot Type persistence and Lighting card interactions", () =
 
   const lightingPage = renderer.slice(renderer.indexOf("function lightingPage()"), renderer.indexOf("function camerasPage()"));
   assert.match(lightingPage, /data-select-lighting="\$\{scene\.id\}"/);
-  assert.match(lightingPage, /data-favorite-lighting="\$\{scene\.id\}"/);
-  assert.match(lightingPage, /window\.trinity\.lightingOverride\(card\.dataset\.selectLighting\)/);
-  assert.match(lightingPage, /favorite: !scene\.favorite/);
+  assert.match(lightingPage, /window\.trinity\.executeLightingScene\(card\.dataset\.selectLighting\)/);
 });
 
 test("Shot CRUD, favorite, enable, reorder, and duplicate isolation", () => {

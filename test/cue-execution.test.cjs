@@ -61,7 +61,6 @@ function state() {
     live: {
       cueIndex: 0,
       hold: true,
-      lightingOverrideId: "manual-light",
       activityLog: []
     }
   };
@@ -73,7 +72,6 @@ test("valid cue resources override the Production Look", () => {
   assert.equal(result.live.cueIndex, 1);
   assert.equal(result.live.cueStartedAt, 1234);
   assert.equal(result.live.lastLightingSceneId, "light-override");
-  assert.equal(result.live.lightingOverrideId, null);
   assert.equal(result.live.programCamera, "right");
   assert.equal(result.live.programPreset, "Tight");
   assert.equal(result.live.previewCamera, "main");
@@ -262,25 +260,11 @@ test("invalid cue and Production Look resource IDs resolve to null", () => {
   });
 });
 
-for (const [command, targetIndex] of [
-  ["GO", () => 1],
-  ["NEXT", current => current.live.cueIndex + 1],
-  ["BACK", current => current.live.cueIndex - 1]
-]) {
-  test(`${command} clears an existing manual lighting override`, () => {
-    const current = state();
-    if (command === "BACK") current.live.cueIndex = 1;
-    const result = executeCue(current, targetIndex(current), { now: () => 1 });
-    assert.equal(result.live.lightingOverrideId, null);
-  });
-}
-
 test("an empty run of service does not throw or replace state", () => {
   const current = state();
   current.runOfService = [];
   const result = executeCue(current, 0);
   assert.equal(result, current);
-  assert.equal(result.live.lightingOverrideId, "manual-light");
 });
 
 test("a missing cue and missing resource arrays are handled safely", () => {
@@ -296,15 +280,13 @@ test("cue execution initializes missing live state without replacing the state o
   const result = executeCue(current, 0, { now: () => 2 });
   assert.equal(result, current);
   assert.equal(result.live.lastLightingSceneId, "light-default");
-  assert.equal(result.live.lightingOverrideId, null);
 });
 
-test("Production Look compatibility execution applies resources and clears manual lighting", () => {
+test("Production Look compatibility execution applies resources", () => {
   const current = state();
   const result = applyLook(current, "look-default");
   assert.equal(result, current);
   assert.equal(result.live.lastLightingSceneId, "light-default");
-  assert.equal(result.live.lightingOverrideId, null);
   assert.equal(result.live.programCamera, "main");
   assert.equal(result.live.programPreset, "Wide");
 });

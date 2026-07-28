@@ -118,7 +118,6 @@ function applyResources(state, resources) {
   const live = state.live && typeof state.live === "object" ? state.live : {};
   state.live = live;
   live.lastLightingSceneId = resources.lightingSceneId;
-  live.lightingOverrideId = null;
 
   const layout = byId(state.cameraLayouts, resources.cameraLayoutId);
   if (layout) {

@@ -90,11 +90,6 @@ function createOperatorServer({
     ["/api/live/camera-tracking", body => commands.setCameraTracking(body.cameraId, body.active === true)],
     ["/api/live/make-camera-live", body => commands.makeCameraLive(body.cameraId)],
     ["/api/live/hold", () => commands.toggleHold()],
-    ["/api/lighting/override", body => {
-      if (typeof body.sceneId !== "string" || !body.sceneId) throw new TypeError("sceneId is required");
-      return commands.setLightingOverride(body.sceneId);
-    }],
-    ["/api/lighting/return-to-cue", () => commands.returnToCueLighting()],
     ["/api/cues/reorder", body => commands.reorderCue(body.from, body.to)],
     ["/api/cues/duplicate", body => commands.duplicateCue(body.index)],
     ["/api/cues/insert", body => commands.insertCue(body.index, body.position)],

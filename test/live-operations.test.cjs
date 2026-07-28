@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { takeLive } = require("../live-operations.cjs");
+const { migrateLiveState, takeLive } = require("../live-operations.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -70,6 +70,29 @@ function stateWith(program = assignment("program"), preview = assignment("previe
     }
   };
 }
+
+test("legacy Live state drops obsolete lighting overrides without altering other data", () => {
+  const legacy = {
+    cueIndex: 4,
+    lightingOverrideId: "legacy-scene",
+    lightingOverrideExecutionResult: { ok: true },
+    executionSnapshot: { cueId: "cue", futureField: true },
+    activityLog: [
+      { at: 1, message: "Lighting scene: Welcome" },
+      { at: 2, message: "Returned to cue lighting" },
+      { at: 3, message: "Cue started: Welcome" }
+    ],
+    futureField: { retained: true }
+  };
+  const migrated = migrateLiveState(legacy);
+  assert.equal("lightingOverrideId" in migrated, false);
+  assert.equal("lightingOverrideExecutionResult" in migrated, false);
+  assert.equal(migrated.cueIndex, 4);
+  assert.deepEqual(migrated.executionSnapshot, legacy.executionSnapshot);
+  assert.deepEqual(migrated.activityLog, [{ at: 3, message: "Cue started: Welcome" }]);
+  assert.deepEqual(migrated.futureField, { retained: true });
+  assert.equal(legacy.lightingOverrideId, "legacy-scene");
+});
 
 test("TAKE LIVE swaps complete frozen PROGRAM and PREVIEW assignments", () => {
   const current = stateWith();

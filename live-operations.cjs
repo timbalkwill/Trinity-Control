@@ -50,6 +50,19 @@ function swapVideo(video) {
   };
 }
 
+function migrateLiveState(live) {
+  const migrated = live && typeof live === "object" ? { ...live } : {};
+  delete migrated.lightingOverrideId;
+  delete migrated.lightingOverrideExecutionResult;
+  if (Array.isArray(migrated.activityLog)) {
+    migrated.activityLog = migrated.activityLog.filter(entry =>
+      !/^Lighting scene:/.test(String(entry?.message || "")) &&
+      entry?.message !== "Returned to cue lighting"
+    );
+  }
+  return migrated;
+}
+
 function takeLive(state, { now = Date.now } = {}) {
   const live = state?.live;
   const snapshot = live?.executionSnapshot;
@@ -83,4 +96,4 @@ function takeLive(state, { now = Date.now } = {}) {
   return state;
 }
 
-module.exports = { takeLive };
+module.exports = { migrateLiveState, takeLive };

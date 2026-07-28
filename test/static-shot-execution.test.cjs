@@ -47,7 +47,7 @@ function fixture(references = [{ role: "main-shot", shotId: "static-main" }]) {
     }],
     runOfService: [{ id: "cue", name: "Cue", productionLookId: "look" }],
     cueTemplates: [],
-    live: { cueIndex: 0, lightingOverrideId: "manual", activityLog: [] }
+    live: { cueIndex: 0, activityLog: [] }
   };
 }
 
@@ -187,7 +187,6 @@ test("Static execution preserves existing cue and lighting behavior", () => {
   assert.equal(current.live.cueIndex, 0);
   assert.equal(current.live.activeCueId, "cue");
   assert.equal(current.live.lastLightingSceneId, "warm");
-  assert.equal(current.live.lightingOverrideId, null);
   assert.equal(snapshot.lighting.sceneId, "warm");
   assert.equal(snapshot.cueId, "cue");
 });

@@ -19,7 +19,9 @@ function createOperatorCommands({
   normalizeState = state => state,
   cueExecutor = executeCue,
   lightingAdapters = createLightingAdapterRegistry(),
-  lightingActiveState = createLightingActiveState()
+  lightingActiveState = createLightingActiveState(),
+  lightingExecutionResolver = lightingScenes.resolveLightingExecution,
+  lightingExecutorFactory = createLightingExecutor
 }) {
   const subscribers = new Set();
   let queue = Promise.resolve();
@@ -49,7 +51,7 @@ function createOperatorCommands({
 
   function executeRequestedCue(state, index) {
     return cueExecutor(state, index, {
-      lightingExecutor: createLightingExecutor(state, { registry: lightingAdapters, activeState: lightingActiveState })
+      lightingExecutor: lightingExecutorFactory(state, { registry: lightingAdapters, activeState: lightingActiveState })
     });
   }
 
@@ -78,24 +80,28 @@ function createOperatorCommands({
       state.live = state.live && typeof state.live === "object" ? state.live : {};
       state.live.hold = !state.live.hold;
     }),
-    setLightingOverride: sceneId => mutate(state => {
+    executeLightingScene: sceneId => enqueue(async () => {
+      const state = loadState();
       if (typeof sceneId !== "string" || !sceneId) throw new TypeError("sceneId is required");
       const scene = (state.lightingScenes || []).find(item => item.id === sceneId);
       if (!scene) throw new RangeError(`Unknown lighting scene: ${sceneId}`);
-      state.live = state.live && typeof state.live === "object" ? state.live : {};
-      state.live.lightingOverrideId = sceneId;
-      state.live.activityLog = [
-        { at: Date.now(), message: `Lighting scene: ${scene.name || sceneId}` },
-        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
-      ].slice(0, 8);
-    }),
-    returnToCueLighting: () => mutate(state => {
-      state.live = state.live && typeof state.live === "object" ? state.live : {};
-      state.live.lightingOverrideId = null;
-      state.live.activityLog = [
-        { at: Date.now(), message: "Returned to cue lighting" },
-        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
-      ].slice(0, 8);
+      const resolutionState = {
+        ...state,
+        devices: (state.devices || []).map(device =>
+          device?.type === "lighting" && device.enabled === false ? { ...device, enabled: true } : device
+        )
+      };
+      const { execution, validation } = lightingExecutionResolver(resolutionState, sceneId);
+      return execution
+        ? await lightingExecutorFactory(state, {
+          registry: lightingAdapters,
+          activeState: lightingActiveState
+        }).execute(execution, { source: "lighting-library" })
+        : {
+          ok: false,
+          code: validation?.state || "lightingResolutionFailed",
+          message: validation?.message || "Lighting Scene could not be resolved"
+        };
     }),
     updateLightingScene: (sceneId, patch) => mutate(state => lightingScenes.updateLightingScene(state, sceneId, patch)),
     duplicateLightingScene: sceneId => mutate(state => lightingScenes.duplicateLightingScene(state, sceneId)),

@@ -57,16 +57,6 @@
   overflow-wrap: anywhere;
 }
 
-.lighting-favorite-button {
-  flex: 0 0 auto;
-  color: #ffc94d;
-  font-size: 17px;
-  line-height: 1;
-  padding: 3px 6px;
-  border: 0;
-  background: transparent;
-}
-
 .lighting-page-scroll .lighting-scene-card .metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

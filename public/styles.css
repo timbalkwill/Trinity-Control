@@ -405,11 +405,7 @@
 .tracking-space{display:block}
 .make-live-button{background:#173149}
 .make-live-button.is-live{background:var(--green);color:#06150f}
-.simple-lighting-panel{padding:10px 12px;margin:0}
-.simple-lighting-panel .section-title{margin-bottom:7px}
-.simple-lighting-panel .quick-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
-.simple-lighting-panel .quick-grid button{min-height:44px;padding:7px}
-@media(max-width:1120px){.simple-live-layout{grid-template-columns:220px minmax(0,1fr)}.simple-camera-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.camera-live-actions{grid-template-columns:1fr}.simple-lighting-panel .quick-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:1120px){.simple-live-layout{grid-template-columns:220px minmax(0,1fr)}.simple-camera-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.camera-live-actions{grid-template-columns:1fr}}
 
 /* Keep the three-camera booth layout contained at all supported desktop sizes. */
 .bottom-nav{grid-template-columns:repeat(7,minmax(0,1fr))}
@@ -431,10 +427,6 @@
 .camera-live-actions{width:100%;min-width:0;grid-template-columns:minmax(0,1fr) minmax(100px,.45fr);gap:7px}
 .camera-live-actions>*{min-width:0}
 .camera-live-actions button{width:100%;min-width:0;padding:8px 7px;white-space:normal;line-height:1.15}
-.simple-lighting-panel{min-width:0;overflow:hidden}
-.simple-lighting-panel .quick-grid{min-width:0}
-.simple-lighting-panel .quick-grid button{min-width:0}
-
 @media(max-width:1450px){
   .content{padding:10px}
   .simple-live-layout{grid-template-columns:clamp(200px,15vw,230px) minmax(0,1fr);gap:9px}
@@ -452,9 +444,6 @@
   .simple-cue-panel{padding:9px}
   .simple-cue-controls{gap:6px;padding-top:7px}
   .simple-cue-controls button{min-height:48px}
-  .simple-lighting-panel{padding:7px 10px}
-  .simple-lighting-panel .section-title{margin-bottom:5px}
-  .simple-lighting-panel .quick-grid button{min-height:38px;padding:5px}
 }
 
 .simplified-look-form{grid-template-columns:repeat(2,minmax(0,1fr))}

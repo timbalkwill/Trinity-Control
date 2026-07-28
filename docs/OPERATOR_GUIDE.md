@@ -34,7 +34,7 @@ Open **LOOKS** to search, create, duplicate, enable, disable, edit, or delete Pr
 
 Choose a lighting scene, optional Main/Left/Right starting presets, a priority camera, and whether Main tracking should start. Press **SAVE LOOK** to persist the complete edit through Trinity’s serialized main-process command. **CANCEL** discards unsaved form changes. Preset lists show only presets for the camera currently assigned to that role; missing saved references remain visible for repair.
 
-When the cue runs, valid presets are prepared in Static mode, the priority camera becomes live, and Main tracking is explicitly started or stopped. This is deterministic application state only—no camera, switcher, lighting, or tracking hardware command is sent. Afterward, the Live page remains fully manual: prepare another camera, choose Motion, use Make Live, change tracking, or select favorite lighting.
+When the cue runs, valid presets are prepared in Static mode, the priority camera becomes live, and Main tracking is explicitly started or stopped. Afterward, the Live page supports manual camera preparation, Motion selection, Make Live, and tracking changes. Lighting remains cue-driven.
 
 The Live page shows what was actually executed. Editing a Look or any referenced library does not alter the frozen execution summary; run the cue again to apply edits. Missing or disabled resources produce readable warnings rather than crashes.
 
@@ -69,7 +69,7 @@ Shots remain available to the Live page’s **Motion** selector. Production Look
 Deleting a referenced Shot requires confirmation and leaves the reference visible for repair. Camera and preset deletion counts Shot references and likewise preserves the Shot.
 ## Simplified Live camera workflow
 
-The desktop Live page keeps the cue list, three camera cards, GO/BACK, and favorite lighting controls visible together.
+The desktop Live page keeps the cue list, three camera cards, and GO/BACK controls visible together.
 
 For each camera:
 

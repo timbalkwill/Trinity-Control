@@ -13,14 +13,14 @@
   const cameraFor = cue => byId(state?.cameraLayouts, cue?.cameraLayoutId || lookFor(cue)?.cameraLayoutId);
   const activeLighting = () => {
     const snapshot = state?.live?.executionSnapshot;
-    if (!state?.live?.lightingOverrideId && snapshot?.lightingExecutions?.[0]) {
+    if (snapshot?.lightingExecutions?.[0]) {
       const result = snapshot.lightingExecutionResults?.[0];
       return {
         name: snapshot.lightingExecutions[0].widgetName || snapshot.lighting?.sceneName,
         status: result?.status === "success" ? "Activated" : result?.reason === "already-active" ? "Lighting already active" : result?.status === "failed" ? `Failed — ${result.message || "Lighting not ready"}` : "Pending"
       };
     }
-    return byId(state?.lightingScenes, state?.live?.lightingOverrideId || state?.live?.lastLightingSceneId) || lightingFor(currentCue());
+    return byId(state?.lightingScenes, state?.live?.lastLightingSceneId) || lightingFor(currentCue());
   };
   const executedAssignment = cameraId => {
     const frozen = (state?.live?.executionSnapshot?.cameraAssignments || []).find(item => item.cameraDeviceId === cameraId);

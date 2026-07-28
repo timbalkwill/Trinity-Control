@@ -15,7 +15,7 @@ function initialState() {
       { id: "two", name: "Two", productionLookId: "look" },
       { id: "three", name: "Three", productionLookId: "look" }
     ],
-    live: { cueIndex: 0, hold: false, lightingOverrideId: null, activityLog: [] }
+    live: { cueIndex: 0, hold: false, activityLog: [] }
   };
 }
 
@@ -27,6 +27,34 @@ function harness(options = {}) {
     ...options
   });
   return { commands, state: () => clone(persisted) };
+}
+
+function lightingExecutionState({ enabled = true } = {}) {
+  const current = initialState();
+  current.devices = [{
+    id: "qlc",
+    name: "QLC+",
+    type: "lighting",
+    adapterType: "qlcplus-websocket",
+    enabled,
+    ipAddress: "127.0.0.1",
+    metadata: {
+      qlcplusWidgets: [{
+        widgetId: "28",
+        name: "Welcome",
+        widgetType: "Button",
+        canActivateScene: true,
+        pageName: "Sunday Morning"
+      }]
+    }
+  }];
+  current.lightingScenes[1].externalControl = {
+    adapterType: "qlcplus-websocket",
+    widgetId: "28",
+    widgetName: "Welcome",
+    widgetType: "Button"
+  };
+  return current;
 }
 
 test("shared operator commands execute GO, NEXT, BACK, HOLD, and lighting actions", async () => {
@@ -41,8 +69,6 @@ test("shared operator commands execute GO, NEXT, BACK, HOLD, and lighting action
   assert.equal(result.live.cueIndex, 2);
   assert.equal(result.live.executionSnapshot.cueId, "three");
   assert.equal((await commands.toggleHold()).live.hold, true);
-  assert.equal((await commands.setLightingOverride("light-manual")).live.lightingOverrideId, "light-manual");
-  assert.equal((await commands.returnToCueLighting()).live.lightingOverrideId, null);
 });
 
 test("Production Look edits do not change executed live snapshot until re-execution", async () => {
@@ -121,9 +147,99 @@ test("shared browser and Electron commands use the injected authoritative cue ex
   assert.deepEqual(calls, [2, 3, 2]);
 });
 
-test("lighting overrides require an existing scene", async () => {
+test("Lighting Library execution requires an existing scene", async () => {
   const { commands } = harness();
-  await assert.rejects(commands.setLightingOverride("missing"), /Unknown lighting scene/);
+  await assert.rejects(commands.executeLightingScene("missing"), /Unknown lighting scene/);
+});
+
+test("Lighting Library execution resolves through the existing lighting pipeline without changing state", async () => {
+  let persisted = lightingExecutionState();
+  const resolvedExecution = Object.freeze({
+    lightingSceneId: "light-manual",
+    adapterType: "qlcplus-websocket",
+    widgetId: "28",
+    widgetName: "Welcome",
+    pageName: "Sunday Morning",
+    executionType: "qlc-button"
+  });
+  const resolverCalls = [];
+  const executorCalls = [];
+  const expectedResult = { ok: true, activationMessageCount: 1, commandValue: 255 };
+  const commands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); },
+    lightingExecutionResolver: (state, sceneId) => {
+      resolverCalls.push({ state, sceneId });
+      return { execution: resolvedExecution, validation: { state: "valid" } };
+    },
+    lightingExecutorFactory: (state, options) => ({
+      execute(execution, context) {
+        executorCalls.push({ state, options, execution, context });
+        return expectedResult;
+      }
+    })
+  });
+
+  const before = clone(persisted);
+  const result = await commands.executeLightingScene("light-manual");
+
+  assert.equal(resolverCalls.length, 1);
+  assert.equal(resolverCalls[0].sceneId, "light-manual");
+  assert.equal(executorCalls.length, 1);
+  assert.equal(executorCalls[0].execution, resolvedExecution);
+  assert.equal(executorCalls[0].context.source, "lighting-library");
+  assert.deepEqual(result, expectedResult);
+  assert.deepEqual(persisted, before);
+});
+
+test("Lighting Library execution preserves the existing lighting-disabled result without activation", async () => {
+  let persisted = lightingExecutionState({ enabled: false });
+  let activations = 0;
+  const commands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); },
+    lightingAdapters: {
+      execute() {
+        activations += 1;
+        return { ok: true };
+      }
+    }
+  });
+
+  const result = await commands.executeLightingScene("light-manual");
+
+  assert.equal(activations, 0);
+  assert.deepEqual(result, {
+    ok: true,
+    skipped: true,
+    reason: "lighting-disabled",
+    activationMessageCount: 0,
+    message: "Lighting is disabled in Trinity"
+  });
+});
+
+test("Lighting Library execution propagates the existing disconnected execution failure", async () => {
+  let persisted = lightingExecutionState();
+  let activations = 0;
+  const disconnected = { ok: false, code: "connectionFailure", message: "QLC+ is disconnected" };
+  const commands = createOperatorCommands({
+    loadState: () => clone(persisted),
+    saveState: state => { persisted = clone(state); return clone(persisted); },
+    lightingAdapters: {
+      async testConnection() {
+        return disconnected;
+      },
+      async execute() {
+        activations += 1;
+        return { ok: true };
+      }
+    }
+  });
+
+  const result = await commands.executeLightingScene("light-manual");
+
+  assert.deepEqual(result, disconnected);
+  assert.equal(activations, 0);
 });
 
 test("browser and Electron cue edits share serialized state logic", async () => {

@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld("trinity", {
   testAllDevices: () => ipcRenderer.invoke("device:testAll"),
   testLightingConnection: deviceId => ipcRenderer.invoke("lighting-adapter:test", deviceId),
   discoverLightingControls: deviceId => ipcRenderer.invoke("lighting-adapter:discover", deviceId),
+  executeLightingScene: sceneId => ipcRenderer.invoke("lighting-scene:execute", sceneId),
   updateLightingScene: (sceneId, patch) => ipcRenderer.invoke("lighting-scene:update", { sceneId, patch }),
   duplicateLightingScene: sceneId => ipcRenderer.invoke("lighting-scene:duplicate", sceneId),
   clearDeviceDiagnostic: deviceId => ipcRenderer.invoke("device:clearDiagnostic", deviceId),
@@ -81,8 +82,6 @@ contextBridge.exposeInMainWorld("trinity", {
   setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
-  lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
-  returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue"),
   getHomeAssistantStatus: () => ipcRenderer.invoke("home-assistant:status"),
   turnLightingPowerOn: () => ipcRenderer.invoke("home-assistant:lighting-on"),
   turnLightingPowerOff: () => ipcRenderer.invoke("home-assistant:lighting-off")

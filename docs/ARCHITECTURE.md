@@ -33,7 +33,7 @@ GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direc
 
 `cue-execution-plan.cjs` builds a pure hardware-independent description of the desired cue start. `executeCue()` remains the only runtime entry point for GO, NEXT, BACK, and direct execution. In one serialized mutation it resolves resources, prepares valid role presets in Static mode, clears affected Motion selections, applies the valid priority camera, explicitly starts or stops Main tracking, freezes `live.executionSnapshot`, and then saves and publishes one authoritative state. No intermediate state is published and no hardware is contacted.
 
-Cue precedence is: valid cue lighting/layout compatibility override, valid simplified Look value, then safe fallback. A missing priority camera preserves the current program camera. `startMainTracking: false` explicitly stops Main tracking at cue start; `true` starts it only when supported and otherwise records a warning. Updating or deleting a Look never rewrites a cue or an active snapshot. Manual preparation, tracking, favorite lighting, and Make Live remain independent after execution and never rebuild the frozen snapshot.
+Cue precedence is: valid cue lighting/layout compatibility override, valid simplified Look value, then safe fallback. A missing priority camera preserves the current program camera. `startMainTracking: false` explicitly stops Main tracking at cue start; `true` starts it only when supported and otherwise records a warning. Updating or deleting a Look never rewrites a cue or an active snapshot. Manual camera preparation, tracking, and Make Live remain independent after execution and never rebuild the frozen snapshot.
 
 ## Device configuration foundation
 

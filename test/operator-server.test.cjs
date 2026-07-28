@@ -54,7 +54,7 @@ function initialState() {
       { id: "two", name: "Two", productionLookId: "look" },
       { id: "three", name: "Three", productionLookId: "look" }
     ],
-    live: { cueIndex: 0, programCamera: "main", previewCamera: "left", hold: false, lightingOverrideId: null, activityLog: [] }
+    live: { cueIndex: 0, programCamera: "main", previewCamera: "left", hold: false, activityLog: [] }
   };
 }
 
@@ -198,14 +198,6 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(update.live.programCamera, "left");
       assert.equal(update.live.cameraPreparations.find(item => item.cameraId === "left").presetName, "Left Wide");
       await events.close();
-    });
-    await t.test("lighting override", async () => {
-      const response = await post(baseUrl, "/api/lighting/override", { sceneId: "light-manual" });
-      assert.equal((await response.json()).live.lightingOverrideId, "light-manual");
-    });
-    await t.test("return to cue lighting", async () => {
-      const response = await post(baseUrl, "/api/lighting/return-to-cue");
-      assert.equal((await response.json()).live.lightingOverrideId, null);
     });
     await t.test("narrow cue mutation endpoints persist authoritative state", async () => {
       let response = await post(baseUrl, "/api/cues/reorder", { from: 0, to: 1 });

@@ -371,15 +371,23 @@
 .simple-cue-controls button{min-height:58px;font-size:16px}
 .simple-cue-controls .go-control{background:var(--green);color:#06150f;font-size:20px}
 .simple-live-main{min-height:0;display:grid;grid-template-rows:minmax(0,1fr) auto;gap:12px}
-.simple-camera-grid{height:100%;min-height:0;align-items:stretch}
-.simple-camera-card{min-width:0;background:#0c1721;border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;grid-template-rows:auto minmax(190px,1fr) auto auto auto auto;gap:9px}
+.simple-camera-grid{height:100%;min-height:0;align-items:start}
+.simple-camera-card{min-width:0;background:#0c1721;border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;grid-template-rows:auto auto auto auto auto auto;gap:9px;align-content:start}
 .simple-camera-card.live{border-color:var(--green);box-shadow:0 0 0 1px var(--green),0 0 24px #48e0a022}
 .simple-camera-card header{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .simple-camera-card header strong{font-size:16px}
 .simple-camera-card header span{font-size:11px;font-weight:900;letter-spacing:.12em;color:var(--muted)}
 .simple-camera-card.live header span{color:var(--green)}
-.simple-camera-preview{min-height:190px;aspect-ratio:16/9;background:radial-gradient(circle at center,#1a3447,#020609 72%);border-radius:12px;display:grid;place-content:center;text-align:center;gap:6px}
+.simple-camera-preview{width:100%;min-width:0;min-height:0;aspect-ratio:16/9;background:radial-gradient(circle at center,#1a3447,#020609 72%);border-radius:12px;display:grid;place-content:center;text-align:center;gap:6px;overflow:hidden}
 .simple-camera-card.live .simple-camera-preview{box-shadow:inset 0 0 0 3px var(--green)}
+.pc-media-card{align-content:start}
+.pc-media-card header span{color:var(--blue)}
+.pc-media-preview{background:radial-gradient(circle at center,#203c52,#020609 72%);box-shadow:inset 0 0 0 2px #4da9ff55}
+.pc-media-preview small{color:var(--muted);font-weight:500}
+.pc-media-summary{align-self:auto}
+.pc-media-mode,.pc-media-source,.pc-media-actions{opacity:.55}
+.pc-media-actions .make-live-button{cursor:not-allowed}
+
 .simple-camera-preview .lens{font-size:44px;color:#6b879c}
 .prepared-summary{min-height:36px;display:flex;justify-content:space-between;gap:8px;align-items:center}
 .prepared-summary small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -401,7 +409,7 @@
 .simple-lighting-panel .section-title{margin-bottom:7px}
 .simple-lighting-panel .quick-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
 .simple-lighting-panel .quick-grid button{min-height:44px;padding:7px}
-@media(max-width:1120px){.simple-live-layout{grid-template-columns:220px minmax(0,1fr)}.simple-camera-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.simple-camera-card{grid-template-rows:auto minmax(130px,1fr) auto auto auto auto}.simple-camera-preview{min-height:130px}.camera-live-actions{grid-template-columns:1fr}.simple-lighting-panel .quick-grid{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:1120px){.simple-live-layout{grid-template-columns:220px minmax(0,1fr)}.simple-camera-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.camera-live-actions{grid-template-columns:1fr}.simple-lighting-panel .quick-grid{grid-template-columns:repeat(4,1fr)}}
 
 /* Keep the three-camera booth layout contained at all supported desktop sizes. */
 .bottom-nav{grid-template-columns:repeat(7,minmax(0,1fr))}
@@ -409,8 +417,8 @@
 .simple-live-layout{width:100%;min-width:0;grid-template-columns:clamp(210px,16vw,260px) minmax(0,1fr);overflow:hidden}
 .simple-cue-panel{min-width:0;overflow:hidden}
 .simple-live-main{min-width:0;gap:10px;overflow:hidden}
-.simple-camera-grid{width:100%;min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;overflow:hidden}
-.simple-camera-card{width:100%;min-height:0;overflow:hidden;padding:9px;grid-template-rows:repeat(6,auto);align-content:start;gap:7px}
+.simple-camera-grid{width:100%;min-width:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,auto);gap:10px;overflow:auto;align-content:start}
+.simple-camera-card{width:100%;min-height:0;overflow:hidden;padding:9px;grid-template-rows:auto auto auto auto auto auto;align-content:start;gap:7px}
 .simple-camera-card header{min-width:0}
 .simple-camera-card header strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .simple-camera-preview{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 / 9}
@@ -456,3 +464,49 @@
 .look-form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
 .look-form-actions button{min-width:130px}
 @media(max-width:1100px){.simplified-look-form{grid-template-columns:1fr}.simplified-look-form fieldset:nth-child(2){grid-row:auto}}
+
+
+/* Home Assistant lighting power */
+.lighting-page-scroll { display: grid; gap: 14px; }
+.home-assistant-lighting-panel { border-color: rgba(71, 213, 158, .42); }
+.home-assistant-lighting-content { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.home-assistant-lighting-content h2 { margin: 0 0 6px; }
+.home-assistant-lighting-content p { margin: 0 0 5px; color: var(--muted); }
+.home-assistant-lighting-content small { color: var(--muted); }
+.home-assistant-lighting-actions { display: grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap: 10px; min-width: 430px; }
+.home-assistant-lighting-actions .success { background: #43d99b; color: #04150f; border-color: #43d99b; }
+.home-assistant-lighting-actions .danger { background: #fa6b6b; color: #170404; border-color: #fa6b6b; }
+@media (max-width: 1050px) {
+  .home-assistant-lighting-content { align-items: stretch; flex-direction: column; }
+  .home-assistant-lighting-actions { min-width: 0; width: 100%; }
+}
+
+
+/* Service layout cleanup */
+.service-list .cue-card,
+.order-of-service .cue-card,
+.service-cue-card{
+  width:100% !important;
+  margin-left:0 !important;
+  margin-right:0 !important;
+}
+
+.template-grid{
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  grid-auto-rows:max-content !important;
+  align-items:start !important;
+  gap:16px !important;
+}
+
+.template-card{
+  display:flex !important;
+  flex-direction:column !important;
+  height:auto !important;
+  min-height:170px !important;
+}
+
+.template-card button{
+  margin-top:auto !important;
+  position:static !important;
+}
+

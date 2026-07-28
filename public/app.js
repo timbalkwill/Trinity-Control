@@ -1,6 +1,8 @@
 const root = document.getElementById('app');
 
 let state;
+let homeAssistantStatus = null;
+let homeAssistantBusy = false;
 let operatorServerStatus;
 let page = 'live';
 let cueEditorOpen = false;
@@ -536,257 +538,165 @@ async function activateCue(index) {
 
 function openCueEditor(index) {
   const cue = state.runOfService[index];
+  if (!cue) return;
 
-  if (!cue) {
-    return;
-  }
   cueEditorOpen = true;
-
-  document
-    .querySelector('.cue-editor-backdrop')
-    ?.remove();
+  document.querySelector('.cue-editor-backdrop')?.remove();
 
   const backdrop = document.createElement('div');
   backdrop.className = 'cue-editor-backdrop';
-
   backdrop.innerHTML = `
-    <section
-      class="cue-editor"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="cue-editor-title"
-    >
+    <section class="cue-editor cue-editor-simplified" role="dialog" aria-modal="true" aria-labelledby="cue-editor-title">
       <div class="cue-editor-header">
-        <h2 id="cue-editor-title">
-          Edit Service Cue
-        </h2>
-
-        <button
-          type="button"
-          class="cue-editor-close"
-          aria-label="Close cue editor"
-        >
-          ×
-        </button>
+        <div>
+          <small>SERVICE CUE</small>
+          <h2 id="cue-editor-title">Edit Service Cue</h2>
+        </div>
+        <button type="button" class="cue-editor-close" aria-label="Close cue editor">×</button>
       </div>
 
-      <div class="cue-editor-body">
-        <label>
+      <div class="cue-editor-body cue-editor-body-simplified">
+        <label class="cue-editor-full">
           Cue Name
-
-          <input
-            id="cue-edit-name"
-            value="${escapeHtml(cue.name || '')}"
-            maxlength="80"
-          >
-        </label>
-
-        <label>
-          Duration (seconds)
-          <input id="cue-edit-duration" type="number" min="0" value="${Number(cue.duration) || 0}">
+          <input id="cue-edit-name" value="${escapeHtml(cue.name || '')}" maxlength="80">
         </label>
 
         <label>
           Production Look
-
           <select id="cue-edit-look">
-            ${state.productionLooks
-              .map(
-                look =>
-                  `<option
-                    value="${look.id}"
-                    ${
-                      look.id === cue.productionLookId
-                        ? 'selected'
-                        : ''
-                    }
-                  >
-                    ${escapeHtml(look.name)}
-                  </option>`
-              )
-              .join('')}
+            <option value="">No Production Look</option>
+            ${state.productionLooks.map(look => `<option value="${look.id}" ${look.id === cue.productionLookId ? 'selected' : ''}>${escapeHtml(look.name)}</option>`).join('')}
           </select>
         </label>
 
         <label>
-          Lighting Scene Override
-
+          Lighting Override
           <select id="cue-edit-lighting">
-            <option value="">
-              Use Production Look
-            </option>
-
-            ${state.lightingScenes
-              .map(
-                scene =>
-                  `<option
-                    value="${scene.id}"
-                    ${
-                      scene.id === cue.lightingSceneId
-                        ? 'selected'
-                        : ''
-                    }
-                  >
-                    ${escapeHtml(scene.name)}
-                  </option>`
-              )
-              .join('')}
+            <option value="">Use Production Look</option>
+            ${state.lightingScenes.map(scene => `<option value="${scene.id}" ${scene.id === cue.lightingSceneId ? 'selected' : ''}>${escapeHtml(scene.name)}</option>`).join('')}
           </select>
+          <small class="field-help">Leave this set to Use Production Look unless this cue needs different lighting.</small>
         </label>
 
-        <label>
-          Camera Layout Override
-
-          <select id="cue-edit-camera">
-            <option value="">
-              Use Production Look
-            </option>
-
-            ${state.cameraLayouts
-              .map(
-                layout =>
-                  `<option
-                    value="${layout.id}"
-                    ${
-                      layout.id === cue.cameraLayoutId
-                        ? 'selected'
-                        : ''
-                    }
-                  >
-                    ${escapeHtml(layout.name)}
-                  </option>`
-              )
-              .join('')}
-          </select>
-        </label>
-
-        <label>
+        <label class="cue-editor-full">
           Notes
-
-          <textarea
-            id="cue-edit-notes"
-            placeholder="Operator notes for this cue"
-          >${escapeHtml(cue.notes || '')}</textarea>
+          <textarea id="cue-edit-notes" placeholder="Operator notes for this cue">${escapeHtml(cue.notes || '')}</textarea>
         </label>
 
-        <div class="cue-editor-effective">
-          <div>
-            <span>EFFECTIVE LIGHTING</span>
-            <strong id="cue-effective-lighting"></strong>
+        <section class="cue-execution-preview cue-editor-full" aria-labelledby="cue-preview-title">
+          <div class="cue-preview-heading">
+            <div>
+              <small>WHEN GO IS PRESSED</small>
+              <h3 id="cue-preview-title">Cue Preview</h3>
+            </div>
+            <span id="cue-preview-status" class="cue-preview-status"></span>
           </div>
 
-          <div>
-            <span>EFFECTIVE CAMERA LAYOUT</span>
-            <strong id="cue-effective-camera"></strong>
+          <div class="cue-preview-summary">
+            <div><span>Production Look</span><strong id="cue-preview-look"></strong></div>
+            <div><span>Lighting</span><strong id="cue-preview-lighting"></strong></div>
+            <div><span>Priority Camera</span><strong id="cue-preview-priority"></strong></div>
+            <div><span>Main Tracking</span><strong id="cue-preview-tracking"></strong></div>
           </div>
-        </div>
-        <div id="cue-look-summary">${window.TrinityLookView.card(state, cue, { compact: true })}</div>
+
+          <div class="cue-preview-cameras">
+            ${['main', 'left', 'right'].map(role => `
+              <article class="cue-preview-camera" data-preview-role="${role}">
+                <span>${role.toUpperCase()} CAMERA</span>
+                <strong data-preview-camera-name>Not configured</strong>
+                <small data-preview-preset-name>No preset selected</small>
+              </article>`).join('')}
+          </div>
+
+          <div id="cue-preview-warnings" class="cue-preview-warnings" hidden></div>
+        </section>
       </div>
 
       <div class="cue-editor-actions">
-        <button
-          type="button"
-          class="cancel-cue"
-        >
-          Cancel
-        </button>
-
-        <button
-          type="button"
-          class="save-cue"
-        >
-          Save Cue
-        </button>
+        <button type="button" class="cancel-cue">Cancel</button>
+        <button type="button" class="save-cue">Save Cue</button>
       </div>
-    </section>
-  `;
+    </section>`;
 
   document.body.appendChild(backdrop);
 
-  const nameInput =
-    backdrop.querySelector('#cue-edit-name');
+  const nameInput = backdrop.querySelector('#cue-edit-name');
+  const lookSelect = backdrop.querySelector('#cue-edit-look');
+  const lightingSelect = backdrop.querySelector('#cue-edit-lighting');
+  const notesInput = backdrop.querySelector('#cue-edit-notes');
 
-  const lookSelect =
-    backdrop.querySelector('#cue-edit-look');
+  const cameraItems = () => {
+    const devices = (state.devices || []).filter(item => item.type === 'camera');
+    const known = new Set(devices.map(item => item.id));
+    return [...devices, ...(state.cameras || []).filter(item => item?.id && !known.has(item.id))];
+  };
 
-  const lightingSelect =
-    backdrop.querySelector('#cue-edit-lighting');
+  const cameraForAssignment = assignment =>
+    cameraItems().find(item => item.id === assignment?.cameraId || item.id === assignment?.cameraDeviceId);
 
-  const cameraSelect =
-    backdrop.querySelector('#cue-edit-camera');
+  const presetForAssignment = assignment =>
+    (state.cameraPresets || []).find(item =>
+      item.id === assignment?.presetId &&
+      (!assignment?.cameraId || item.cameraDeviceId === assignment.cameraId)
+    );
 
-  const notesInput =
-    backdrop.querySelector('#cue-edit-notes');
-  const durationInput = backdrop.querySelector('#cue-edit-duration');
+  const updatePreview = () => {
+    const look = byId(state.productionLooks, lookSelect.value);
+    const lighting = byId(state.lightingScenes, lightingSelect.value || look?.lightingSceneId);
+    const priority = cameraItems().find(item => item.id === look?.priorityCameraId);
+    const warnings = [];
+
+    backdrop.querySelector('#cue-preview-look').textContent = look?.name || 'Not assigned';
+    backdrop.querySelector('#cue-preview-lighting').textContent = lighting?.name || 'Not assigned';
+    backdrop.querySelector('#cue-preview-priority').textContent = priority?.name || (look?.priorityCameraId ? 'Missing camera' : 'Not assigned');
+    backdrop.querySelector('#cue-preview-tracking').textContent = look?.startMainTracking ? 'Starts On' : 'Off';
+
+    if (!look) warnings.push('Choose a Production Look.');
+    if (!lighting) warnings.push('No lighting scene will be recalled.');
+    if (look?.enabled === false) warnings.push('The selected Production Look is disabled.');
+
+    for (const role of ['main', 'left', 'right']) {
+      const assignment = look?.cameraPresets?.[role] || {};
+      const camera = cameraForAssignment(assignment);
+      const preset = presetForAssignment(assignment);
+      const card = backdrop.querySelector(`[data-preview-role="${role}"]`);
+      card.querySelector('[data-preview-camera-name]').textContent = camera?.name || (assignment.cameraId ? 'Missing camera' : 'Not configured');
+      card.querySelector('[data-preview-preset-name]').textContent = preset?.name || (assignment.presetId ? 'Missing preset' : 'No preset selected');
+      card.classList.toggle('warning', Boolean((assignment.cameraId && !camera) || (assignment.presetId && !preset)));
+      if (!assignment.cameraId || !assignment.presetId) warnings.push(`${role[0].toUpperCase() + role.slice(1)} camera preset is not configured.`);
+      else if (!camera || !preset) warnings.push(`${role[0].toUpperCase() + role.slice(1)} camera preset reference is missing.`);
+    }
+
+    const warningBox = backdrop.querySelector('#cue-preview-warnings');
+    warningBox.hidden = warnings.length === 0;
+    warningBox.innerHTML = warnings.map(item => `<span>⚠ ${escapeHtml(item)}</span>`).join('');
+
+    const status = backdrop.querySelector('#cue-preview-status');
+    status.textContent = warnings.length ? `${warnings.length} item${warnings.length === 1 ? '' : 's'} to review` : 'Ready';
+    status.className = `cue-preview-status ${warnings.length ? 'warning' : 'ready'}`;
+  };
 
   const close = () => {
     cueEditorOpen = false;
     backdrop.remove();
   };
 
-  const updateEffective = () => {
-    const look = byId(
-      state.productionLooks,
-      lookSelect.value
-    );
+  lookSelect.onchange = updatePreview;
+  lightingSelect.onchange = updatePreview;
+  updatePreview();
 
-    const lighting = byId(
-      state.lightingScenes,
-      lightingSelect.value || look?.lightingSceneId
-    );
+  backdrop.querySelector('.cue-editor-close').onclick = close;
+  backdrop.querySelector('.cancel-cue').onclick = close;
+  backdrop.onclick = event => { if (event.target === backdrop) close(); };
 
-    const camera = byId(
-      state.cameraLayouts,
-      cameraSelect.value || look?.cameraLayoutId
-    );
-
-    backdrop.querySelector(
-      '#cue-effective-lighting'
-    ).textContent = lighting?.name || 'None';
-
-    backdrop.querySelector(
-      '#cue-effective-camera'
-    ).textContent = camera?.name || 'None';
-    backdrop.querySelector('#cue-look-summary').innerHTML = window.TrinityLookView.card(state, {
-      ...cue,
-      productionLookId: lookSelect.value,
-      lightingSceneId: lightingSelect.value || '',
-      cameraLayoutId: cameraSelect.value || ''
-    }, { compact: true });
-  };
-
-  lookSelect.onchange = updateEffective;
-  lightingSelect.onchange = updateEffective;
-  cameraSelect.onchange = updateEffective;
-
-  updateEffective();
-
-  backdrop.querySelector(
-    '.cue-editor-close'
-  ).onclick = close;
-
-  backdrop.querySelector(
-    '.cancel-cue'
-  ).onclick = close;
-
-  backdrop.onclick = event => {
-    if (event.target === backdrop) {
-      close();
-    }
-  };
-
-  backdrop.querySelector(
-    '.save-cue'
-  ).onclick = async () => {
+  backdrop.querySelector('.save-cue').onclick = async () => {
     state = await window.trinity.updateCue(index, {
       name: nameInput.value.trim() || 'Untitled Cue',
-      duration: Number(durationInput.value) || 0,
       productionLookId: lookSelect.value,
       lightingSceneId: lightingSelect.value || '',
-      cameraLayoutId: cameraSelect.value || '',
+      cameraLayoutId: '',
       notes: notesInput.value.trim()
     });
-
     close();
     render();
   };
@@ -1247,6 +1157,33 @@ function MakeLiveButton(camera, isLive) {
   </button>`;
 }
 
+function PcMediaLiveCard() {
+  return `<article class="simple-camera-card pc-media-card" data-media-card="pc-media">
+    <header><strong>PC Media</strong><span>PREVIEW ONLY</span></header>
+    <div class="simple-camera-preview pc-media-preview">
+      <div class="lens">▣</div>
+      <strong>PC MEDIA PREVIEW</strong>
+      <small>Presentation and video source</small>
+    </div>
+    <div class="prepared-summary pc-media-summary">
+      <span class="preparation-status ready">Available</span>
+      <small>Preview-only source</small>
+    </div>
+    <div class="camera-mode-selector pc-media-mode" aria-hidden="true">
+      <button class="selected" disabled>STATIC</button>
+      <button disabled>MOTION</button>
+    </div>
+    <label class="camera-preparation-selector pc-media-source">
+      <span>Source</span>
+      <select disabled><option>PC Media</option></select>
+    </label>
+    <div class="camera-live-actions pc-media-actions">
+      <span class="tracking-space" aria-hidden="true"></span>
+      <button class="make-live-button" disabled>PREVIEW ONLY</button>
+    </div>
+  </article>`;
+}
+
 function CameraLiveCard(camera) {
   const preparation = cameraPreparation(camera.id);
   const isLive = state.live?.programCamera === camera.id;
@@ -1298,7 +1235,7 @@ function livePage() {
       </div>
     </aside>
     <section class="simple-live-main">
-      <div class="camera-grid simple-camera-grid">${cameras.map(CameraLiveCard).join('')}</div>
+      <div class="camera-grid simple-camera-grid">${cameras.map(CameraLiveCard).join('')}${PcMediaLiveCard()}</div>
       <section class="panel quick-panel simple-lighting-panel">
         <div class="section-title"><span>FAVORITE LIGHTING</span><strong>${escapeHtml(activeLighting()?.name || 'None')}</strong></div>
         <div class="quick-grid">
@@ -1342,427 +1279,249 @@ function livePage() {
 }
 
 function servicePage() {
-  const categories = [
-    ...new Set(
-      state.cueTemplates.map(
-        template => template.category
+  const categories = [...new Set(state.cueTemplates.map(template => template.category))];
+
+  // Readiness must inspect the editable Production Look definition, not the
+  // frozen executionSnapshot. TrinityLookView.summarize() intentionally returns
+  // the snapshot for the cue that is currently live, but that snapshot does not
+  // expose roleAssignments. Using it here caused whichever cue was live to be
+  // falsely marked as missing all three camera presets.
+  const validateCue = cue => {
+    const look = byId(state.productionLooks, cue.productionLookId);
+    const lighting = cueLighting(cue);
+    const roleLabels = { main: 'Main', left: 'Left', right: 'Right' };
+    const issues = [];
+    const cameraDevices = (state.devices || []).filter(item => item.type === 'camera');
+    const knownCameraIds = new Set(cameraDevices.map(item => item.id));
+    const cameras = [
+      ...cameraDevices,
+      ...(state.cameras || []).filter(item => item?.id && !knownCameraIds.has(item.id))
+    ];
+    const presets = state.cameraPresets || [];
+
+    const roleAssignments = Object.fromEntries(['main', 'left', 'right'].map(role => {
+      const assignment = look?.cameraPresets?.[role] || {};
+      const cameraId = assignment.cameraId || assignment.cameraDeviceId || '';
+      const camera = cameras.find(item => item.id === cameraId);
+      const preset = presets.find(item =>
+        item.id === assignment.presetId &&
+        (!cameraId || item.cameraDeviceId === cameraId)
+      );
+      return [role, { assignment, camera, preset }];
+    }));
+
+    const priorityCamera = look?.priorityCameraId
+      ? cameras.find(item => item.id === look.priorityCameraId)
+      : null;
+
+    if (!look) {
+      issues.push({ code: 'production-look', label: 'Production Look missing' });
+    }
+    if (!lighting) {
+      issues.push({ code: 'lighting', label: 'Lighting scene missing' });
+    }
+    if (look) {
+      for (const role of ['main', 'left', 'right']) {
+        const resolved = roleAssignments[role];
+        if (!resolved.assignment.cameraId && !resolved.assignment.cameraDeviceId) {
+          issues.push({ code: `${role}-camera`, label: `${roleLabels[role]} camera missing` });
+        } else if (!resolved.camera) {
+          issues.push({ code: `${role}-camera`, label: `${roleLabels[role]} camera missing` });
+        } else if (!resolved.assignment.presetId || !resolved.preset) {
+          issues.push({ code: `${role}-preset`, label: `${roleLabels[role]} preset missing` });
+        }
+      }
+      if (look.priorityCameraId && !priorityCamera) {
+        issues.push({ code: 'priority-camera', label: 'Priority camera missing' });
+      }
+    }
+
+    const summary = {
+      roleAssignments,
+      priorityCamera,
+      cameraReady: ['main', 'left', 'right'].every(role =>
+        Boolean(roleAssignments[role]?.camera && roleAssignments[role]?.preset)
       )
-    )
-  ];
+    };
+
+    return { look, lighting, summary, issues, ready: issues.length === 0 };
+  };
+
+  const validations = state.runOfService.map(validateCue);
+  const cueIssueCount = validations.filter(item => !item.ready).length;
+  const issueCount = validations.reduce((total, item) => total + item.issues.length, 0);
+  const missingLookCount = validations.filter(item => item.issues.some(issue => issue.code === 'production-look')).length;
+  const missingLightingCount = validations.filter(item => item.issues.some(issue => issue.code === 'lighting')).length;
+  const cameraIssueCount = validations.filter(item => item.issues.some(issue => /camera|preset/.test(issue.code))).length;
+
+  const readinessLabel = issueCount === 0 ? 'Ready for service' : `${cueIssueCount} cue${cueIssueCount === 1 ? '' : 's'} need attention`;
+
+  const cueCard = (cue, index) => {
+    const validation = validations[index];
+    const { look, lighting, summary, issues, ready } = validation;
+    const cameraPresets = ['main', 'left', 'right']
+      .map(role => summary.roleAssignments?.[role]?.preset?.name)
+      .filter(Boolean)
+      .join(' • ');
+
+    return `
+      <article
+        class="service-cue-card ${index === state.live.cueIndex ? 'current' : ''} ${ready ? 'ready' : 'needs-attention'}"
+        draggable="true"
+        data-cue-index="${index}"
+      >
+        <div class="service-cue-number">${index === state.live.cueIndex ? '▶' : index + 1}</div>
+
+        <div class="service-cue-copy">
+          <div class="service-cue-title-row">
+            <strong>${escapeHtml(cue.name || 'Untitled Cue')}</strong>
+            <span class="cue-readiness ${ready ? 'ready' : 'warning'}">${ready ? 'READY' : 'CHECK'}</span>
+          </div>
+          <span class="service-cue-look">${escapeHtml(look?.name || 'Production Look missing')}</span>
+          <div class="service-cue-meta">
+            <span class="${lighting ? 'valid' : 'warning'}">💡 ${escapeHtml(lighting?.name || 'Lighting scene missing')}</span>
+            <span class="${summary.cameraReady ? 'valid' : 'warning'}">📷 ${escapeHtml(cameraPresets || 'Camera presets incomplete')}</span>
+          </div>
+          ${issues.length ? `<div class="service-cue-issues">${issues.map(item => `<span>⚠ ${escapeHtml(item.label)}</span>`).join('')}</div>` : ''}
+        </div>
+
+        <div class="service-cue-actions">
+          <button class="cue-go" data-go="${index}">GO</button>
+          <button data-edit="${index}">EDIT</button>
+          <button data-duplicate="${index}">COPY</button>
+          <button class="cue-delete" data-remove="${index}" aria-label="Remove ${escapeHtml(cue.name || 'cue')}">DELETE</button>
+        </div>
+      </article>`;
+  };
 
   shell(`
-    <div class="page-scroll">
-      <div class="two-column">
-        <section class="panel">
-          <div class="section-title">
-            <span>RUN OF SERVICE</span>
-
-            <strong>
-              ${state.runOfService.length}
-              cues
-            </strong>
+    <div class="service-workspace">
+      <section class="panel service-order-panel">
+        <div class="service-page-heading">
+          <div>
+            <h2>Order of Service</h2>
+            <p>Drag cues to reorder. Edit any cue marked Check before the service.</p>
           </div>
+          <span class="service-count-pill">${state.runOfService.length} cues</span>
+        </div>
 
-          <div class="service-list">
-            ${state.runOfService
-              .map((cue, index) => {
-                const lighting =
-                  cueLighting(cue);
-
-                const camera =
-                  cueCameraLayout(cue);
-
-                const productionLook =
-                  byId(
-                    state.productionLooks,
-                    cue.productionLookId
-                  );
-
-                return `
-                  <div
-                    class="service-row
-                      ${
-                        index === state.live.cueIndex
-                          ? 'current'
-                          : ''
-                      }"
-                    draggable="true"
-                    data-cue-index="${index}"
-                  >
-                    <span
-                      class="drag-handle"
-                      title="Drag to reorder"
-                      aria-hidden="true"
-                    >
-                      ⋮⋮
-                    </span>
-
-                    <strong>
-                      ${String(index + 1).padStart(2, '0')}
-                    </strong>
-
-                    <div>
-                      <b>
-                        ${escapeHtml(cue.name)}
-                      </b>
-
-                      <small>
-                        ${escapeHtml(
-                          productionLook?.name || ''
-                        )}
-                      </small>
-
-                      <span class="cue-detail-badges">
-                        <span
-                          class="cue-detail-badge
-                            ${
-                              cue.lightingSceneId
-                                ? 'override-light'
-                                : ''
-                            }"
-                        >
-                          💡
-                          ${escapeHtml(
-                            lighting?.name ||
-                            'No lighting'
-                          )}
-                        </span>
-
-                        <span
-                          class="cue-detail-badge
-                            ${
-                              cue.cameraLayoutId
-                                ? 'override-camera'
-                                : ''
-                            }"
-                        >
-                          📷
-                          ${escapeHtml(
-                            camera?.name ||
-                            'No camera layout'
-                          )}
-                        </span>
-                      </span>
-                    </div>
-
-                    <div class="row-actions">
-                      <button data-go="${index}">
-                        GO
-                      </button>
-
-                      <button data-edit="${index}">
-                        EDIT
-                      </button>
-
-                      <button data-duplicate="${index}" title="Duplicate cue">COPY</button>
-                      <button data-insert-above="${index}" title="Insert cue above">+↑</button>
-                      <button data-insert-below="${index}" title="Insert cue below">+↓</button>
-
-                      <button
-                        data-remove="${index}"
-                        aria-label="Remove ${escapeHtml(
-                          cue.name
-                        )}"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                `;
-              })
-              .join('')}
+        <section class="service-readiness ${issueCount === 0 ? 'ready' : 'warning'}" aria-label="Service readiness">
+          <div class="service-readiness-primary">
+            <span>${issueCount === 0 ? '✓' : '⚠'}</span>
+            <div>
+              <strong>${escapeHtml(readinessLabel)}</strong>
+              <small>${issueCount === 0 ? 'Every cue has a valid Production Look, lighting scene, and three camera presets.' : `${issueCount} total issue${issueCount === 1 ? '' : 's'} found across the service.`}</small>
+            </div>
+          </div>
+          <div class="service-readiness-facts">
+            <span><strong>${missingLookCount}</strong><small>Missing Looks</small></span>
+            <span><strong>${missingLightingCount}</strong><small>Lighting Issues</small></span>
+            <span><strong>${cameraIssueCount}</strong><small>Camera Issues</small></span>
           </div>
         </section>
 
-        <aside class="panel">
-          <div class="section-title">
-            <span>ADD CUE</span>
+        <div class="service-card-list">
+          ${state.runOfService.map(cueCard).join('')}
+        </div>
+      </section>
+
+      <aside class="panel service-add-panel">
+        <div class="service-page-heading">
+          <div>
+            <h2>Add a Cue</h2>
+            <p>Choose a prepared cue template.</p>
           </div>
-
-          <div class="template-grid">
-            ${categories
-              .map(category =>
-                state.cueTemplates
-                  .filter(
-                    template =>
-                      template.category === category
-                  )
-                  .map(
-                    template =>
-                      `<article class="template-card">
-                        <small>
-                          ${escapeHtml(category)}
-                        </small>
-
-                        <h3>
-                          ${escapeHtml(template.name)}
-                        </h3>
-
-                        <p>
-                          ${escapeHtml(
-                            byId(
-                              state.productionLooks,
-                              template.productionLookId
-                            )?.name || ''
-                          )}
-                        </p>
-
-                        <button
-                          data-template="${template.id}"
-                        >
-                          ADD
-                        </button>
-                      </article>`
-                  )
-                  .join('')
-              )
-              .join('')}
-          </div>
-        </aside>
-      </div>
+        </div>
+        <div class="template-grid">
+          ${categories.map(category => state.cueTemplates
+            .filter(template => template.category === category)
+            .map(template => `
+              <article class="template-card">
+                <small>${escapeHtml(category)}</small>
+                <h3>${escapeHtml(template.name)}</h3>
+                <p>${escapeHtml(byId(state.productionLooks, template.productionLookId)?.name || 'Choose a Production Look after adding')}</p>
+                <button data-template="${template.id}">ADD CUE</button>
+              </article>`).join('')
+          ).join('')}
+        </div>
+        <div class="service-help">The readiness summary checks Production Looks, lighting scenes, and Main, Left, and Right camera presets. Timers and countdowns are not used.</div>
+      </aside>
     </div>
   `);
 
-  document
-    .querySelectorAll('[data-template]')
-    .forEach(button => {
-      button.onclick = async () => {
-        state =
-          await window.trinity.addCueTemplate(
-            button.dataset.template
-          );
+  document.querySelectorAll('[data-template]').forEach(button => {
+    button.onclick = async () => {
+      state = await window.trinity.addCueTemplate(button.dataset.template);
+      render();
+    };
+  });
 
-        render();
-      };
-    });
+  document.querySelectorAll('[data-go]').forEach(button => {
+    button.onclick = async event => {
+      event.stopPropagation();
+      state = await activateCue(Number(button.dataset.go));
+      page = 'live';
+      render();
+    };
+  });
 
-  document
-    .querySelectorAll('[data-go]')
-    .forEach(button => {
-      button.onclick = async () => {
-        state = await activateCue(
-          Number(button.dataset.go)
-        );
-
-        page = 'live';
-        render();
-      };
-    });
-
-  document
-    .querySelectorAll('[data-edit]')
-    .forEach(button => {
-      button.onclick = () => {
-        openCueEditor(
-          Number(button.dataset.edit)
-        );
-      };
-    });
-
-  document
-    .querySelectorAll('[data-remove]')
-    .forEach(button => {
-      button.onclick = async () => {
-        const index = Number(button.dataset.remove);
-        if (state.runOfService.length === 1) {
-          window.alert('The final cue cannot be deleted.');
-          return;
-        }
-        const active = index === state.live.cueIndex;
-        if (active && !window.confirm('Delete the active cue and select the nearest cue?')) return;
-        state = await window.trinity.removeCue(index, { confirmActive: active });
-
-        render();
-      };
-    });
+  document.querySelectorAll('[data-edit]').forEach(button => {
+    button.onclick = event => {
+      event.stopPropagation();
+      openCueEditor(Number(button.dataset.edit));
+    };
+  });
 
   document.querySelectorAll('[data-duplicate]').forEach(button => {
-    button.onclick = async () => { state = await window.trinity.duplicateCue(Number(button.dataset.duplicate)); render(); };
+    button.onclick = async event => {
+      event.stopPropagation();
+      state = await window.trinity.duplicateCue(Number(button.dataset.duplicate));
+      render();
+    };
   });
-  document.querySelectorAll('[data-insert-above]').forEach(button => {
-    button.onclick = async () => { const index = Number(button.dataset.insertAbove); state = await window.trinity.insertCue(index, 'above'); render(); openCueEditor(index); };
-  });
-  document.querySelectorAll('[data-insert-below]').forEach(button => {
-    button.onclick = async () => { const index = Number(button.dataset.insertBelow); state = await window.trinity.insertCue(index, 'below'); render(); openCueEditor(index + 1); };
+
+  document.querySelectorAll('[data-remove]').forEach(button => {
+    button.onclick = async event => {
+      event.stopPropagation();
+      if (!window.confirm('Remove this cue from the service?')) return;
+      try {
+        state = await window.trinity.deleteCue(Number(button.dataset.remove));
+        render();
+      } catch (error) {
+        window.alert(error.message);
+      }
+    };
   });
 
   let draggedIndex = null;
-
-  const rows = [
-    ...document.querySelectorAll(
-      '[data-cue-index]'
-    )
-  ];
-
-  document.querySelectorAll('.drag-handle').forEach(handle => {
-    let from = null;
-    handle.addEventListener('pointerdown', event => {
-      if (event.pointerType === 'mouse') return;
-      from = Number(handle.closest('[data-cue-index]').dataset.cueIndex);
-      handle.setPointerCapture(event.pointerId);
-      handle.closest('[data-cue-index]').classList.add('dragging');
+  document.querySelectorAll('.service-cue-card').forEach(card => {
+    card.ondragstart = event => {
+      draggedIndex = Number(card.dataset.cueIndex);
+      card.classList.add('dragging');
+      event.dataTransfer.effectAllowed = 'move';
+    };
+    card.ondragend = () => {
+      draggedIndex = null;
+      card.classList.remove('dragging');
+      document.querySelectorAll('.service-cue-card').forEach(item => item.classList.remove('drop-before', 'drop-after'));
+    };
+    card.ondragover = event => {
       event.preventDefault();
-    });
-    handle.addEventListener('pointermove', event => {
-      if (from === null) return;
-      rows.forEach(item => item.classList.remove('drop-before', 'drop-after'));
-      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-cue-index]');
-      if (!target) return;
-      const rect = target.getBoundingClientRect();
-      target.classList.add(event.clientY < rect.top + rect.height / 2 ? 'drop-before' : 'drop-after');
-    });
-    handle.addEventListener('pointerup', async event => {
-      if (from === null) return;
-      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-cue-index]');
-      let to = target ? Number(target.dataset.cueIndex) : from;
-      if (target && event.clientY >= target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2) to += 1;
-      if (from < to) to -= 1;
-      to = Math.max(0, Math.min(to, state.runOfService.length - 1));
-      rows.forEach(item => item.classList.remove('dragging', 'drop-before', 'drop-after'));
-      const original = from;
-      from = null;
-      if (original !== to) state = await window.trinity.moveCue(original, to);
+      const rect = card.getBoundingClientRect();
+      card.classList.toggle('drop-before', event.clientY < rect.top + rect.height / 2);
+      card.classList.toggle('drop-after', event.clientY >= rect.top + rect.height / 2);
+    };
+    card.ondragleave = () => card.classList.remove('drop-before', 'drop-after');
+    card.ondrop = async event => {
+      event.preventDefault();
+      if (draggedIndex === null) return;
+      const targetIndex = Number(card.dataset.cueIndex);
+      const rect = card.getBoundingClientRect();
+      let destination = event.clientY < rect.top + rect.height / 2 ? targetIndex : targetIndex + 1;
+      if (draggedIndex < destination) destination -= 1;
+      if (destination !== draggedIndex) state = await window.trinity.reorderCue(draggedIndex, destination);
       render();
-    });
-  });
-
-  rows.forEach(row => {
-    row.addEventListener(
-      'dragstart',
-      event => {
-        if (event.target.closest('button')) {
-          event.preventDefault();
-          return;
-        }
-
-        draggedIndex =
-          Number(row.dataset.cueIndex);
-
-        row.classList.add('dragging');
-
-        event.dataTransfer.effectAllowed =
-          'move';
-
-        event.dataTransfer.setData(
-          'text/plain',
-          String(draggedIndex)
-        );
-      }
-    );
-
-    row.addEventListener(
-      'dragover',
-      event => {
-        event.preventDefault();
-
-        event.dataTransfer.dropEffect =
-          'move';
-
-        rows.forEach(item =>
-          item.classList.remove(
-            'drop-before',
-            'drop-after'
-          )
-        );
-
-        const rect =
-          row.getBoundingClientRect();
-
-        row.classList.add(
-          event.clientY <
-            rect.top + rect.height / 2
-            ? 'drop-before'
-            : 'drop-after'
-        );
-      }
-    );
-
-    row.addEventListener(
-      'dragleave',
-      event => {
-        if (!row.contains(event.relatedTarget)) {
-          row.classList.remove(
-            'drop-before',
-            'drop-after'
-          );
-        }
-      }
-    );
-
-    row.addEventListener(
-      'drop',
-      async event => {
-        event.preventDefault();
-
-        const from =
-          draggedIndex ??
-          Number(
-            event.dataTransfer.getData(
-              'text/plain'
-            )
-          );
-
-        const target =
-          Number(row.dataset.cueIndex);
-
-        const rect =
-          row.getBoundingClientRect();
-
-        let to =
-          target +
-          (event.clientY >=
-          rect.top + rect.height / 2
-            ? 1
-            : 0);
-
-        if (from < to) {
-          to -= 1;
-        }
-
-        to = Math.max(
-          0,
-          Math.min(
-            to,
-            state.runOfService.length - 1
-          )
-        );
-
-        rows.forEach(item =>
-          item.classList.remove(
-            'dragging',
-            'drop-before',
-            'drop-after'
-          )
-        );
-
-        draggedIndex = null;
-
-        if (from !== to) {
-          state =
-            await window.trinity.moveCue(
-              from,
-              to
-            );
-        }
-
-        render();
-      }
-    );
-
-    row.addEventListener(
-      'dragend',
-      () => {
-        draggedIndex = null;
-
-        rows.forEach(item =>
-          item.classList.remove(
-            'dragging',
-            'drop-before',
-            'drop-after'
-          )
-        );
-      }
-    );
+    };
   });
 }
 
@@ -1856,7 +1615,26 @@ function looksPage() {
 
 function lightingPage() {
   shell(`
-    <div class="page-scroll">
+    <div class="page-scroll lighting-page-scroll">
+
+      <section class="panel home-assistant-lighting-panel">
+        <div class="section-title">
+          <span>LIGHTING POWER</span>
+          <strong id="ha-lighting-status">${homeAssistantStatus?.reachable ? (homeAssistantStatus.allOn ? 'ON' : homeAssistantStatus.anyOn ? 'PARTIAL' : 'OFF') : homeAssistantStatus?.configured ? 'OFFLINE' : 'NOT CONFIGURED'}</strong>
+        </div>
+        <div class="home-assistant-lighting-content">
+          <div>
+            <h2>Home Assistant Smart Outlets</h2>
+            <p>${escapeHtml(homeAssistantStatus?.message || 'Checking Home Assistant connection…')}</p>
+            <small>${escapeHtml((homeAssistantStatus?.entities || []).map(item => typeof item === 'string' ? item : `${item.friendlyName}: ${item.state}`).join(' · ') || 'Configure entities in home-assistant.config.json')}</small>
+          </div>
+          <div class="home-assistant-lighting-actions">
+            <button id="ha-lighting-refresh" ${homeAssistantBusy ? 'disabled' : ''}>REFRESH</button>
+            <button id="ha-lighting-off" class="danger" ${homeAssistantBusy || !homeAssistantStatus?.configured ? 'disabled' : ''}>POWER OFF</button>
+            <button id="ha-lighting-on" class="success" ${homeAssistantBusy || !homeAssistantStatus?.configured ? 'disabled' : ''}>POWER ON</button>
+          </div>
+        </div>
+      </section>
       <section class="panel">
         <div class="section-title">
           <span>LIGHTING LIBRARY</span>
@@ -1867,76 +1645,88 @@ function lightingPage() {
           </strong>
         </div>
 
-        <div class="card-grid">
+        <div class="card-grid lighting-scene-grid">
           ${state.lightingScenes
-            .map(
-              scene =>
-                `<article
-                  class="edit-card
-                    ${
-                      scene.favorite
-                        ? 'favorite'
-                        : ''
-                    }"
-                >
-                  <small>
-                    ${escapeHtml(
-                      scene.category || 'Custom'
-                    )}
-                  </small>
+            .map(scene => {
+              const lookReferences = (state.productionLooks || [])
+                .filter(look => look.lightingSceneId === scene.id);
+              const cueReferences = (state.runOfService || [])
+                .filter(cue => cueLightingId(cue) === scene.id);
+              const referenceNames = [
+                ...lookReferences.map(look => look.name),
+                ...cueReferences.map(cue => cue.name)
+              ].filter((name, index, names) => name && names.indexOf(name) === index);
+              const usageSummary = referenceNames.length
+                ? referenceNames.slice(0, 3).map(escapeHtml).join(' · ') + (referenceNames.length > 3 ? ` · +${referenceNames.length - 3}` : '')
+                : 'Not currently used';
 
-                  <h2>
-                    ${escapeHtml(scene.name)}
-                  </h2>
-
-                  <div class="metrics">
-                    <span>
-                      Platform
-                      <b>${scene.platform}%</b>
-                    </span>
-
-                    <span>
-                      Fill
-                      <b>${scene.fill}%</b>
-                    </span>
-
-                    <span>
-                      House
-                      <b>${scene.house}%</b>
-                    </span>
-
-                    <span>
-                      Fade
-                      <b>${scene.fade}s</b>
-                    </span>
+              return `<article class="edit-card lighting-scene-card ${scene.favorite ? 'favorite' : ''}">
+                <header class="lighting-scene-card-header">
+                  <div>
+                    <small>${escapeHtml(scene.category || 'Custom')}</small>
+                    <h2>${escapeHtml(scene.name)}</h2>
                   </div>
+                  ${scene.favorite ? '<span class="lighting-favorite-badge" title="Favorite scene">★</span>' : ''}
+                </header>
 
-                  <button
-                    data-preview-light="${scene.id}"
-                  >
-                    PREVIEW ON LIVE PAGE
-                  </button>
-                </article>`
-            )
+                <div class="metrics">
+                  <span>Platform <b>${scene.platform}%</b></span>
+                  <span>Fill <b>${scene.fill}%</b></span>
+                  <span>House <b>${scene.house}%</b></span>
+                  <span>Fade <b>${scene.fade}s</b></span>
+                </div>
+
+                <div class="lighting-scene-usage">
+                  <div class="lighting-usage-counts">
+                    <span><b>${lookReferences.length}</b> Look${lookReferences.length === 1 ? '' : 's'}</span>
+                    <span><b>${cueReferences.length}</b> Cue${cueReferences.length === 1 ? '' : 's'}</span>
+                  </div>
+                  <small title="${escapeHtml(referenceNames.join(' · '))}">${usageSummary}</small>
+                </div>
+              </article>`;
+            })
             .join('')}
         </div>
       </section>
     </div>
   `);
 
-  document
-    .querySelectorAll('[data-preview-light]')
-    .forEach(button => {
-      button.onclick = async () => {
-        state =
-          await window.trinity.lightingOverride(
-            button.dataset.previewLight
-          );
+  const refreshHomeAssistant = async () => {
+    homeAssistantBusy = true;
+    render();
+    try {
+      homeAssistantStatus = await window.trinity.getHomeAssistantStatus();
+    } catch (error) {
+      homeAssistantStatus = { configured: true, reachable: false, message: error.message, entities: [] };
+    } finally {
+      homeAssistantBusy = false;
+      render();
+    }
+  };
 
-        page = 'live';
-        render();
-      };
-    });
+  document.querySelector('#ha-lighting-refresh')?.addEventListener('click', refreshHomeAssistant);
+  document.querySelector('#ha-lighting-on')?.addEventListener('click', async () => {
+    homeAssistantBusy = true;
+    render();
+    try { homeAssistantStatus = await window.trinity.turnLightingPowerOn(); }
+    catch (error) { window.alert(error.message); }
+    finally { homeAssistantBusy = false; render(); }
+  });
+  document.querySelector('#ha-lighting-off')?.addEventListener('click', async () => {
+    if (!window.confirm('Power off all configured lighting smart outlets?')) return;
+    homeAssistantBusy = true;
+    render();
+    try { homeAssistantStatus = await window.trinity.turnLightingPowerOff(); }
+    catch (error) { window.alert(error.message); }
+    finally { homeAssistantBusy = false; render(); }
+  });
+
+  if (homeAssistantStatus === null && !homeAssistantBusy) {
+    window.trinity.getHomeAssistantStatus()
+      .then(status => { homeAssistantStatus = status; if (page === 'lighting') render(); })
+      .catch(error => { homeAssistantStatus = { configured: true, reachable: false, message: error.message, entities: [] }; if (page === 'lighting') render(); });
+  }
+
 }
 
 function camerasPage() {
@@ -1960,57 +1750,88 @@ function camerasPage() {
   const currentPreset = allPresets.find(preset => preset.id === managerMetadata.currentPresetId);
   const diagnostic = selected?.metadata?.diagnostic;
   const readiness = !selected?.enabled ? 'Disabled' : !deviceConfigured(selected) ? 'Not configured' : diagnostic?.message || 'Adapter not implemented';
+  const presetUsage = preset => {
+    const looks = (state.productionLooks || []).filter(look => {
+      const refs = [
+        ...Object.values(look.roleAssignments || {}),
+        ...Object.values(look.cameraPresets || {}),
+        ...(look.cameraAssignments || [])
+      ].filter(Boolean);
+      return refs.some(ref => (ref.cameraId || ref.cameraDeviceId) === preset.cameraDeviceId && ref.presetId === preset.id);
+    });
+    const shots = (state.shots || []).filter(shot => shot.cameraDeviceId === preset.cameraDeviceId && shot.cameraPresetId === preset.id);
+    const lookIds = new Set(looks.map(look => look.id));
+    const cues = (state.runOfService || []).filter(cue => lookIds.has(cue.productionLookId || cue.lookId));
+    return { looks, shots, cues };
+  };
   const selectedPreset = (state.cameraPresets || []).find(preset => preset.id === selectedCameraPresetId);
   const cameraCard = device => {
     const devicePresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === device.id);
     const deviceShots = (state.shots || []).filter(shot => shot.cameraDeviceId === device.id || (!shot.cameraDeviceId && shot.logicalCameraRole === device.logicalRole));
     const favorites = devicePresets.filter(preset => preset.favorite && preset.enabled);
-    const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || 'Adapter not implemented';
+    const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || 'Ready for adapter';
+    const output = state.live?.programCamera === device.id ? 'PROGRAM' : state.live?.previewCamera === device.id ? 'PREVIEW' : 'STANDBY';
     return `<button class="managed-camera-card ${device.id === selected?.id ? 'selected' : ''}" data-managed-camera="${device.id}">
-      <div><span class="role-pill">${escapeHtml(device.logicalRole || 'camera')}</span><strong>${escapeHtml(device.name)}</strong></div>
+      <div class="managed-camera-card-top"><span class="role-pill">${escapeHtml(device.logicalRole || 'camera')}</span><span class="camera-output ${output.toLowerCase()}">${output}</span></div>
+      <strong>${escapeHtml(device.name)}</strong>
       <small>${escapeHtml([device.manufacturer, device.model].filter(Boolean).join(' ') || 'Model not assigned')}</small>
       <span class="readiness">${escapeHtml(status)}</span>
-      <small>${devicePresets.length} presets · ${favorites.length} favorites · ${deviceShots.length} Shots</small>
+      <div class="camera-card-counts"><span><b>${devicePresets.length}</b> presets</span><span><b>${favorites.length}</b> favorites</span><span><b>${deviceShots.length}</b> shots</span></div>
     </button>`;
   };
-  const presetRow = (preset, index) => `<div class="preset-row ${preset.enabled ? '' : 'disabled'}">
-    <button class="favorite-button" data-favorite-preset="${preset.id}" title="Favorite">${preset.favorite ? '★' : '☆'}</button>
-    <div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Utility')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'} · ${(state.shots || []).filter(shot => shot.cameraPresetId === preset.id).length} Shots</small></div>
-    <button data-edit-preset="${preset.id}">EDIT</button><button data-duplicate-preset="${preset.id}">DUPLICATE</button>
-    <button data-move-preset="${preset.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-preset="${preset.id}" data-direction="1" ${index === presets.length - 1 ? 'disabled' : ''}>↓</button>
-    <button class="danger" data-delete-preset="${preset.id}">DELETE</button>
-  </div>`;
-  const presetEditor = selectedPreset ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
-    <div class="look-editor-header"><div><span class="eyebrow">CAMERA PRESET</span><h1>${escapeHtml(selectedPreset.name)}</h1></div><button id="preset-editor-close">×</button></div>
-    <div class="settings-form">
-      <label>Name<input data-preset-field="name" value="${escapeHtml(selectedPreset.name)}"></label>
-      <label>Preset number<input type="number" min="0" data-preset-field="presetNumber" value="${selectedPreset.presetNumber ?? ''}"></label>
-      <label>Suggested category<select id="preset-category-editor">${categories.map(category => `<option value="${escapeHtml(category)}" ${(selectedPreset.category || 'Utility').toLowerCase() === category.toLowerCase() ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="__custom__">Custom…</option></select></label>
-      <label>Custom category<input id="preset-custom-category" value="${escapeHtml(selectedPreset.category && !suggestedPresetCategories.some(category => category.toLowerCase() === selectedPreset.category.toLowerCase()) ? selectedPreset.category : '')}" placeholder="Type a custom category"></label>
-      <label class="checkbox-label"><input type="checkbox" data-preset-field="favorite" ${selectedPreset.favorite ? 'checked' : ''}> Favorite</label>
-      <label class="checkbox-label"><input type="checkbox" data-preset-field="enabled" ${selectedPreset.enabled ? 'checked' : ''}> Enabled</label>
-      <label class="wide">Notes<textarea data-preset-field="notes">${escapeHtml(selectedPreset.notes || '')}</textarea></label>
-    </div><div class="settings-editor-actions"><span>Saved immediately. Recall requires a future adapter.</span><button id="preset-editor-done">DONE</button></div>
+  const presetRow = (preset, index) => {
+    const usage = presetUsage(preset);
+    const usageNames = [...usage.looks.slice(0, 2).map(item => item.name), ...usage.shots.slice(0, 1).map(item => item.name)].filter(Boolean);
+    return `<div class="preset-row ${preset.enabled ? '' : 'disabled'}">
+      <button class="favorite-button" data-favorite-preset="${preset.id}" title="Favorite">${preset.favorite ? '★' : '☆'}</button>
+      <div class="preset-primary"><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.category || 'Utility')} · Preset ${preset.presetNumber ?? '—'}${preset.enabled ? '' : ' · Disabled'}</small></div>
+      <div class="preset-usage"><small>USED BY</small><strong>${usage.looks.length} Look${usage.looks.length === 1 ? '' : 's'} · ${usage.shots.length} Shot${usage.shots.length === 1 ? '' : 's'} · ${usage.cues.length} Cue${usage.cues.length === 1 ? '' : 's'}</strong>${usageNames.length ? `<span>${usageNames.map(escapeHtml).join(' · ')}</span>` : '<span>Not currently referenced</span>'}</div>
+      <div class="preset-actions"><button data-edit-preset="${preset.id}">EDIT</button><button data-duplicate-preset="${preset.id}">DUPLICATE</button><button data-move-preset="${preset.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-preset="${preset.id}" data-direction="1" ${index === presets.length - 1 ? 'disabled' : ''}>↓</button><button class="danger" data-delete-preset="${preset.id}">DELETE</button></div>
+    </div>`;
+  };
+  const selectedPresetCamera = devices.find(device => device.id === selectedPreset?.cameraDeviceId);
+  const copyTargets = devices.filter(device => device.id !== selectedPreset?.cameraDeviceId && device.enabled !== false);
+  const presetEditor = selectedPreset ? `<div class="settings-editor-backdrop"><section class="settings-editor panel camera-preset-editor" role="dialog" aria-modal="true">
+    <div class="look-editor-header"><div><span class="eyebrow">CAMERA-SCOPED PRESET</span><h1>${escapeHtml(selectedPreset.name)}</h1><p>${escapeHtml(selectedPresetCamera?.name || 'Unknown camera')} · Identity is camera + preset ID</p></div><button id="preset-editor-close">×</button></div>
+    <div class="camera-preset-editor-grid">
+      <div class="settings-form camera-preset-form">
+        <label class="wide">Preset Name<input data-preset-field="name" value="${escapeHtml(selectedPreset.name)}"></label>
+        <label>Preset Number<input type="number" min="0" data-preset-field="presetNumber" value="${selectedPreset.presetNumber ?? ''}"></label>
+        <label>Category<select id="preset-category-editor">${categories.map(category => `<option value="${escapeHtml(category)}" ${(selectedPreset.category || 'Utility').toLowerCase() === category.toLowerCase() ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}<option value="__custom__">Custom…</option></select></label>
+        <label class="wide">Custom Category<input id="preset-custom-category" value="${escapeHtml(selectedPreset.category && !suggestedPresetCategories.some(category => category.toLowerCase() === selectedPreset.category.toLowerCase()) ? selectedPreset.category : '')}" placeholder="Type a custom category"></label>
+        <label class="checkbox-label"><input type="checkbox" data-preset-field="favorite" ${selectedPreset.favorite ? 'checked' : ''}> Favorite preset</label>
+        <label class="checkbox-label"><input type="checkbox" data-preset-field="enabled" ${selectedPreset.enabled ? 'checked' : ''}> Enabled</label>
+        <label class="wide">Notes<textarea data-preset-field="notes">${escapeHtml(selectedPreset.notes || '')}</textarea></label>
+      </div>
+      <aside class="camera-preset-summary">
+        <span class="eyebrow">PRESET SUMMARY</span>
+        <div><small>Camera</small><strong>${escapeHtml(selectedPresetCamera?.name || 'Missing camera')}</strong></div>
+        <div><small>Role</small><strong>${escapeHtml(selectedPresetCamera?.logicalRole || selectedPreset.logicalRole || 'camera')}</strong></div>
+        <div><small>Category</small><strong>${escapeHtml(selectedPreset.category || 'Utility')}</strong></div>
+        <div><small>Used by</small><strong>${(state.shots || []).filter(shot => shot.cameraDeviceId === selectedPreset.cameraDeviceId && shot.cameraPresetId === selectedPreset.id).length} Shot${(state.shots || []).filter(shot => shot.cameraDeviceId === selectedPreset.cameraDeviceId && shot.cameraPresetId === selectedPreset.id).length === 1 ? '' : 's'}</strong></div>
+        <div class="copy-preset-panel">
+          <small>COPY THIS PRESET TO ANOTHER CAMERA</small>
+          ${copyTargets.length ? `<select id="copy-preset-target">${copyTargets.map(device => `<option value="${escapeHtml(device.id)}">${escapeHtml(device.name)} (${escapeHtml(device.logicalRole || 'camera')})</option>`).join('')}</select><button id="copy-preset-to-camera">COPY TO CAMERA</button>` : '<p>No other enabled cameras are available.</p>'}
+          <p>The copied preset keeps the name and category, but receives a new camera-scoped ID.</p>
+        </div>
+      </aside>
+    </div><div class="settings-editor-actions"><span>Changes save immediately. Hardware recall will be enabled when the camera adapter is connected.</span><button id="preset-editor-done">DONE</button></div>
   </section></div>` : '';
 
+  const cameraRefs = selected ? cameraReferenceSummary(selected.id) : { total: 0, counts: {} };
   shell(`<div class="camera-manager page-scroll">
-    <div class="camera-manager-heading"><div><span class="eyebrow">OPERATIONAL CAMERA MANAGER</span><h1>Cameras</h1><p>Capabilities, presets, readiness, and known operational state. Network settings remain in Settings.</p></div><button id="configure-camera-device">CONFIGURE DEVICE</button></div>
+    <div class="camera-manager-heading"><div><span class="eyebrow">CAMERA PRESET MANAGER</span><h1>Cameras</h1><p>Select a camera, manage its presets, and see where each preset is used.</p></div><button id="configure-camera-device">CAMERA SETTINGS</button></div>
     <div class="managed-camera-strip">${devices.map(cameraCard).join('')}</div>
-    ${selected ? `<div class="camera-detail-grid">
-      <section class="panel camera-overview"><div class="section-title"><span>OVERVIEW</span><strong>${escapeHtml(selected.name)}</strong></div>
-        <div class="camera-status-hero"><span class="role-pill">${escapeHtml(selected.logicalRole)}</span><b>${escapeHtml(readiness)}</b></div>
-        <div class="metrics vertical"><span>Model <b>${escapeHtml([selected.manufacturer, selected.model].filter(Boolean).join(' ') || 'Not assigned')}</b></span><span>Configured <b>${deviceConfigured(selected) ? 'Yes' : 'No'}</b></span><span>Current preset <b>${escapeHtml(currentPreset?.name || 'Unknown')}</b></span><span>Tracking <b>${escapeHtml(managerMetadata.trackingState || 'Unknown')}</b></span><span>Motion <b>${escapeHtml(managerMetadata.motionState || 'Unknown')}</b></span><span>Output <b>${state.live?.programCamera === selected.id ? 'PROGRAM' : state.live?.previewCamera === selected.id ? 'PREVIEW' : 'Standby'}</b></span></div>
-        <div class="row-actions"><button id="run-camera-diagnostic">RUN DIAGNOSTIC</button><button id="camera-settings-link">SETTINGS → CAMERAS</button></div>
+    ${selected ? `<div class="camera-detail-grid camera-preset-dashboard">
+      <section class="panel camera-overview"><div class="section-title"><span>SELECTED CAMERA</span><strong>${escapeHtml(selected.name)}</strong></div>
+        <div class="camera-overview-grid"><div><small>STATUS</small><strong>${escapeHtml(readiness)}</strong></div><div><small>MODEL</small><strong>${escapeHtml([selected.manufacturer, selected.model].filter(Boolean).join(' ') || 'Not assigned')}</strong></div><div><small>CURRENT PRESET</small><strong>${escapeHtml(currentPreset?.name || 'Unknown')}</strong></div><div><small>OUTPUT</small><strong>${state.live?.programCamera === selected.id ? 'PROGRAM' : state.live?.previewCamera === selected.id ? 'PREVIEW' : 'Standby'}</strong></div></div>
+        <div class="row-actions"><button id="run-camera-diagnostic">RUN DIAGNOSTIC</button><button id="camera-settings-link">OPEN CAMERA SETTINGS</button></div>
       </section>
-      <section class="panel capability-panel"><div class="section-title"><span>CAPABILITIES</span><strong>Manual until adapter support</strong></div>
-        <div class="capability-grid">${capabilityKeys.map(([key,label]) => `<label><span>${label}</span><select data-capability="${key}">${[['unknown','Unknown'],['supported','Supported'],['notSupported','Not supported'],['adapterRequired','Adapter required']].map(([value,name]) => `<option value="${value}" ${inferredCapability(key) === value ? 'selected' : ''}>${name}</option>`).join('')}</select></label>`).join('')}</div>
-      </section>
-      <section class="panel preset-panel"><div class="section-title"><span>PRESETS</span><strong>${allPresets.length} for ${escapeHtml(selected.name)}</strong></div>
-        <div class="preset-toolbar"><input id="preset-search" value="${escapeHtml(cameraPresetSearch)}" placeholder="Search presets"><select id="preset-category"><option value="">All categories</option>${categories.map(category => `<option ${cameraPresetCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><button id="create-preset">CREATE PRESET</button></div>
+      <section class="panel preset-panel"><div class="section-title"><span>PRESET LIBRARY</span><strong>${allPresets.length} presets for ${escapeHtml(selected.name)}</strong></div>
+        <div class="preset-toolbar"><input id="preset-search" value="${escapeHtml(cameraPresetSearch)}" placeholder="Search presets"><select id="preset-category"><option value="">All categories</option>${categories.map(category => `<option ${cameraPresetCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><button id="create-preset">CREATE PRESET</button></div><div class="preset-quick-filters"><button data-preset-quick-filter="" class="${cameraPresetCategory ? '' : 'selected'}">ALL</button>${['Platform','Pulpit','Congregation','Worship','Utility'].map(category => `<button data-preset-quick-filter="${category}" class="${cameraPresetCategory.toLowerCase() === category.toLowerCase() ? 'selected' : ''}">${category.toUpperCase()}</button>`).join('')}</div>
         <div class="preset-list">${presets.length ? presets.map(presetRow).join('') : '<div class="empty-state">No matching presets. Create an operational name such as Pastor Tight or Main Wide.</div>'}</div>
       </section>
-      <section class="panel future-control"><div class="section-title"><span>FUTURE CONTROL</span><strong>Adapter not implemented</strong></div><div class="future-control-grid"><button disabled>PAN / TILT</button><button disabled>ZOOM</button><button disabled>TRACKING TOGGLE</button><button disabled>RECALL PRESET</button><div class="preview-placeholder">CAMERA PREVIEW<br><small>Adapter not implemented</small></div></div></section>
-      <section class="panel camera-danger-zone danger-zone"><div><span class="eyebrow">CAMERA ACTIONS · DANGER ZONE</span><strong>${escapeHtml(selected.name)}</strong><p>Rename, copy, enable or disable this camera. Deletion preserves ${cameraReferenceSummary(selected.id).total} reference${cameraReferenceSummary(selected.id).total === 1 ? '' : 's'} as missing references.</p><ul>${Object.entries(cameraReferenceSummary(selected.id).counts).map(([label, count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><div class="danger-zone-actions"><button id="camera-rename">RENAME / EDIT</button><button id="camera-duplicate">DUPLICATE</button><button id="camera-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="camera-delete">DELETE CAMERA</button></div></section>
+      <details class="panel camera-advanced"><summary><span><b>Advanced Camera Management</b><small>Rename, duplicate, disable, or delete ${escapeHtml(selected.name)}</small></span><span class="advanced-chevron">▾</span></summary><div class="camera-advanced-body"><div><p>These actions are rarely needed. Deleting a camera preserves ${cameraRefs.total} existing reference${cameraRefs.total === 1 ? '' : 's'} as missing references.</p><div class="camera-reference-summary">${Object.entries(cameraRefs.counts).filter(([,count]) => count).map(([label,count]) => `<span>${escapeHtml(label)} <b>${count}</b></span>`).join('') || '<span>No current references</span>'}</div></div><div class="danger-zone-actions"><button id="camera-rename">RENAME / EDIT</button><button id="camera-duplicate">DUPLICATE</button><button id="camera-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="camera-delete">DELETE CAMERA</button></div></div></details>
     </div>` : '<div class="empty-state">No camera devices configured.</div>'}
   </div>${presetEditor}`);
 
@@ -2024,6 +1845,7 @@ function camerasPage() {
   document.getElementById('run-camera-diagnostic')?.addEventListener('click', async () => { state = await window.trinity.testDevice(selected.id); render(); });
   document.getElementById('preset-search')?.addEventListener('input', event => { cameraPresetSearch = event.target.value; render(); });
   document.getElementById('preset-category')?.addEventListener('change', event => { cameraPresetCategory = event.target.value; render(); });
+  document.querySelectorAll('[data-preset-quick-filter]').forEach(button => button.addEventListener('click', () => { cameraPresetCategory = button.dataset.presetQuickFilter; render(); }));
   document.getElementById('create-preset')?.addEventListener('click', async () => { state = await window.trinity.createCameraPreset({ name: 'New Preset', cameraDeviceId: selected.id, logicalRole: selected.logicalRole, category: null, enabled: true }); selectedCameraPresetId = state.cameraPresets.at(-1).id; render(); });
   document.querySelectorAll('[data-edit-preset]').forEach(button => button.onclick = () => { selectedCameraPresetId = button.dataset.editPreset; render(); });
   document.querySelectorAll('[data-duplicate-preset]').forEach(button => button.onclick = async () => { state = await window.trinity.duplicateCameraPreset(button.dataset.duplicatePreset); render(); });
@@ -2036,7 +1858,6 @@ function camerasPage() {
     if (!confirmReferences) return;
     state = await window.trinity.deleteCameraPreset(preset.id, { confirmReferences: references.length > 0 }); render();
   });
-  document.querySelectorAll('[data-capability]').forEach(select => select.onchange = async () => { const nextCapabilities = { ...(selected.metadata?.cameraManager?.capabilities || {}), [select.dataset.capability]: select.value }; state = await window.trinity.updateDevice(selected.id, { metadata: { ...selected.metadata, cameraManager: { ...managerMetadata, capabilities: nextCapabilities } } }); render(); });
   document.querySelectorAll('[data-preset-field]').forEach(input => input.onchange = async () => { const field = input.dataset.presetField; let value = input.type === 'checkbox' ? input.checked : input.value; if (field === 'presetNumber') value = value === '' ? null : Number(value); state = await window.trinity.updateCameraPreset(selectedPreset.id, { [field]: value }); render(); });
   document.getElementById('preset-category-editor')?.addEventListener('change', async event => {
     if (event.target.value === '__custom__') return document.getElementById('preset-custom-category')?.focus();
@@ -2050,6 +1871,26 @@ function camerasPage() {
     render();
   });
   document.getElementById('preset-editor-close')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
+  document.getElementById('copy-preset-to-camera')?.addEventListener('click', async () => {
+    const targetCameraId = document.getElementById('copy-preset-target')?.value;
+    const targetCamera = devices.find(device => device.id === targetCameraId);
+    if (!targetCamera) return;
+    const sameName = (state.cameraPresets || []).find(preset => preset.cameraDeviceId === targetCamera.id && preset.name.trim().toLowerCase() === selectedPreset.name.trim().toLowerCase());
+    if (sameName && !window.confirm(`${targetCamera.name} already has a preset named ${selectedPreset.name}. Create another camera-scoped copy?`)) return;
+    state = await window.trinity.createCameraPreset({
+      name: selectedPreset.name,
+      cameraDeviceId: targetCamera.id,
+      logicalRole: targetCamera.logicalRole,
+      category: selectedPreset.category || 'Utility',
+      presetNumber: null,
+      favorite: selectedPreset.favorite,
+      enabled: selectedPreset.enabled,
+      notes: selectedPreset.notes || ''
+    });
+    selectedManagedCameraId = targetCamera.id;
+    selectedCameraPresetId = state.cameraPresets.at(-1)?.id || null;
+    render();
+  });
   document.getElementById('preset-editor-done')?.addEventListener('click', () => { selectedCameraPresetId = null; render(); });
 }
 

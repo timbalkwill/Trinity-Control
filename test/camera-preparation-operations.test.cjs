@@ -174,15 +174,20 @@ test("desktop controls use narrow preload commands and disable movement while tr
   assert.match(renderer, /data-make-camera-live/);
 });
 
-test("desktop Live layout constrains three equal camera columns and all action controls", () => {
+test("desktop Live layout uses a contained 2x2 source grid with PC Media preview", () => {
+  const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
   assert.match(styles, /\.bottom-nav\{grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
   assert.match(styles, /\.simple-live-layout\{width:100%;min-width:0;grid-template-columns:clamp\([^}]+minmax\(0,1fr\);overflow:hidden\}/);
-  assert.match(styles, /\.simple-camera-grid\{width:100%;min-width:0;display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(styles, /\.simple-camera-grid\{width:100%;min-width:0;display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);grid-template-rows:repeat\(2,auto\)/);
   assert.match(styles, /\.simple-camera-card\{width:100%;min-height:0;overflow:hidden/);
   assert.match(styles, /\.simple-camera-preview\{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 \/ 9\}/);
   assert.match(styles, /\.camera-live-actions\{width:100%;min-width:0;grid-template-columns:minmax\(0,1fr\) minmax\(/);
   assert.match(styles, /\.camera-live-actions button\{width:100%;min-width:0/);
+  assert.match(app, /function PcMediaLiveCard\(\)/);
+  assert.match(app, /PC MEDIA PREVIEW/);
+  assert.match(app, /PREVIEW ONLY/);
+  assert.match(app, /<select disabled><option>PC Media<\/option><\/select>/);
 });
 
 

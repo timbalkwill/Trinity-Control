@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
+const { createHomeAssistantController } = require("./home-assistant-operations.cjs");
 const path = require("path");
 const fs = require("fs");
 const { createOperatorCommands } = require("./operator-commands.cjs");
@@ -766,6 +767,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
+  const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("operator:state-changed", state);
@@ -816,6 +818,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:hold", () => commands.toggleHold());
   ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
   ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());
+  ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
+  ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
+  ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());
 
   operatorServer = createOperatorServer({
     commands,

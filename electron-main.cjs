@@ -11,7 +11,7 @@ const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
 const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
-const { createQlcServiceManager, normalizeQlcServiceSettings } = require("./qlcplus-service-manager.cjs");
+const { createQlcLauncher, createQlcServiceManager, normalizeQlcServiceSettings } = require("./qlcplus-service-manager.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
@@ -878,6 +878,8 @@ app.whenReady().then(async () => {
       const updated = (state.devices || []).find(item => item.id === device.id);
       return updated?.metadata?.lightingDiagnostic || { ok: false, message: "QLC+ discovery failed" };
     },
+    launch: createQlcLauncher({ logger: console }),
+    logger: console,
     onStatus: status => {
       qlcServiceStatus = status;
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qlc-service:status-changed", status);

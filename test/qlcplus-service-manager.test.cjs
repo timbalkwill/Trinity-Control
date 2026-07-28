@@ -67,12 +67,23 @@ test("legacy managed-service settings default safely and preserve configured val
 });
 
 test("platform launch plans preserve paths as separate arguments without a shell", async () => {
-  assert.deepEqual(launchArguments(context().settings, "darwin"), {
-    command: "open",
-    args: ["-a", "/Applications/QLC Plus.app", "/Lighting Workspaces/Trinity Sunday.qxw"],
-    mode: "mac-app"
+  const preferred = "/Applications/QLC Plus.app/Contents/MacOS/qlcplus-qml";
+  const fallback = "/Applications/QLC Plus.app/Contents/MacOS/qlcplus";
+  const existing = new Set([
+    "/Applications/QLC Plus.app",
+    "/Lighting Workspaces/Trinity Sunday.qxw",
+    preferred
+  ]);
+  assert.deepEqual(launchArguments(context().settings, "darwin", value => existing.has(value)), {
+    command: preferred,
+    args: ["--open", "/Lighting Workspaces/Trinity Sunday.qxw"],
+    mode: "mac-app-bundle"
   });
-  assert.deepEqual(launchArguments({ applicationPath: "/opt/QLC Plus/qlcplus", workspacePath: "/Shows/Sunday Service.qxw" }, "linux"), {
+  assert.deepEqual(launchArguments(
+    { applicationPath: "/opt/QLC Plus/qlcplus", workspacePath: "/Shows/Sunday Service.qxw" },
+    "linux",
+    () => true
+  ), {
     command: "/opt/QLC Plus/qlcplus",
     args: ["/Shows/Sunday Service.qxw"],
     mode: "executable"
@@ -81,6 +92,7 @@ test("platform launch plans preserve paths as separate arguments without a shell
   let invocation;
   const launcher = createQlcLauncher({
     platform: "darwin",
+    existsSync: value => existing.has(value),
     spawnImpl: (command, args, options) => {
       invocation = { command, args, options };
       const child = new EventEmitter();
@@ -91,7 +103,35 @@ test("platform launch plans preserve paths as separate arguments without a shell
   });
   await launcher(context().settings);
   assert.equal(invocation.options.shell, false);
-  assert.deepEqual(invocation.args, ["-a", "/Applications/QLC Plus.app", "/Lighting Workspaces/Trinity Sunday.qxw"]);
+  assert.equal(invocation.command, preferred);
+  assert.deepEqual(invocation.args, ["--open", "/Lighting Workspaces/Trinity Sunday.qxw"]);
+});
+
+test("macOS bundle resolution falls back safely and validates every path before spawn", async () => {
+  const application = "/Applications/QLC+.app";
+  const workspace = "/Shows/Trinity.qxw";
+  const fallback = `${application}/Contents/MacOS/qlcplus`;
+  assert.equal(launchArguments(
+    { applicationPath: application, workspacePath: workspace },
+    "darwin",
+    value => [application, workspace, fallback].includes(value)
+  ).command, fallback);
+  assert.throws(
+    () => launchArguments({ applicationPath: application, workspacePath: workspace }, "darwin", value => value === workspace),
+    /QLC\+ application not found\./
+  );
+  assert.throws(
+    () => launchArguments({ applicationPath: application, workspacePath: workspace }, "darwin", value => value === application),
+    /QLC\+ workspace not found\./
+  );
+  assert.throws(
+    () => launchArguments(
+      { applicationPath: application, workspacePath: workspace },
+      "darwin",
+      value => value === application || value === workspace
+    ),
+    /QLC\+ executable not found inside application bundle\./
+  );
 });
 
 test("disabled automatic management performs no health check or launch", async () => {
@@ -276,6 +316,7 @@ test("managed service renderer and Electron integration expose no credentials or
   assert.match(renderer, /OPEN QLC\+ CONFIGURATION/);
   assert.match(main, /dialog\.showOpenDialog/);
   assert.doesNotMatch(service, /activateControl|setWidget/);
+  assert.doesNotMatch(service, /command:\s*"open"|args:\s*\["-a"/);
   assert.doesNotMatch(main.slice(main.indexOf("createQlcServiceManager"), main.indexOf("operatorServer =")), /activateControl/);
   assert.doesNotMatch(renderer.slice(renderer.indexOf("QLC\\+ SERVICE"), renderer.indexOf("function render")), /credentialReference|password/);
 });

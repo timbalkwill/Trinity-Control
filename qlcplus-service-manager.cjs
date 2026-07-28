@@ -1,11 +1,12 @@
 "use strict";
 
 const path = require("path");
+const fs = require("fs");
 const { spawn } = require("child_process");
 
 const SERVICE_STATES = new Set([
   "disabled", "not-configured", "starting", "running-managed", "running-external",
-  "connected", "degraded", "stopped", "failed", "restarting"
+  "connected", "degraded", "stopped", "failed", "restarting", "waiting-for-readiness"
 ]);
 const DEFAULT_STARTUP_TIMEOUT_MS = 15000;
 const DEFAULT_HEALTH_INTERVAL_MS = 5000;
@@ -29,21 +30,52 @@ function normalizeQlcServiceSettings(input = {}) {
   };
 }
 
-function safeErrorMessage() {
-  return "QLC+ could not be started. Verify the configured application and workspace paths.";
+const SAFE_LAUNCH_MESSAGES = new Set([
+  "QLC+ application not found.",
+  "QLC+ workspace not found.",
+  "QLC+ executable not found inside application bundle.",
+  "Failed to start QLC+."
+]);
+
+function safeErrorMessage(error) {
+  return SAFE_LAUNCH_MESSAGES.has(error?.message) ? error.message : "Failed to start QLC+.";
 }
 
-function launchArguments(settings, platform = process.platform) {
+function launchArguments(settings, platform = process.platform, existsSync = fs.existsSync) {
   const normalized = normalizeQlcServiceSettings(settings);
   const isMacBundle = platform === "darwin" && normalized.applicationPath.toLocaleLowerCase().endsWith(".app");
-  return isMacBundle
-    ? { command: "open", args: ["-a", normalized.applicationPath, normalized.workspacePath], mode: "mac-app" }
-    : { command: normalized.applicationPath, args: [normalized.workspacePath], mode: "executable" };
+  if (!normalized.applicationPath || !existsSync(normalized.applicationPath)) {
+    throw Object.assign(new Error("QLC+ application not found."), { code: "application-not-found" });
+  }
+  if (!normalized.workspacePath || !existsSync(normalized.workspacePath)) {
+    throw Object.assign(new Error("QLC+ workspace not found."), { code: "workspace-not-found" });
+  }
+  if (!isMacBundle) {
+    return { command: normalized.applicationPath, args: [normalized.workspacePath], mode: "executable" };
+  }
+  const preferred = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus-qml");
+  const fallback = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus");
+  const executable = existsSync(preferred) ? preferred : existsSync(fallback) ? fallback : null;
+  if (!executable) {
+    throw Object.assign(new Error("QLC+ executable not found inside application bundle."), { code: "bundle-executable-not-found" });
+  }
+  return { command: executable, args: ["--open", normalized.workspacePath], mode: "mac-app-bundle" };
 }
 
-function createQlcLauncher({ spawnImpl = spawn, platform = process.platform } = {}) {
+function createQlcLauncher({ spawnImpl = spawn, platform = process.platform, existsSync = fs.existsSync, logger = null } = {}) {
   return settings => new Promise((resolve, reject) => {
-    const launch = launchArguments(settings, platform);
+    let launch;
+    try {
+      launch = launchArguments(settings, platform, existsSync);
+    } catch (error) {
+      logger?.warn?.(`[QLC+ Service] Launch failed: ${safeErrorMessage(error)}`);
+      reject(Object.assign(new Error(safeErrorMessage(error)), { code: error.code || "launch-failed" }));
+      return;
+    }
+    logger?.info?.(`[QLC+ Service] Startup attempt began`);
+    logger?.info?.(`[QLC+ Service] Launch mode: ${launch.mode}`);
+    logger?.info?.(`[QLC+ Service] Resolved executable: ${launch.command}`);
+    logger?.info?.(`[QLC+ Service] Workspace: ${path.basename(settings.workspacePath)}`);
     let child;
     try {
       child = spawnImpl(launch.command, launch.args, {
@@ -52,19 +84,22 @@ function createQlcLauncher({ spawnImpl = spawn, platform = process.platform } = 
         stdio: "ignore"
       });
     } catch {
-      reject(Object.assign(new Error(safeErrorMessage()), { code: "launch-failed" }));
+      logger?.warn?.(`[QLC+ Service] Launch failed`);
+      reject(Object.assign(new Error("Failed to start QLC+."), { code: "launch-failed" }));
       return;
     }
     let settled = false;
     const fail = () => {
       if (settled) return;
       settled = true;
-      reject(Object.assign(new Error(safeErrorMessage()), { code: "launch-failed" }));
+      logger?.warn?.(`[QLC+ Service] Launch failed`);
+      reject(Object.assign(new Error("Failed to start QLC+."), { code: "launch-failed" }));
     };
     const succeed = () => {
       if (settled) return;
       settled = true;
       child?.unref?.();
+      logger?.info?.(`[QLC+ Service] Child process started`);
       resolve({ child, mode: launch.mode });
     };
     child?.once?.("error", fail);
@@ -123,6 +158,7 @@ function createQlcServiceManager({
   setTimer = setTimeout,
   clearTimer = clearTimeout,
   restartCooldownMs = RESTART_COOLDOWN_MS,
+  logger = null,
   onStatus = () => {}
 } = {}) {
   let ownedChild = null;
@@ -154,6 +190,10 @@ function createQlcServiceManager({
     const current = context();
     const result = await discover(current.device);
     if (!result?.ok) return { ok: false, result, current };
+    if (activeLaunch) {
+      logger?.info?.("[QLC+ Service] WebSocket connected");
+      logger?.info?.("[QLC+ Service] Discovery succeeded");
+    }
     const processState = managedLaunch ? "running-managed" : "running-external";
     publish({
       state: processState,
@@ -180,13 +220,15 @@ function createQlcServiceManager({
     const timeout = context().settings.startupTimeoutMs;
     do {
       if (stopped || context().device?.enabled === false) return { ok: false, cancelled: true };
+      publish({ state: "waiting-for-readiness", message: "Waiting for QLC+" });
+      if (now() === startedAt) logger?.info?.("[QLC+ Service] Waiting for WebSocket");
       const result = await check();
       if (result.ok) return result;
-      publish({ state: "starting", message: "Waiting for QLC+" });
       if (now() - startedAt >= timeout) break;
       await delay(Math.min(500, Math.max(50, timeout)), setTimer);
     } while (now() - startedAt <= timeout);
-    publish({ state: "degraded", message: "QLC+ startup timed out" });
+    publish({ state: "degraded", message: "QLC+ process launched, but WebSocket readiness timed out" });
+    logger?.warn?.("[QLC+ Service] Startup timed out");
     return { ok: false, timeout: true };
   }
 
@@ -204,8 +246,8 @@ function createQlcServiceManager({
         managedLaunch = true;
         publish({ state: "running-managed", launchMode: "managed", owned: true, message: "QLC+ launched by Trinity" });
         return await waitForReadiness();
-      } catch {
-        return publish({ state: "failed", launchMode: "managed", owned: false, message: safeErrorMessage() });
+      } catch (error) {
+        return publish({ state: "failed", launchMode: "managed", owned: false, message: safeErrorMessage(error) });
       }
     })().finally(() => { activeLaunch = null; });
     return activeLaunch;

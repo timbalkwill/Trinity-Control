@@ -28,9 +28,9 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
   }
 
   function mutate(operation) {
-    return enqueue(() => {
+    return enqueue(async () => {
       const state = loadState();
-      operation(state);
+      await operation(state);
       return publish(saveState(state));
     });
   }
@@ -47,7 +47,7 @@ function createOperatorCommands({ loadState, saveState, normalizeState = state =
         error.statusCode = 409;
         throw error;
       }
-      cueExecutor(state, index);
+      return cueExecutor(state, index);
     }),
     nextCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) + 1)),
     previousCue: () => mutate(state => cueExecutor(state, Number(state.live?.cueIndex || 0) - 1)),

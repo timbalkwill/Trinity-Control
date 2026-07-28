@@ -58,6 +58,7 @@ function normalizeDevice(input = {}, { now } = {}) {
     },
     metadata,
     logicalRole: camera ? (nullable(input.logicalRole ?? input.role) || "camera") : null,
+    adapterType: camera ? nullable(input.adapterType ?? input.metadata?.adapter) : null,
     manufacturer: camera ? text(input.manufacturer) : text(input.manufacturer),
     model: camera ? text(input.model) : text(input.model),
     ipAddress: camera ? nullable(input.ipAddress ?? connection.host) : nullable(input.ipAddress ?? connection.host),

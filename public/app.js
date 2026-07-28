@@ -2186,6 +2186,7 @@ function settingsPage() {
     <div class="settings-form">
       <label>Name<input data-device-field="name" value="${escapeHtml(selected.name)}"></label>
       ${selected.type === 'camera' ? `<label>Logical role<input data-device-field="logicalRole" list="camera-roles" value="${escapeHtml(selected.logicalRole || '')}"><datalist id="camera-roles">${['main','left','right','audience','pastor','choir'].map(role => `<option value="${role}">`).join('')}</datalist></label>` : ''}
+      ${selected.type === 'camera' ? `<label>Camera adapter<select data-device-field="adapterType"><option value="" ${!selected.adapterType ? 'selected' : ''}>Not configured</option><option value="ptzoptics" ${selected.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics</option></select></label>` : ''}
       <label>Manufacturer<input data-device-field="manufacturer" value="${escapeHtml(selected.manufacturer || '')}"></label>
       <label>Model<input data-device-field="model" value="${escapeHtml(selected.model || '')}"></label>
       <label>IP address / host<input data-device-field="ipAddress" value="${escapeHtml(selected.ipAddress || selected.connection?.host || '')}"></label>
@@ -2197,7 +2198,7 @@ function settingsPage() {
       <label class="checkbox-label"><input type="checkbox" data-device-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Notes<textarea data-device-field="notes">${escapeHtml(selected.notes || '')}</textarea></label>
     </div>
-    <div class="settings-editor-actions"><span>Changes save immediately. Hardware adapters are not enabled.</span><button data-test-device="${selected.id}">TEST CONNECTION</button><button id="device-editor-done">DONE</button></div>
+    <div class="settings-editor-actions"><span>Changes save immediately.</span><button data-test-device="${selected.id}">TEST CONNECTION</button><button id="device-editor-done">DONE</button></div>
     ${selected.type === 'camera' ? `<section class="danger-zone"><div><span class="eyebrow">DANGER ZONE</span><strong>Delete ${escapeHtml(selected.name)}</strong><p>References are preserved as missing references. ${selectedReferences.total} current reference${selectedReferences.total === 1 ? '' : 's'}.</p><ul>${Object.entries(selectedReferences.counts).map(([label, count]) => `<li>${escapeHtml(label)}: <b>${count}</b></li>`).join('')}</ul></div><button class="danger" data-delete-device="${selected.id}">DELETE CAMERA</button></section>` : ''}
   </section></div>` : '';
 

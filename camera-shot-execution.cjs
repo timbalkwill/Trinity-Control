@@ -31,87 +31,80 @@ function resultFor(execution, status, details = {}) {
   };
 }
 
+function executeOne(execution, cameraExecutor) {
+    if (execution?.valid !== true || (Array.isArray(execution?.errors) && execution.errors.length)) {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+        message: execution?.errors?.join("; ") || "Shot execution validation failed",
+        errors: Array.isArray(execution?.errors) ? [...execution.errors] : []
+      });
+    }
+    if (execution.type === "motion") {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.MOTION_UNSUPPORTED, {
+        message: "Motion Shot execution is not implemented"
+      });
+    }
+    if (execution.type === "tracking") {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.TRACKING_UNSUPPORTED, {
+        message: "Tracking Shot execution is not implemented"
+      });
+    }
+    if (execution.type !== "static") {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+        message: `Unsupported Shot type: ${execution.type || "missing"}`
+      });
+    }
+
+    const cameraDeviceId = execution.camera?.id || null;
+    const presetId = execution.static?.preset?.id || null;
+    if (!cameraDeviceId || !presetId) {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+        cameraDeviceId,
+        presetId,
+        message: !cameraDeviceId ? "Static Shot camera is missing" : "Static Shot preset is missing"
+      });
+    }
+
+    const command = { cameraDeviceId, presetId, shotId: execution.shotId };
+    const finish = outcome => resultFor(execution,
+      outcome?.ok === true ? SHOT_EXECUTION_STATUS.STATIC_SUCCEEDED : SHOT_EXECUTION_STATUS.STATIC_FAILED, {
+        cameraDeviceId,
+        presetId,
+        adapterType: outcome?.adapterType || null,
+        safeHost: outcome?.safeHost || null,
+        presetNumber: outcome?.presetNumber ?? null,
+        elapsedMs: Number(outcome?.elapsedMs) || 0,
+        ...(outcome?.ok === true ? {} : { code: outcome?.code || "presetRecallFailed" }),
+        message: outcome?.message || (outcome?.ok === true ? "Static Shot preset recall issued" : "Camera preset recall failed")
+      });
+    try {
+      const outcome = cameraExecutor?.recallPreset?.(command);
+      return outcome && typeof outcome.then === "function"
+        ? outcome.then(finish, error => finish({ ok: false, code: error?.code, message: error?.message }))
+        : finish(outcome);
+    } catch (error) {
+      return finish({ ok: false, code: error?.code, message: error?.message || String(error) });
+    }
+}
+
 function executeShotSnapshot(snapshot, { cameraExecutor = unavailableCameraExecutor } = {}) {
   const executions = Array.isArray(snapshot?.shotExecutions) ? snapshot.shotExecutions : [];
-  const results = [];
   const traversedAssignments = new Set();
-
-  for (const execution of executions) {
+  const results = executions.map(execution => {
     const assignmentKey = [
       execution?.referenceSource || "",
       execution?.referenceRole || "",
       execution?.shotId || ""
     ].join("\u0000");
     if (traversedAssignments.has(assignmentKey)) {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.DUPLICATE_SKIPPED, {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.DUPLICATE_SKIPPED, {
         message: "Duplicate Shot assignment skipped"
-      }));
-      continue;
+      });
     }
     traversedAssignments.add(assignmentKey);
-
-    if (execution?.valid !== true || (Array.isArray(execution?.errors) && execution.errors.length)) {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
-        message: execution?.errors?.join("; ") || "Shot execution validation failed",
-        errors: Array.isArray(execution?.errors) ? [...execution.errors] : []
-      }));
-      continue;
-    }
-    if (execution.type === "motion") {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.MOTION_UNSUPPORTED, {
-        message: "Motion Shot execution is not implemented"
-      }));
-      continue;
-    }
-    if (execution.type === "tracking") {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.TRACKING_UNSUPPORTED, {
-        message: "Tracking Shot execution is not implemented"
-      }));
-      continue;
-    }
-    if (execution.type !== "static") {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
-        message: `Unsupported Shot type: ${execution.type || "missing"}`
-      }));
-      continue;
-    }
-
-    const cameraDeviceId = execution.camera?.id || null;
-    const presetId = execution.static?.preset?.id || null;
-    if (!cameraDeviceId || !presetId) {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
-        cameraDeviceId,
-        presetId,
-        message: !cameraDeviceId ? "Static Shot camera is missing" : "Static Shot preset is missing"
-      }));
-      continue;
-    }
-
-    const command = { cameraDeviceId, presetId, shotId: execution.shotId };
-    try {
-      const outcome = cameraExecutor?.recallPreset?.(command);
-      if (outcome?.ok !== true) {
-        results.push(resultFor(execution, SHOT_EXECUTION_STATUS.STATIC_FAILED, {
-          cameraDeviceId,
-          presetId,
-          code: outcome?.code || "presetRecallFailed",
-          message: outcome?.message || "Camera preset recall failed"
-        }));
-        continue;
-      }
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.STATIC_SUCCEEDED, {
-        cameraDeviceId,
-        presetId,
-        message: outcome.message || "Static Shot preset recall issued"
-      }));
-    } catch (error) {
-      results.push(resultFor(execution, SHOT_EXECUTION_STATUS.STATIC_FAILED, {
-        cameraDeviceId,
-        presetId,
-        code: error?.code || "presetRecallFailed",
-        message: error?.message || String(error)
-      }));
-    }
+    return executeOne(execution, cameraExecutor);
+  });
+  if (results.some(item => item && typeof item.then === "function")) {
+    return Promise.all(results);
   }
   return results;
 }

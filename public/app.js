@@ -1178,104 +1178,63 @@ function cameraPreparation(cameraId) {
   };
 }
 
-function CameraModeSelector(camera, preparation) {
-  const disabled = preparation.tracking?.active ? 'disabled' : '';
-  return `<div class="camera-mode-selector" role="group" aria-label="Preparation mode for ${escapeHtml(camera.name)}">
-    <button data-camera-mode="${camera.id}" data-mode="static" class="${preparation.selectedMode === 'static' ? 'selected' : ''}" ${disabled}>STATIC</button>
-    <button data-camera-mode="${camera.id}" data-mode="motion" class="${preparation.selectedMode === 'motion' ? 'selected' : ''}" ${disabled}>MOTION</button>
-  </div>`;
+function productionDirectorCameras() {
+  const devices = (state.devices || []).filter(device => device?.type === 'camera');
+  const legacy = state.cameras || [];
+  const definitions = [
+    { role: 'main', aliases: ['main', 'center'], fallbackName: 'Main Camera' },
+    { role: 'left', aliases: ['left'], fallbackName: 'Left Camera' },
+    { role: 'right', aliases: ['right'], fallbackName: 'Right Camera' }
+  ];
+  return definitions.map(definition => {
+    const device = devices.find(item => item.id === definition.role || definition.aliases.includes(item.logicalRole));
+    const legacyCamera = legacy.find(item => item.id === definition.role || definition.aliases.includes(item.role));
+    return device || legacyCamera || { id: definition.role, name: definition.fallbackName, logicalRole: definition.role, missing: true, enabled: false };
+  });
 }
 
-function CameraPreparationSelector(camera, preparation) {
-  const disabled = preparation.tracking?.active ? 'disabled' : '';
-  const choices = preparation.selectedMode === 'motion'
-    ? (state.shots || []).filter(shot => shot.enabled !== false && (shot.cameraDeviceId === camera.id || (!shot.cameraDeviceId && shot.logicalCameraRole === camera.logicalRole)))
-    : (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
-  const selected = preparation.selectedMode === 'motion' ? preparation.selectedMotionId : preparation.selectedPresetId;
-  return `<label class="camera-preparation-selector">
-    <span>${preparation.selectedMode === 'motion' ? 'Motion' : 'Preset'}</span>
-    <select data-camera-preparation="${camera.id}" ${disabled}>
-      <option value="">Choose ${preparation.selectedMode === 'motion' ? 'motion' : 'preset'}…</option>
-      ${choices.map(choice => `<option value="${escapeHtml(choice.id)}" ${choice.id === selected ? 'selected' : ''}>${escapeHtml(choice.name)}</option>`).join('')}
-    </select>
-  </label>`;
+function directorCameraStatus(camera) {
+  if (camera.missing) return { label: 'Not Configured', available: false, className: 'not-configured' };
+  if (camera.enabled === false) return { label: 'Disabled', available: false, className: 'disabled' };
+  if (['offline', 'error', 'unavailable'].includes(String(camera.connectionStatus || '').toLowerCase())) {
+    return { label: 'Unavailable', available: false, className: 'unavailable' };
+  }
+  const host = camera.ipAddress || camera.connection?.host;
+  if (camera.adapterType !== 'ptzoptics' || !host) return { label: 'Not Configured', available: false, className: 'not-configured' };
+  return { label: 'Ready', available: true, className: 'ready' };
 }
 
-function TrackingButton(camera, preparation) {
-  if (!preparation.tracking?.supported) return '<span class="tracking-space" aria-hidden="true"></span>';
-  return `<button data-camera-tracking="${camera.id}" data-active="${preparation.tracking.active ? 'true' : 'false'}" class="tracking-button ${preparation.tracking.active ? 'active' : ''}">
-    ${preparation.tracking.active ? 'STOP TRACKING' : 'START TRACKING'}
-  </button>`;
-}
-
-function MakeLiveButton(camera, isLive) {
-  return `<button data-make-camera-live="${camera.id}" class="make-live-button ${isLive ? 'is-live' : ''}">
-    ${isLive ? '● LIVE' : 'MAKE LIVE'}
-  </button>`;
-}
-
-function PcMediaLiveCard() {
-  return `<article class="simple-camera-card pc-media-card" data-media-card="pc-media">
-    <header><strong>PC Media</strong><span>PREVIEW ONLY</span></header>
-    <div class="simple-camera-preview pc-media-preview">
-      <div class="lens">▣</div>
-      <strong>PC MEDIA PREVIEW</strong>
-      <small>Presentation and video source</small>
-    </div>
-    <div class="prepared-summary pc-media-summary">
-      <span class="preparation-status ready">Available</span>
-      <small>Preview-only source</small>
-    </div>
-    <div class="camera-mode-selector pc-media-mode" aria-hidden="true">
-      <button class="selected" disabled>STATIC</button>
-      <button disabled>MOTION</button>
-    </div>
-    <label class="camera-preparation-selector pc-media-source">
-      <span>Source</span>
-      <select disabled><option>PC Media</option></select>
-    </label>
-    <div class="camera-live-actions pc-media-actions">
-      <span class="tracking-space" aria-hidden="true"></span>
-      <button class="make-live-button" disabled>PREVIEW ONLY</button>
-    </div>
-  </article>`;
-}
-
-function CameraLiveCard(camera) {
+function CameraDirectorCard(camera) {
   const preparation = cameraPreparation(camera.id);
-  const isLive = state.live?.programCamera === camera.id;
-  const statusLabels = {
-    idle: 'Not prepared',
-    preparing: 'Preparing',
-    ready: 'Ready',
-    running: 'Motion Running',
-    complete: 'Complete',
-    error: preparation.errorMessage || 'Error'
-  };
-  const preparedName = preparation.selectedMode === 'motion'
-    ? preparation.preparedAssignment?.motionName
-    : preparation.preparedAssignment?.presetName;
-  return `<article class="simple-camera-card ${isLive ? 'live' : ''}" data-camera-card="${camera.id}">
-    <header><strong>${escapeHtml(camera.name)}</strong><span>${isLive ? '● LIVE' : 'OFF AIR'}</span></header>
-    <div class="simple-camera-preview">
-      <div class="lens">◎</div>
-      <strong>${isLive ? 'PROGRAM' : 'CAMERA PREVIEW'}</strong>
+  const status = directorCameraStatus(camera);
+  const presets = (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
+  const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
+  const controlsDisabled = !status.available || preparation.tracking?.active === true;
+  return `<article class="camera-director-card" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
+    <header>
+      <div><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)}</strong></div>
+      <span class="camera-live-indicator" data-live-indicator hidden>● LIVE</span>
+    </header>
+    <div class="camera-director-status">
+      <span class="preparation-status ${status.className}">${escapeHtml(status.label)}</span>
+      <small>${preparation.tracking?.active ? 'Tracking active — position controls disabled' : lastCommandedId ? `Last Commanded: ${escapeHtml(preparation.preparedAssignment.presetName || '')}` : 'No position commanded'}</small>
     </div>
-    <div class="prepared-summary">
-      <span class="preparation-status ${preparation.preparationStatus}">${escapeHtml(statusLabels[preparation.preparationStatus] || 'Idle')}</span>
-      <small>${escapeHtml(preparedName || (preparation.selectedMode === 'motion' ? 'No motion selected' : 'No preset selected'))}</small>
-    </div>
-    ${CameraModeSelector(camera, preparation)}
-    ${CameraPreparationSelector(camera, preparation)}
-    <div class="camera-live-actions">
-      ${TrackingButton(camera, preparation)}
-      ${MakeLiveButton(camera, isLive)}
+    <div class="camera-action-section">
+      <div class="camera-action-heading"><strong>PRESETS / STATIC SHOTS</strong><span>${presets.length}</span></div>
+      <div class="camera-preset-list" data-camera-list="${escapeHtml(camera.id)}" data-scroll-key="camera-presets-${escapeHtml(camera.id)}" tabindex="0" aria-label="Available positions for ${escapeHtml(camera.name)}">
+        ${presets.length ? presets.map(preset => `<button
+          class="camera-preset-action ${preset.id === lastCommandedId ? 'last-commanded' : ''}"
+          data-recall-camera="${escapeHtml(camera.id)}"
+          data-recall-preset="${escapeHtml(preset.id)}"
+          aria-label="Recall ${escapeHtml(preset.name)} on ${escapeHtml(camera.name)}"
+          ${controlsDisabled ? 'disabled' : ''}
+        ><span>${escapeHtml(preset.name)}</span>${preset.id === lastCommandedId ? '<small>✓ Last Commanded</small>' : ''}</button>`).join('') : '<div class="camera-empty-state">No saved presets for this camera.</div>'}
+      </div>
     </div>
   </article>`;
 }
 
 function livePage() {
-  const cameras = liveCameraTiles().slice(0, 3);
   shell(`<div class="simple-live-layout">
     <aside class="panel simple-cue-panel">
       <div class="section-title"><span>ORDER OF SERVICE</span><strong>${state.runOfService.length} cues</strong></div>
@@ -1291,7 +1250,8 @@ function livePage() {
       </div>
     </aside>
     <section class="simple-live-main">
-      <div class="camera-grid simple-camera-grid">${cameras.map(CameraLiveCard).join('')}${PcMediaLiveCard()}</div>
+      <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>Manual camera positioning</small></div>
+      <div class="camera-director-grid">${productionDirectorCameras().map(CameraDirectorCard).join('')}</div>
     </section>
   </div>`);
 
@@ -1300,24 +1260,12 @@ function livePage() {
   });
   document.querySelector('[data-live-go]').onclick = async () => { state = await window.trinity.nextCue(); render(); };
   document.querySelector('[data-live-back]').onclick = async () => { state = await window.trinity.previousCue(); render(); };
-  document.querySelectorAll('[data-camera-mode]').forEach(button => {
-    button.onclick = async () => { state = await window.trinity.setCameraMode(button.dataset.cameraMode, button.dataset.mode); render(); };
-  });
-  document.querySelectorAll('[data-camera-preparation]').forEach(select => {
-    select.onchange = async () => {
-      if (!select.value) return;
-      try { state = await window.trinity.prepareCamera(select.dataset.cameraPreparation, select.value); render(); }
-      catch (error) { window.alert(error.message); }
-    };
-  });
-  document.querySelectorAll('[data-camera-tracking]').forEach(button => {
+  document.querySelectorAll('[data-recall-camera]').forEach(button => {
     button.onclick = async () => {
-      state = await window.trinity.setCameraTracking(button.dataset.cameraTracking, button.dataset.active !== 'true');
-      render();
+      button.disabled = true;
+      try { state = await window.trinity.recallCameraPreset(button.dataset.recallCamera, button.dataset.recallPreset); render(); }
+      catch (error) { button.disabled = false; window.alert(error.message); }
     };
-  });
-  document.querySelectorAll('[data-make-camera-live]').forEach(button => {
-    button.onclick = async () => { state = await window.trinity.makeCameraLive(button.dataset.makeCameraLive); render(); };
   });
 }
 
@@ -1666,36 +1614,17 @@ function looksPage() {
   if (!selectedLookId || !byId(state.productionLooks, selectedLookId)) selectedLookId = state.productionLooks[0]?.id || null;
   const selected = byId(state.productionLooks, selectedLookId);
   const filtered = state.productionLooks.filter(look => String(look.name || '').toLowerCase().includes(lookSearch.toLowerCase()));
-  const roleCamera = role => (state.devices || []).find(device => device.type === 'camera' && (device.logicalRole === role || (role === 'main' && (device.id === 'main' || device.logicalRole === 'center'))));
-  const selectedOption = (value, current) => value === current ? 'selected' : '';
   const lightingOptions = current => lightingScenePickerOptions(current, 'Not assigned');
-  const presetEditor = role => {
-    const label = role[0].toUpperCase() + role.slice(1);
-    const camera = roleCamera(role);
-    const assignment = selected?.cameraPresets?.[role] || {};
-    const presets = camera ? (state.cameraPresets || []).filter(item => item.cameraDeviceId === camera.id && item.enabled !== false) : [];
-    const selectedPreset = (state.cameraPresets || []).find(item => item.id === assignment.presetId && item.cameraDeviceId === camera?.id);
-    const missing = assignment.presetId && (!selectedPreset || selectedPreset.cameraDeviceId !== assignment.cameraId);
-    const empty = !camera ? `No ${label} camera configured` : !presets.length ? `No ${label} camera presets` : 'Not assigned';
-    return `<label>${label} Camera Preset<select data-look-preset="${role}" ${camera ? '' : 'disabled'}><option value="">${empty}</option>${missing ? `<option value="${escapeHtml(assignment.presetId)}" selected>Missing preset reference</option>` : ''}${selectedPreset?.enabled === false && !missing ? `<option value="${selectedPreset.id}" selected>${escapeHtml(selectedPreset.name)} (Disabled)</option>` : ''}${presets.map(item => `<option value="${item.id}" ${selectedOption(item.id, assignment.presetId)}>${escapeHtml(item.name)}</option>`).join('')}</select><small>${camera ? escapeHtml(camera.name) : `No ${label} camera configured`}</small></label>`;
-  };
-  const priorityOptions = current => {
-    const cameras = ['main', 'left', 'right'].map(role => ({ role, camera: roleCamera(role) })).filter(item => item.camera);
-    const exists = cameras.some(item => item.camera.id === current);
-    return `<option value="">Not assigned</option>${current && !exists ? `<option value="${escapeHtml(current)}" selected>Missing camera reference</option>` : ''}${cameras.map(({ role, camera }) => `<option value="${camera.id}" ${selectedOption(camera.id, current)}>${role[0].toUpperCase() + role.slice(1)} Camera — ${escapeHtml(camera.name)}</option>`).join('')}`;
-  };
-  const mainCamera = roleCamera('main');
-  const trackingUnsupported = !mainCamera || mainCamera.trackingEnabled === false || mainCamera.metadata?.cameraManager?.capabilities?.tracking === 'unsupported';
+  const selectedLighting = byId(state.lightingScenes || [], selected?.lightingSceneId);
   shell(`<div class="page-scroll"><div class="looks-workspace">
     <aside class="panel look-library"><div class="section-title"><span>PRODUCTION LOOKS</span><strong>${state.productionLooks.length} looks</strong></div>
       <div class="look-toolbar"><input id="look-search" value="${escapeHtml(lookSearch)}" placeholder="Search looks"><button id="look-create">NEW LOOK</button></div>
       <div class="look-list">${filtered.map(look => `<button class="look-list-item ${look.id === selectedLookId ? 'selected' : ''}" data-select-look="${look.id}"><strong>${escapeHtml(look.name)}</strong><span>${look.enabled === false ? 'Disabled' : 'Enabled'}</span></button>`).join('') || '<p class="empty-state">No matching looks.</p>'}</div>
     </aside>
-    <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">HOW SHOULD THIS CUE BEGIN?</span><h1>${escapeHtml(selected.name)}</h1></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-delete" class="danger">DELETE</button></div></div>
-      <div class="look-sections simplified-look-form">
-        <fieldset><legend>LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select>${byId(state.lightingScenes || [], selected.lightingSceneId)?.productionScene === false ? '<small class="look-warning">Scene is marked Utility but is still referenced.</small>' : ''}</label></fieldset>
-        <fieldset><legend>CAMERA STARTING PRESETS</legend>${['main', 'left', 'right'].map(presetEditor).join('')}</fieldset>
-        <fieldset><legend>STARTING LIVE CAMERA</legend><label>Priority Camera<select id="look-priority">${priorityOptions(selected.priorityCameraId)}</select></label><label class="checkbox-label"><input type="checkbox" id="look-main-tracking" ${selected.startMainTracking ? 'checked' : ''} ${trackingUnsupported ? 'disabled' : ''}> Start Main Camera Tracking</label>${trackingUnsupported ? `<small class="look-warning">${mainCamera ? 'Main camera tracking is not supported.' : 'No Main camera configured.'}</small>` : ''}</fieldset>
+    <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">PRODUCTION LOOK</span><h1>${escapeHtml(selected.name)}</h1><p>Configure the production settings used by this look.</p></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-delete" class="danger">DELETE</button></div></div>
+      <div class="look-sections production-look-form">
+        <fieldset><legend>PRODUCTION LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select>${selectedLighting?.productionScene === false ? '<small class="look-warning">Scene is marked Utility but is still referenced.</small>' : ''}</label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label></fieldset>
+        <section class="production-look-summary" aria-label="Look Summary"><span class="eyebrow">LOOK SUMMARY</span><dl><div><dt>Name</dt><dd>${escapeHtml(selected.name)}</dd></div><div><dt>Lighting Scene</dt><dd>${escapeHtml(selectedLighting?.name || 'Not assigned')}</dd></div><div><dt>Status</dt><dd><em class="${selected.enabled === false ? 'disabled' : 'enabled'}">${selected.enabled === false ? 'Disabled' : 'Enabled'}</em></dd></div></dl></section>
       </div>
       <div class="look-form-actions"><button id="look-cancel">CANCEL</button><button id="look-save" class="live-button">SAVE LOOK</button></div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>
   </div></div>`);
@@ -1717,23 +1646,11 @@ function looksPage() {
   };
   document.getElementById('look-cancel').onclick = () => render();
   document.getElementById('look-save').onclick = async () => {
-    const cameraPresets = Object.fromEntries(['main', 'left', 'right'].map(role => {
-      const presetId = document.querySelector(`[data-look-preset="${role}"]`)?.value || null;
-      const camera = roleCamera(role);
-      const preset = (state.cameraPresets || []).find(item => item.id === presetId && item.cameraDeviceId === camera?.id);
-      return [role, {
-        cameraId: camera?.id || selected.cameraPresets?.[role]?.cameraId || null,
-        presetId: preset?.id || null
-      }];
-    }));
     try {
       state = await window.trinity.updateProductionLook(selected.id, {
         name: document.getElementById('look-name').value,
         enabled: document.getElementById('look-enabled').checked,
-        lightingSceneId: document.getElementById('look-lighting').value || null,
-        cameraPresets,
-        priorityCameraId: document.getElementById('look-priority').value || null,
-        startMainTracking: document.getElementById('look-main-tracking').checked
+        lightingSceneId: document.getElementById('look-lighting').value || null
       });
       render();
     } catch (error) { window.alert(error.message); }

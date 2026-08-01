@@ -8,6 +8,7 @@ const presets = require("./camera-preset-operations.cjs");
 const shots = require("./shot-operations.cjs");
 const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
+const { createCameraExecutor } = require("./camera-adapter-registry.cjs");
 const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
 const lightingScenes = require("./lighting-scene-operations.cjs");
 const { createLightingExecutor } = require("./lighting-execution.cjs");
@@ -21,7 +22,8 @@ function createOperatorCommands({
   lightingAdapters = createLightingAdapterRegistry(),
   lightingActiveState = createLightingActiveState(),
   lightingExecutionResolver = lightingScenes.resolveLightingExecution,
-  lightingExecutorFactory = createLightingExecutor
+  lightingExecutorFactory = createLightingExecutor,
+  cameraExecutorFactory = createCameraExecutor
 }) {
   const subscribers = new Set();
   let queue = Promise.resolve();
@@ -74,6 +76,25 @@ function createOperatorCommands({
     takeLive: () => mutate(state => liveOperations.takeLive(state)),
     setCameraMode: (cameraId, mode) => mutate(state => cameraPreparation.setCameraMode(state, cameraId, mode)),
     prepareCamera: (cameraId, selectionId) => mutate(state => cameraPreparation.prepareCamera(state, cameraId, selectionId)),
+    recallCameraPreset: (cameraId, presetId) => mutate(async state => {
+      const camera = (state.devices || []).find(item => item?.type === "camera" && item.id === cameraId && item.enabled !== false);
+      if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
+      const preset = (state.cameraPresets || []).find(item => item?.id === presetId && item.cameraDeviceId === cameraId && item.enabled !== false);
+      if (!preset) throw new RangeError(`Unknown preset for camera ${cameraId}: ${presetId}`);
+      const outcome = await cameraExecutorFactory(state).recallPreset({ cameraDeviceId: cameraId, presetId });
+      if (outcome?.ok !== true) {
+        const error = new Error(outcome?.message || "Camera preset recall failed");
+        error.code = outcome?.code || "CAMERA_PRESET_RECALL_FAILED";
+        error.statusCode = 409;
+        throw error;
+      }
+      cameraPreparation.setCameraMode(state, cameraId, "static");
+      cameraPreparation.prepareCamera(state, cameraId, presetId);
+      state.live.activityLog = [
+        { at: Date.now(), message: `Camera preset commanded: ${camera.name} — ${preset.name}` },
+        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
+      ].slice(0, 8);
+    }),
     setCameraTracking: (cameraId, active) => mutate(state => cameraPreparation.setCameraTracking(state, cameraId, active)),
     makeCameraLive: cameraId => mutate(state => cameraPreparation.makeCameraLive(state, cameraId)),
     toggleHold: () => mutate(state => {

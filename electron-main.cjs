@@ -926,6 +926,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:take", () => commands.takeLive());
   ipcMain.handle("live:cameraMode", (_e, { cameraId, mode }) => commands.setCameraMode(cameraId, mode));
   ipcMain.handle("live:prepareCamera", (_e, { cameraId, selectionId }) => commands.prepareCamera(cameraId, selectionId));
+  ipcMain.handle("live:recallCameraPreset", (_e, { cameraId, presetId }) => commands.recallCameraPreset(cameraId, presetId));
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());

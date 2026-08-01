@@ -164,41 +164,35 @@ test("older saved state migrates deterministically and restart retains preparati
   assert.equal(preparationFor(reloaded, "right").preparationStatus, "ready");
 });
 
-test("desktop controls use narrow preload commands and disable movement while tracking", () => {
+test("Camera Director uses a narrow manual recall command and disables movement while tracking", () => {
   const root = path.join(__dirname, "..");
   const preload = fs.readFileSync(path.join(root, "preload.cjs"), "utf8");
   const renderer = fs.readFileSync(path.join(root, "public", "app.js"), "utf8");
-  assert.match(preload, /makeCameraLive: cameraId => ipcRenderer\.invoke\("live:makeCameraLive", cameraId\)/);
-  assert.match(renderer, /window\.trinity\.makeCameraLive/);
-  assert.match(renderer, /preparation\.tracking\?\.active \? 'disabled'/);
-  assert.match(renderer, /data-make-camera-live/);
+  assert.match(preload, /recallCameraPreset: \(cameraId, presetId\) => ipcRenderer\.invoke\("live:recallCameraPreset"/);
+  assert.match(renderer, /window\.trinity\.recallCameraPreset/);
+  assert.match(renderer, /preparation\.tracking\?\.active === true/);
+  assert.match(renderer, /data-recall-camera/);
 });
 
-test("desktop Live layout uses a contained 2x2 source grid with PC Media preview", () => {
+test("desktop Live layout uses three manual camera columns without previews or PC Media", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
   assert.match(styles, /\.bottom-nav\{grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
   assert.match(styles, /\.simple-live-layout\{width:100%;min-width:0;grid-template-columns:clamp\([^}]+minmax\(0,1fr\);overflow:hidden\}/);
-  assert.match(styles, /\.simple-camera-grid\{width:100%;min-width:0;display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\);grid-template-rows:repeat\(2,auto\)/);
-  assert.match(styles, /\.simple-camera-card\{width:100%;min-height:0;overflow:hidden/);
-  assert.match(styles, /\.simple-camera-preview\{width:100%;height:auto;min-width:0;min-height:0;overflow:hidden;aspect-ratio:16 \/ 9\}/);
-  assert.match(styles, /\.camera-live-actions\{width:100%;min-width:0;grid-template-columns:minmax\(0,1fr\) minmax\(/);
-  assert.match(styles, /\.camera-live-actions button\{width:100%;min-width:0/);
-  assert.match(app, /function PcMediaLiveCard\(\)/);
-  assert.match(app, /PC MEDIA PREVIEW/);
-  assert.match(app, /PREVIEW ONLY/);
-  assert.match(app, /<select disabled><option>PC Media<\/option><\/select>/);
+  assert.match(styles, /\.camera-director-grid\{min-height:0;display:grid;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  const livePage = app.slice(app.indexOf('function livePage()'), app.indexOf('function openCueDeleteModal'));
+  assert.match(livePage, /productionDirectorCameras\(\)\.map\(CameraDirectorCard\)/);
+  assert.doesNotMatch(livePage, /PC Media|simple-camera-preview|video-placeholder/);
 });
 
 
-test("simplified Looks UI preserves preset-camera pairing and list containment", () => {
+test("camera-decoupled Looks UI preserves list containment without camera controls", () => {
   const app = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   const styles = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
-  assert.match(app, /cameraId: camera\?\.id \|\| selected\.cameraPresets/);
-  assert.match(app, /item\.id === presetId && item\.cameraDeviceId === camera\?\.id/);
   assert.match(app, /previousIds = new Set/);
+  const looksPage = app.slice(app.indexOf('function looksPage()'), app.indexOf('function lightingPage()'));
+  assert.doesNotMatch(looksPage, /data-look-preset|look-priority|look-main-tracking|CAMERA STARTING PRESETS|STARTING LIVE CAMERA/);
   assert.match(styles, /\.look-list\{[^}]*overflow-x:hidden[^}]*padding:8px 8px 8px 10px/);
-  assert.match(styles, /\.look-list-item\{width:100%;min-width:0;box-sizing:border-box\}/);
-  assert.match(styles, /\.look-list-item\{border:1px solid var\(--line\)/);
+  assert.match(styles, /\.look-list-item\{width:100%;min-width:0;min-height:64px;box-sizing:border-box;border:1px solid var\(--line\)/);
   assert.match(styles, /\.look-list-item\.selected\{[^}]*border-color:var\(--blue\)[^}]*box-shadow:inset/);
 });

@@ -87,6 +87,7 @@ function createOperatorServer({
     ["/api/live/take", () => commands.takeLive()],
     ["/api/live/camera-mode", body => commands.setCameraMode(body.cameraId, body.mode)],
     ["/api/live/prepare-camera", body => commands.prepareCamera(body.cameraId, body.selectionId)],
+    ["/api/live/recall-camera-preset", body => commands.recallCameraPreset(body.cameraId, body.presetId)],
     ["/api/live/camera-tracking", body => commands.setCameraTracking(body.cameraId, body.active === true)],
     ["/api/live/make-camera-live", body => commands.makeCameraLive(body.cameraId)],
     ["/api/live/hold", () => commands.toggleHold()],

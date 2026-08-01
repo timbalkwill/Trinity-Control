@@ -110,46 +110,32 @@ test("authentication, connection, timeout, rejection, and unexpected errors are 
   assert.doesNotMatch(JSON.stringify(result), /sensitive-marker/);
 });
 
-test("GO executes each Static adapter independently and preserves lighting", async () => {
+test("GO preserves lighting and never invokes the PTZOptics adapter", async () => {
   const current = state([{ role: "main", shotId: "main-shot" }, { role: "left", shotId: "left-shot" }]);
   const selected = executorFor(current, configuration => configuration.host === "camera-main.local"
     ? { ok: false, code: "connectionFailure", message: "Could not connect to the camera" }
     : { ok: true, message: "accepted" });
   await executeCue(current, 0, { now: () => 1000, cameraExecutor: selected.executor });
-  assert.equal(selected.calls.length, 2);
-  assert.deepEqual(current.live.executionSnapshot.shotExecutionResults.map(item => item.status), ["static-failed", "static-succeeded"]);
+  assert.equal(selected.calls.length, 0);
+  assert.equal(Object.hasOwn(current.live.executionSnapshot, "shotExecutionResults"), false);
   assert.equal(current.live.lastLightingSceneId, "warm");
 });
 
-test("one Static assignment makes one call and Motion or Tracking make none", async () => {
-  for (const [shotId, expectedCalls] of [["main-shot", 1], ["motion", 0], ["tracking", 0]]) {
+test("Static, Motion, and Tracking Look assignments all make zero GO adapter calls", async () => {
+  for (const shotId of ["main-shot", "motion", "tracking"]) {
     const current = state([{ role: "assignment", shotId }]);
     const selected = executorFor(current);
     await executeCue(current, 0, { cameraExecutor: selected.executor });
-    assert.equal(selected.calls.length, expectedCalls);
+    assert.equal(selected.calls.length, 0);
   }
 });
 
-test("adapter configuration is frozen before mutable state changes", async () => {
-  const current = state([{ role: "main", shotId: "main-shot" }, { role: "left", shotId: "left-shot" }]);
-  const selected = executorFor(current, (_configuration, count) => {
-    if (count === 1) {
-      current.devices[1].ipAddress = "edited.local";
-      current.cameraPresets[1].presetNumber = 99;
-    }
-    return { ok: true };
-  });
-  await executeCue(current, 0, { cameraExecutor: selected.executor });
-  assert.equal(selected.calls[1].host, "camera-left.local");
-  assert.equal(selected.calls[1].presetNumber, 19);
-});
-
-test("existing synchronous injected executor remains compatible", () => {
+test("even an injected synchronous camera executor is outside service execution", () => {
   const current = state();
   const calls = [];
   const result = executeCue(current, 0, { cameraExecutor: { recallPreset(command) { calls.push(command); return { ok: true }; } } });
   assert.equal(result, current);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 0);
 });
 
 function mockRequest(sequence, calls) {

@@ -206,15 +206,15 @@ test("Browser Operator projection contains safe operational summaries only", () 
   for (const privateValue of ["admin", "secret", "vault:key", "private", "10.0.0.9", "preset-private-note"]) assert.equal(serialized.includes(privateValue), false);
 });
 
-test("Production Look and cue execution references remain stable and pure", () => {
+test("Production Look camera references remain stored but are excluded from pure service plans", () => {
   const current = state();
   current.cameraPresets = migrateLegacyPresets(current);
   current.productionLooks.push({ id: "look", name: "Look", programCameraId: "main", previewCameraId: "left", cameraAssignments: [{ role: "program", cameraId: "main", presetId: "pastor-tight" }] });
   current.runOfService.push({ id: "cue", name: "Cue", productionLookId: "look", cameraLayoutId: "" });
   const before = JSON.stringify(current);
   const plan = buildCueExecutionPlan(current, current.runOfService[0]);
-  assert.equal(plan.video.programCameraId, "main");
-  assert.equal(plan.cameras[0].presetId, "pastor-tight");
+  assert.equal(Object.hasOwn(plan, "video"), false);
+  assert.equal(Object.hasOwn(plan, "cameras"), false);
   assert.equal(JSON.stringify(current), before);
   assert.equal(summarizeManagedCamera(buildManagedCameraProjection(current)[0]).cameraDeviceId, "main");
 });

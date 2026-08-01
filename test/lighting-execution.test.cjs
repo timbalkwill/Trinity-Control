@@ -109,7 +109,7 @@ test("live snapshot exposes pending lighting feedback while activation is in fli
   assert.equal(current.live.executionSnapshot.lightingExecutionResults[0].status, "success");
 });
 
-test("lighting failures are structured, sanitized, and do not block successful camera execution", async () => {
+test("lighting failures are structured and sanitized while GO sends zero camera commands", async () => {
   const current = executionState();
   current.shots = [normalizeShot({
     id: "shot", name: "Static", shotType: "static", enabled: true,
@@ -124,14 +124,14 @@ test("lighting failures are structured, sanitized, and do not block successful c
     cameraExecutor: { recallPreset() { recalls += 1; return { ok: true }; } },
     lightingExecutor: { async execute() { throw new Error("ws://user:secret@example.test"); } }
   });
-  assert.equal(recalls, 1);
+  assert.equal(recalls, 0);
   const result = current.live.executionSnapshot.lightingExecutionResults[0];
   assert.equal(result.status, "failed");
   assert.equal(result.errorCode, "unexpectedAdapterError");
   assert.doesNotMatch(JSON.stringify(result), /user|secret|example/);
 });
 
-test("camera execution continues when the same lighting widget is skipped as already active", async () => {
+test("repeated GO skips the active lighting widget and still sends zero camera commands", async () => {
   const current = executionState();
   current.shots = [normalizeShot({
     id: "shot", name: "Static", shotType: "static", enabled: true,
@@ -152,7 +152,7 @@ test("camera execution continues when the same lighting widget is skipped as alr
   });
   await runCue();
   await runCue();
-  assert.equal(recalls, 2);
+  assert.equal(recalls, 0);
   assert.equal(current.live.executionSnapshot.lightingExecutionResults[0].reason, "already-active");
 });
 

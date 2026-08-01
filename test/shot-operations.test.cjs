@@ -179,7 +179,7 @@ test("Shot execution resolution reports missing and invalid references", () => {
   assert.match(tracking.errors.join("; "), /Missing starting preset/);
 });
 
-test("GO snapshots every Production Look Shot reference as resolved execution data", () => {
+test("GO excludes every legacy Production Look Shot reference from its snapshot", () => {
   const current = state();
   current.cameraPresets.push(
     normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true })
@@ -216,20 +216,13 @@ test("GO snapshots every Production Look Shot reference as resolved execution da
 
   executeCue(current, 0, { now: () => 5000 });
   const snapshot = current.live.executionSnapshot;
-  assert.deepEqual(snapshot.shotExecutions.map(item => [item.referenceRole, item.type, item.valid]), [
-    ["selected", "static", true],
-    ["motion", "motion", true],
-    ["tracking", "tracking", true],
-    ["invalid", null, false]
-  ]);
-  assert.match(snapshot.shotValidationErrors.join("; "), /Invalid Shot reference: missing-shot/);
-  assert.ok(snapshot.warnings.some(item => item.includes("missing-shot")));
-  assert.doesNotMatch(JSON.stringify(snapshot.shotExecutions), /private notes|operatorNotes|framingNotes/);
-
-  const frozen = JSON.stringify(snapshot.shotExecutions);
+  assert.equal(Object.hasOwn(snapshot, "shotExecutions"), false);
+  assert.equal(Object.hasOwn(snapshot, "shotValidationErrors"), false);
+  assert.equal(snapshot.warnings.some(item => item.includes("missing-shot")), false);
+  const frozen = JSON.stringify(snapshot);
   current.shots[0].name = "Edited after GO";
   current.cameraPresets.find(item => item.id === "pastor-tight").name = "Edited preset";
-  assert.equal(JSON.stringify(current.live.executionSnapshot.shotExecutions), frozen);
+  assert.equal(JSON.stringify(current.live.executionSnapshot), frozen);
 });
 
 test("Shot reference summary renders without undefined camera variables", () => {

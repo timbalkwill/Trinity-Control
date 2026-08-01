@@ -2,9 +2,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { executeCue } = require("../cue-execution.cjs");
-const { SHOT_EXECUTION_STATUS } = require("../camera-shot-execution.cjs");
-const { normalizeShot } = require("../shot-operations.cjs");
+const { executeShotSnapshot, SHOT_EXECUTION_STATUS } = require("../camera-shot-execution.cjs");
+const { normalizeShot, resolveShotExecution } = require("../shot-operations.cjs");
 
 function fixture(references = [{ role: "main-shot", shotId: "static-main" }]) {
   return {
@@ -63,7 +62,17 @@ function recordingExecutor(handler = () => ({ ok: true })) {
 }
 
 function execute(current, cameraExecutor) {
-  return executeCue(current, 0, { now: () => 1000, cameraExecutor }).live.executionSnapshot;
+  const references = current.productionLooks[0].cameraAssignments;
+  const snapshot = {
+    cueId: "manual-camera-action",
+    lighting: { sceneId: "warm" },
+    shotExecutions: references.map(reference => resolveShotExecution(current, reference.shotId, {
+      referenceRole: reference.role,
+      referenceSource: "manual"
+    }))
+  };
+  snapshot.shotExecutionResults = executeShotSnapshot(snapshot, { cameraExecutor });
+  return snapshot;
 }
 
 test("valid Static Shot recalls exactly one camera-scoped preset", () => {
@@ -144,7 +153,7 @@ test("one camera failure does not block another valid Static Shot", () => {
     SHOT_EXECUTION_STATUS.STATIC_FAILED,
     SHOT_EXECUTION_STATUS.STATIC_SUCCEEDED
   ]);
-  assert.match(snapshot.warnings.join("; "), /Main camera offline/);
+  assert.match(snapshot.shotExecutionResults[0].message, /Main camera offline/);
 });
 
 test("Motion Shot execution is skipped without PTZ commands", () => {
@@ -180,15 +189,15 @@ test("execution uses the frozen snapshot when mutable libraries change during re
   assert.deepEqual(executor.calls[1], { cameraDeviceId: "left", presetId: "position-1", shotId: "static-left" });
 });
 
-test("Static execution preserves existing cue and lighting behavior", () => {
+test("manual Static execution does not alter service or lighting state", () => {
   const current = fixture();
   const executor = recordingExecutor();
   const snapshot = execute(current, executor);
   assert.equal(current.live.cueIndex, 0);
-  assert.equal(current.live.activeCueId, "cue");
-  assert.equal(current.live.lastLightingSceneId, "warm");
+  assert.equal(current.live.activeCueId, undefined);
+  assert.equal(current.live.lastLightingSceneId, undefined);
   assert.equal(snapshot.lighting.sceneId, "warm");
-  assert.equal(snapshot.cueId, "cue");
+  assert.equal(snapshot.cueId, "manual-camera-action");
 });
 
 test("repeated traversal of one Shot assignment issues no duplicate recall", () => {

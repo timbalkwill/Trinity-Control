@@ -174,14 +174,13 @@ test("diagnostic stubs never report a fake connection", () => {
   assert.equal(getDeviceById(current, "main").metadata.diagnostic, undefined);
 });
 
-test("Production Look references and pure execution plans continue to resolve device IDs", () => {
+test("Production Look camera references remain loadable but service plans ignore device IDs", () => {
   const current = state();
   current.lightingScenes = [];
   current.productionLooks.push({ id: "look", name: "Look", programCameraId: "main", previewCameraId: "left", cameraAssignments: [], transitionStyle: "cut" });
   const snapshot = JSON.stringify(current);
   const plan = buildCueExecutionPlan(current, { id: "cue", productionLookId: "look" });
-  assert.equal(plan.video.programCameraId, "main");
-  assert.equal(plan.video.previewCameraId, "left");
+  assert.equal(Object.hasOwn(plan, "video"), false);
   assert.equal(plan.warnings.length, 0);
   assert.equal(JSON.stringify(current), snapshot);
 });

@@ -1,35 +1,10 @@
 "use strict";
 
 const { buildCueExecutionPlan } = require("./cue-execution-plan.cjs");
-const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
-const { applyCueStartPreparations, synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
-const { executeShotSnapshot, unavailableCameraExecutor } = require("./camera-shot-execution.cjs");
-const { createCameraExecutor } = require("./camera-adapter-registry.cjs");
 const { executeLightingSnapshot } = require("./lighting-execution.cjs");
 
 function byId(items, id) {
   return Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
-}
-
-function existingId(items, preferredId, fallbackId) {
-  if (preferredId && byId(items, preferredId)) return preferredId;
-  if (fallbackId && byId(items, fallbackId)) return fallbackId;
-  return null;
-}
-
-function lookResources(state, look) {
-  return {
-    lightingSceneId: existingId(state?.lightingScenes, look?.lightingSceneId),
-    cameraLayoutId: existingId(state?.cameraLayouts, look?.cameraLayoutId)
-  };
-}
-
-function effectiveCueResources(state, cue) {
-  const plan = buildCueExecutionPlan(state, cue);
-  return {
-    lightingSceneId: plan.lighting.sceneId,
-    cameraLayoutId: plan.video.cameraLayoutId
-  };
 }
 
 function sourceLabel(source, requested) {
@@ -40,6 +15,19 @@ function sourceLabel(source, requested) {
 
 function normalizeExecutionSnapshot(input) {
   if (!input || typeof input !== "object") return null;
+  // Explicitly discard legacy camera-bearing snapshot fields. This keeps old
+  // state loadable without allowing it back into current service execution.
+  const {
+    video: _video,
+    cameraAssignments: _cameraAssignments,
+    cameras: _cameras,
+    shotExecutions: _shotExecutions,
+    shotValidationErrors: _shotValidationErrors,
+    shotExecutionResults: _shotExecutionResults,
+    simplifiedLook: _simplifiedLook,
+    motion: _motion,
+    ...serviceInput
+  } = input;
   const lightingExecutions = Array.isArray(input.lightingExecutions)
     ? input.lightingExecutions.filter(item => item && typeof item === "object").map(item => Object.freeze({ ...item }))
     : [];
@@ -47,7 +35,7 @@ function normalizeExecutionSnapshot(input) {
     ? input.lightingValidationErrors.filter(item => item && typeof item === "object").map(item => Object.freeze({ ...item }))
     : [];
   return {
-    ...input,
+    ...serviceInput,
     cueId: input.cueId || null,
     cueName: input.cueName || null,
     productionLookId: input.productionLookId || null,
@@ -61,39 +49,9 @@ function normalizeExecutionSnapshot(input) {
       wallWashMode: input.lighting?.wallWashMode || null,
       source: input.lighting?.source || "Not assigned"
     },
-    video: {
-      cameraLayoutId: input.video?.cameraLayoutId || null,
-      cameraLayoutName: input.video?.cameraLayoutName || null,
-      programCameraId: input.video?.programCameraId || null,
-      programCameraName: input.video?.programCameraName || null,
-      previewCameraId: input.video?.previewCameraId || null,
-      previewCameraName: input.video?.previewCameraName || null,
-      auxiliaryCameraIds: Array.isArray(input.video?.auxiliaryCameraIds) ? [...input.video.auxiliaryCameraIds] : [],
-      programShotId: input.video?.programShotId || null,
-      programShotName: input.video?.programShotName || null,
-      previewShotId: input.video?.previewShotId || null,
-      previewShotName: input.video?.previewShotName || null,
-      programPreset: input.video?.programPreset || null,
-      previewPreset: input.video?.previewPreset || null,
-      transitionStyle: input.video?.transitionStyle || "cut",
-      transitionDurationMs: Number(input.video?.transitionDurationMs) || 0,
-      source: input.video?.source || "Not assigned"
-    },
-    cameraAssignments: Array.isArray(input.cameraAssignments) ? input.cameraAssignments.map(item => ({ ...item })) : [],
-    cameras: Array.isArray(input.cameras) ? input.cameras.map(item => ({ ...item })) : [],
-    shotExecutions: Array.isArray(input.shotExecutions) ? JSON.parse(JSON.stringify(input.shotExecutions)) : [],
-    shotValidationErrors: Array.isArray(input.shotValidationErrors) ? input.shotValidationErrors.map(String) : [],
     lightingExecutions: Object.freeze(lightingExecutions),
     lightingValidationErrors: Object.freeze(lightingValidationErrors),
-    shotExecutionResults: Array.isArray(input.shotExecutionResults) ? JSON.parse(JSON.stringify(input.shotExecutionResults)) : [],
     lightingExecutionResults: Array.isArray(input.lightingExecutionResults) ? JSON.parse(JSON.stringify(input.lightingExecutionResults)) : [],
-    simplifiedLook: input.simplifiedLook ? JSON.parse(JSON.stringify(input.simplifiedLook)) : null,
-    motion: {
-      enabled: input.motion?.enabled === true,
-      profileId: input.motion?.profileId || null,
-      durationMs: Number(input.motion?.durationMs) || 0,
-      speed: Number(input.motion?.speed) || 1
-    },
     warnings: Array.isArray(input.warnings) ? input.warnings.map(String) : []
   };
 }
@@ -106,10 +64,6 @@ function createExecutionSnapshot(state, cue, plan, executedAt) {
     lighting: {
       ...plan.lighting,
       source: sourceLabel(plan.lighting.source, cue?.lightingSceneId || look?.lightingSceneId)
-    },
-    video: {
-      ...plan.video,
-      source: sourceLabel(plan.video.source, cue?.cameraLayoutId || look?.cameraLayoutId || look?.programCameraId || look?.previewCameraId || look?.cameraAssignments?.some(item => item?.cameraId))
     }
   });
 }
@@ -118,59 +72,31 @@ function applyResources(state, resources) {
   const live = state.live && typeof state.live === "object" ? state.live : {};
   state.live = live;
   live.lastLightingSceneId = resources.lightingSceneId;
-
-  const layout = byId(state.cameraLayouts, resources.cameraLayoutId);
-  if (layout) {
-    live.programCamera = layout.programCamera;
-    live.previewCamera = layout.previewCamera;
-    live.programPreset = layout.programPreset;
-    live.previewPreset = layout.previewPreset;
-    if ("tracking" in layout) live.tracking = Boolean(layout.tracking);
-  }
-  if ("programCameraId" in resources) live.programCamera = resources.programCameraId;
-  if ("previewCameraId" in resources) live.previewCamera = resources.previewCameraId;
-  if ("auxiliaryCameraIds" in resources) live.auxiliaryCameras = [...resources.auxiliaryCameraIds];
-  if ("programPreset" in resources) live.programPreset = resources.programPreset;
-  if ("previewPreset" in resources) live.previewPreset = resources.previewPreset;
   return state;
 }
 
 function applyLook(state, lookId) {
   const look = byId(state?.productionLooks, lookId);
   if (!look) return state;
-  const cameras = resolveProductionLookCameraAssignments(state, look);
-  return applyResources(state, {
-    ...lookResources(state, look),
-    programCameraId: cameras.programCameraId,
-    previewCameraId: cameras.previewCameraId,
-    auxiliaryCameraIds: cameras.auxiliaryCameraIds,
-    programPreset: cameras.program.presetName,
-    previewPreset: cameras.preview.presetName
-  });
+  return applyResources(state, { lightingSceneId: byId(state?.lightingScenes, look.lightingSceneId)?.id || null });
 }
 
-function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = null, lightingExecutor = null } = {}) {
+function effectiveCueResources(state, cue) {
+  const plan = buildCueExecutionPlan(state, cue);
+  return { lightingSceneId: plan.lighting.sceneId };
+}
+
+function executeCue(state, requestedIndex, { now = Date.now, lightingExecutor = null } = {}) {
   const cues = Array.isArray(state?.runOfService) ? state.runOfService : [];
   if (!cues.length) return state;
-
   const index = Math.max(0, Math.min(Number(requestedIndex) || 0, cues.length - 1));
   const cue = cues[index];
   if (!cue) return state;
-  const resolvedCameraExecutor = cameraExecutor || createCameraExecutor(state) || unavailableCameraExecutor;
 
   const executedAt = now();
   const plan = buildCueExecutionPlan(state, cue, { resolvedAt: executedAt });
-  applyResources(state, {
-    lightingSceneId: plan.lighting.sceneId,
-    cameraLayoutId: plan.video.cameraLayoutId,
-    ...(plan.video.programCameraId ? { programCameraId: plan.video.programCameraId } : {}),
-    ...(plan.video.previewCameraId ? { previewCameraId: plan.video.previewCameraId } : {}),
-    auxiliaryCameraIds: plan.video.auxiliaryCameraIds,
-    programPreset: plan.video.programPreset,
-    previewPreset: plan.video.previewPreset
-  });
+  applyResources(state, { lightingSceneId: plan.lighting.sceneId });
   const live = state.live;
-  applyCueStartPreparations(state, plan, { now: () => executedAt });
   live.cueIndex = index;
   live.activeCueId = cue.id || null;
   live.activeProductionLookId = plan.productionLookId;
@@ -185,20 +111,14 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
     message: "Lighting action pending"
   }));
   live.executionSnapshot = snapshot;
-  const finish = (shotExecutionResults, lightingExecutionResults) => {
-    snapshot.shotExecutionResults = shotExecutionResults;
+
+  const finish = lightingExecutionResults => {
     snapshot.lightingExecutionResults = lightingExecutionResults;
-    const executionWarnings = [
-      ...shotExecutionResults
-      .filter(item => item.status === "static-failed")
-      .map(item => `Static Shot failed: ${item.shotName || item.shotId || "Unknown Shot"} — ${item.message}`),
-      ...lightingExecutionResults
-        .filter(item => item.status === "failed")
-        .map(item => `Lighting failed: ${item.widgetName || item.lightingSceneId || "Unknown scene"} — ${item.message}`)
-    ];
+    const executionWarnings = lightingExecutionResults
+      .filter(item => item.status === "failed")
+      .map(item => `Lighting failed: ${item.widgetName || item.lightingSceneId || "Unknown scene"} — ${item.message}`);
     snapshot.warnings = [...new Set([...snapshot.warnings, ...executionWarnings])];
     live.executionSnapshot = snapshot;
-    synchronizeLiveCameraFromSnapshot(state);
     live.cueStartedAt = executedAt;
     live.activityLog = [
       { at: executedAt, message: `Cue started: ${cue.name || "Cue"}` },
@@ -206,16 +126,10 @@ function executeCue(state, requestedIndex, { now = Date.now, cameraExecutor = nu
     ].slice(0, 8);
     return state;
   };
-  const runLighting = shotExecutionResults => {
-    const lightingExecutionResults = executeLightingSnapshot(snapshot, { lightingExecutor, now });
-    return lightingExecutionResults && typeof lightingExecutionResults.then === "function"
-      ? lightingExecutionResults.then(results => finish(shotExecutionResults, results))
-      : finish(shotExecutionResults, lightingExecutionResults);
-  };
-  const shotExecutionResults = executeShotSnapshot(snapshot, { cameraExecutor: resolvedCameraExecutor });
-  return shotExecutionResults && typeof shotExecutionResults.then === "function"
-    ? shotExecutionResults.then(runLighting)
-    : runLighting(shotExecutionResults);
+  const lightingExecutionResults = executeLightingSnapshot(snapshot, { lightingExecutor, now });
+  return lightingExecutionResults && typeof lightingExecutionResults.then === "function"
+    ? lightingExecutionResults.then(finish)
+    : finish(lightingExecutionResults);
 }
 
 module.exports = { applyLook, createExecutionSnapshot, effectiveCueResources, executeCue, normalizeExecutionSnapshot };

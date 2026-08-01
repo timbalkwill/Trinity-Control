@@ -93,21 +93,24 @@ test("shared commands serialize writes and publish authoritative saved snapshots
 
 test("TAKE LIVE persists and publishes through the serialized authoritative command path", async () => {
   const { commands } = harness();
-  await commands.goCue(0);
+  await commands.updateState(state => {
+    state.live.programCamera = "main";
+    state.live.previewCamera = "left";
+  });
   const published = [];
   commands.subscribe(state => published.push(state));
   const result = await commands.takeLive();
-  assert.equal(result.live.executionSnapshot.video.programCameraId, "left");
-  assert.equal(result.live.executionSnapshot.video.previewCameraId, "main");
-  assert.equal(commands.getState().live.executionSnapshot.video.programCameraId, "left");
-  assert.equal(published.at(-1).live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(result.live.programCamera, "left");
+  assert.equal(result.live.previewCamera, "main");
+  assert.equal(commands.getState().live.programCamera, "left");
+  assert.equal(published.at(-1).live.programCamera, "left");
 
   let persisted = clone(result);
   const reloadCommands = createOperatorCommands({
     loadState: () => clone(persisted),
     saveState: state => { persisted = clone(state); return clone(persisted); }
   });
-  assert.equal(reloadCommands.getState().live.executionSnapshot.video.programCameraId, "left");
+  assert.equal(reloadCommands.getState().live.programCamera, "left");
 });
 
 test("camera preparation and Make Live share serialized authoritative state", async () => {
@@ -287,14 +290,14 @@ test("large cue jumps require explicit confirmation while NEXT and BACK remain i
   assert.equal(commands.getState().live.cueIndex, 1);
 });
 
-test("cue-specific overrides still execute after reorder and duplication", async () => {
+test("cue-specific lighting overrides execute after reorder while camera overrides remain inert", async () => {
   const { commands } = harness();
   await commands.updateCue(0, { lightingSceneId: "light-manual", cameraLayoutId: "layout" });
   await commands.reorderCue(0, 1);
   await commands.duplicateCue(1);
   const result = await commands.goCue(2);
   assert.equal(result.live.lastLightingSceneId, "light-manual");
-  assert.equal(result.live.programPreset, "Wide");
+  assert.equal(result.live.programPreset, undefined);
 });
 
 test("Browser and Electron Production Look commands share authoritative narrow mutations", async () => {

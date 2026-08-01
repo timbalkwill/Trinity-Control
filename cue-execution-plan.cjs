@@ -1,7 +1,5 @@
 "use strict";
 
-const { resolveProductionLookCameraAssignments } = require("./production-look-operations.cjs");
-const { resolveShotExecution } = require("./shot-operations.cjs");
 const { resolveLightingExecution, utilitySceneReferenceWarning } = require("./lighting-scene-operations.cjs");
 
 function byId(items, id) {
@@ -14,40 +12,20 @@ function resolveId(items, cueId, lookId) {
   return { id: null, source: "fallback" };
 }
 
+// Service execution deliberately resolves only service-owned state. Camera and
+// Shot references may remain in saved cues/Looks for compatibility, but they
+// never enter this plan and therefore cannot reach a frozen GO/BACK snapshot.
 function buildCueExecutionPlan(state, cue, { resolvedAt = Date.now() } = {}) {
   const warnings = [];
   const look = byId(state?.productionLooks, cue?.productionLookId);
   const effectiveLook = look?.enabled === false ? null : look;
   if (cue?.productionLookId && !look) warnings.push(`Missing Production Look: ${cue.productionLookId}`);
-  const resolvedCameras = resolveProductionLookCameraAssignments(state, effectiveLook, cue);
-  warnings.push(...resolvedCameras.warnings);
-  const lighting = resolveId(state?.lightingScenes, cue?.lightingSceneId, effectiveLook?.lightingSceneId);
-  const layout = resolveId(state?.cameraLayouts, cue?.cameraLayoutId, effectiveLook?.schemaVersion === 3 ? null : effectiveLook?.cameraLayoutId);
-  if (cue?.lightingSceneId && !byId(state?.lightingScenes, cue.lightingSceneId)) warnings.push(`Missing cue lighting scene: ${cue.lightingSceneId}`);
-  if (!lighting.id && look?.lightingSceneId) warnings.push(`Missing Production Look lighting scene: ${look.lightingSceneId}`);
-  if (cue?.cameraLayoutId && !byId(state?.cameraLayouts, cue.cameraLayoutId)) warnings.push(`Missing cue camera layout: ${cue.cameraLayoutId}`);
   if (look?.enabled === false) warnings.push("Production Look is disabled");
 
-  const effectiveLayout = byId(state?.cameraLayouts, layout.id);
-  const videoSource = resolvedCameras.source;
-  const programCameraId = resolvedCameras.programCameraId;
-  const previewCameraId = resolvedCameras.previewCameraId;
-  const knownCamera = id => byId(state?.devices, id) || byId(state?.cameras, id);
-  if (programCameraId && !knownCamera(programCameraId)) warnings.push(`Missing program camera: ${programCameraId}`);
-  if (previewCameraId && !knownCamera(previewCameraId)) warnings.push(`Missing preview camera: ${previewCameraId}`);
-  const cameraAssignments = resolvedCameras.cameraAssignments.map(item => ({ ...item }));
-  const shotReferences = [
-    ...(effectiveLook?.selectedShotId ? [{ shotId: effectiveLook.selectedShotId, role: "selected", source: "production-look-selected" }] : []),
-    ...(effectiveLook?.cameraAssignments || [])
-      .filter(item => item?.shotId)
-      .map(item => ({ shotId: item.shotId, role: item.role || null, source: "production-look-assignment" }))
-  ];
-  const shotExecutions = shotReferences.map(reference => resolveShotExecution(state, reference.shotId, {
-    referenceRole: reference.role,
-    referenceSource: reference.source
-  }));
-  const shotValidationErrors = shotExecutions.flatMap(item => item.errors);
-  warnings.push(...shotValidationErrors);
+  const lighting = resolveId(state?.lightingScenes, cue?.lightingSceneId, effectiveLook?.lightingSceneId);
+  if (cue?.lightingSceneId && !byId(state?.lightingScenes, cue.lightingSceneId)) warnings.push(`Missing cue lighting scene: ${cue.lightingSceneId}`);
+  if (!lighting.id && effectiveLook?.lightingSceneId) warnings.push(`Missing Production Look lighting scene: ${effectiveLook.lightingSceneId}`);
+
   const requestedLightingSceneId = lighting.id || cue?.lightingSceneId || effectiveLook?.lightingSceneId || null;
   const lightingResolution = requestedLightingSceneId
     ? resolveLightingExecution(state, requestedLightingSceneId, { resolvedAt })
@@ -73,65 +51,8 @@ function buildCueExecutionPlan(state, cue, { resolvedAt = Date.now() } = {}) {
       wallWashMode: effectiveLook?.wallWashMode || null,
       source: lighting.source
     },
-    video: {
-      cameraLayoutId: layout.id,
-      cameraLayoutName: effectiveLayout?.name || null,
-      programCameraId,
-      programCameraName: knownCamera(programCameraId)?.name || null,
-      previewCameraId,
-      previewCameraName: knownCamera(previewCameraId)?.name || null,
-      auxiliaryCameraIds: [...resolvedCameras.auxiliaryCameraIds],
-      programShotId: resolvedCameras.program.shotId || null,
-      programShotName: resolvedCameras.program.shotName || null,
-      previewShotId: resolvedCameras.preview.shotId || null,
-      previewShotName: resolvedCameras.preview.shotName || null,
-      programPreset: resolvedCameras.program.presetName || null,
-      previewPreset: resolvedCameras.preview.presetName || null,
-      transitionStyle: effectiveLook?.transitionStyle || "cut",
-      transitionDurationMs: Number(effectiveLook?.transitionDurationMs) || 0,
-      source: videoSource
-    },
-    cameraAssignments,
-    simplifiedLook: {
-      cameraPresets: Object.fromEntries(cameraAssignments
-        .filter(item => ["main", "left", "right"].includes(item.role))
-        .map(item => [item.role, {
-          cameraId: item.cameraDeviceId || null,
-          cameraName: item.cameraName || null,
-          presetId: item.presetId || null,
-          presetName: item.presetName || null,
-          source: item.source,
-          missing: item.missing === true
-        }])),
-      priorityCameraId: programCameraId,
-      priorityCameraName: knownCamera(programCameraId)?.name || null,
-      startMainTracking: effectiveLook?.startMainTracking === true,
-      appliedMainTracking: false
-    },
-    cameras: cameraAssignments.map(item => ({
-      role: item.role,
-      cameraId: item.cameraDeviceId,
-      cameraName: item.cameraName,
-      presetId: item.presetId,
-      presetName: item.presetName,
-      shotId: item.shotId || null,
-      shotName: item.shotName || null,
-      tracking: item.tracking ? { ...item.tracking } : null,
-      motion: item.motion ? { ...item.motion } : null,
-      warnings: Array.isArray(item.warnings) ? [...item.warnings] : [],
-      source: item.source,
-      missing: item.missing
-    })),
-    shotExecutions,
-    shotValidationErrors,
     lightingExecutions,
     lightingValidationErrors,
-    motion: {
-      enabled: effectiveLook?.motionEnabled === true,
-      profileId: effectiveLook?.motionProfileId || null,
-      durationMs: Number(effectiveLook?.motionDurationMs) || 0,
-      speed: Number(effectiveLook?.motionSpeed) || 1
-    },
     future: { audioSceneId: effectiveLook?.audioSceneId || null, presentationCueId: effectiveLook?.presentationCueId || null },
     warnings: [...new Set(warnings)]
   };

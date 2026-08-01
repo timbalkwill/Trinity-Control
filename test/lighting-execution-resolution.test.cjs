@@ -134,13 +134,13 @@ test("GO stores lighting after Shot resolution without activating lighting", () 
   assert.doesNotMatch(executionSource, /activateControl|setWidget|qlcplus/i);
 });
 
-test("invalid lighting records structured validation while camera and Shot planning continue", () => {
+test("invalid lighting records structured validation without adding camera or Shot planning", () => {
   const current = state();
   current.lightingScenes[0].externalControl = null;
   executeCue(current, 0, { now: () => 500 });
   assert.deepEqual(current.live.executionSnapshot.lightingExecutions, []);
   assert.equal(current.live.executionSnapshot.lightingValidationErrors[0].state, "mapping-missing");
-  assert.ok(Array.isArray(current.live.executionSnapshot.shotExecutions));
+  assert.equal(Object.hasOwn(current.live.executionSnapshot, "shotExecutions"), false);
   assert.ok(current.live.executionSnapshot.warnings.some(item => item.includes("no QLC+ mapping")));
 });
 

@@ -37,8 +37,6 @@ let operatorServerStatus = {
 };
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
-function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
-
 function defaultState() {
   return {
     version: "1.0.2-alpha.5.2-refined",
@@ -881,14 +879,16 @@ app.whenReady().then(async () => {
     });
     return result.canceled ? null : result.filePaths[0] || null;
   });
-  ipcMain.handle("cue:addTemplate", (_e, templateId) => commands.updateState(s => {
-    const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return;
-    s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
-  }));
+  ipcMain.handle("cue:addTemplate", (_e, templateId) => {
+    const template = commands.getState().cueTemplates.find(item => item.id === templateId);
+    if (!template) throw new RangeError("Cue template not found");
+    return commands.createCue(template);
+  });
   ipcMain.handle("cue:move", (_e, { from, to }) => commands.reorderCue(from, to));
   ipcMain.handle("cue:move-by-id", (_e, { cueId, targetCueId, placement }) => commands.reorderCueById(cueId, targetCueId, placement));
   ipcMain.handle("cue:nudge-by-id", (_e, { cueId, direction }) => commands.moveCueById(cueId, direction));
   ipcMain.handle("cue:duplicate", (_e, index) => commands.duplicateCue(index));
+  ipcMain.handle("cue:create", (_e, input) => commands.createCue(input));
   ipcMain.handle("cue:insert", (_e, { index, position }) => commands.insertCue(index, position));
   ipcMain.handle("cue:remove", (_e, { index, options }) => commands.deleteCue(index, options));
   ipcMain.handle("cue:remove-by-id", (_e, { cueId, options }) => commands.deleteCueById(cueId, options));

@@ -93,6 +93,7 @@ function createOperatorServer({
     ["/api/live/hold", () => commands.toggleHold()],
     ["/api/cues/reorder", body => commands.reorderCue(body.from, body.to)],
     ["/api/cues/duplicate", body => commands.duplicateCue(body.index)],
+    ["/api/cues/create", body => commands.createCue(body.cue || body)],
     ["/api/cues/insert", body => commands.insertCue(body.index, body.position)],
     ["/api/cues/delete", body => commands.deleteCue(body.index, { confirmActive: body.confirmActive === true })],
     ["/api/cues/update", body => commands.updateCue(body.index, body.patch || {})],

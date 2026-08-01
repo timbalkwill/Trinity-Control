@@ -130,6 +130,7 @@ function createOperatorCommands({
     reorderCueById: (cueId, targetCueId, placement) => mutate(state => service.reorderCueById(state, cueId, targetCueId, placement)),
     moveCueById: (cueId, direction) => mutate(state => service.moveCueById(state, cueId, direction)),
     duplicateCue: index => mutate(state => service.duplicateCue(state, index)),
+    createCue: input => mutate(state => service.createCue(state, input)),
     insertCue: (index, position) => mutate(state => service.insertCue(state, index, position)),
     deleteCue: (index, options) => mutate(state => service.deleteCue(state, index, options)),
     deleteCueById: (cueId, options) => mutate(state => service.deleteCueById(state, cueId, options)),

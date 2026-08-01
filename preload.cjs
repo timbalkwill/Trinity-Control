@@ -43,6 +43,7 @@ contextBridge.exposeInMainWorld("trinity", {
   reorderCueById: (cueId, targetCueId, placement) => ipcRenderer.invoke("cue:move-by-id", { cueId, targetCueId, placement }),
   moveCueById: (cueId, direction) => ipcRenderer.invoke("cue:nudge-by-id", { cueId, direction }),
   duplicateCue: index => ipcRenderer.invoke("cue:duplicate", index),
+  createCue: input => ipcRenderer.invoke("cue:create", input),
   insertCue: (index, position) => ipcRenderer.invoke("cue:insert", { index, position }),
   removeCue: (index, options) => ipcRenderer.invoke("cue:remove", { index, options }),
   deleteCueById: (cueId, options) => ipcRenderer.invoke("cue:remove-by-id", { cueId, options }),

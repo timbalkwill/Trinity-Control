@@ -499,6 +499,18 @@ function ensureAppStyles() {
       border-color: #2f7cff;
     }
 
+    .cue-editor-error {
+      align-self: center;
+      margin-right: auto;
+      color: #ffaaa6;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .cue-preview-summary-service {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     @media (max-width: 850px) {
       .topbar {
         grid-template-columns: 1fr auto;
@@ -666,8 +678,9 @@ async function activateCue(index) {
   return state;
 }
 
-function openCueEditor(index) {
-  const cue = state.runOfService[index];
+function openCueEditor(index = null) {
+  const creating = !Number.isInteger(index);
+  const cue = creating ? { name: '', notes: '', productionLookId: '', lightingSceneId: '' } : state.runOfService[index];
   if (!cue) return;
 
   cueEditorOpen = true;
@@ -680,7 +693,7 @@ function openCueEditor(index) {
       <div class="cue-editor-header">
         <div>
           <small>SERVICE CUE</small>
-          <h2 id="cue-editor-title">Edit Service Cue</h2>
+          <h2 id="cue-editor-title">${creating ? 'Add Cue' : 'Edit Service Cue'}</h2>
         </div>
         <button type="button" class="cue-editor-close" aria-label="Close cue editor">×</button>
       </div>
@@ -688,7 +701,7 @@ function openCueEditor(index) {
       <div class="cue-editor-body cue-editor-body-simplified">
         <label class="cue-editor-full">
           Cue Name
-          <input id="cue-edit-name" value="${escapeHtml(cue.name || '')}" maxlength="80">
+          <input id="cue-edit-name" value="${escapeHtml(cue.name || '')}" maxlength="80" required placeholder="Announcements, Prayer, Choir Special…">
         </label>
 
         <label>
@@ -708,8 +721,8 @@ function openCueEditor(index) {
         </label>
 
         <label class="cue-editor-full">
-          Notes
-          <textarea id="cue-edit-notes" placeholder="Operator notes for this cue">${escapeHtml(cue.notes || '')}</textarea>
+          Description / Operator Note
+          <textarea id="cue-edit-notes" placeholder="Optional instructions for the operator">${escapeHtml(cue.notes || '')}</textarea>
         </label>
 
         <section class="cue-execution-preview cue-editor-full" aria-labelledby="cue-preview-title">
@@ -721,20 +734,9 @@ function openCueEditor(index) {
             <span id="cue-preview-status" class="cue-preview-status"></span>
           </div>
 
-          <div class="cue-preview-summary">
+          <div class="cue-preview-summary cue-preview-summary-service">
             <div><span>Production Look</span><strong id="cue-preview-look"></strong></div>
             <div><span>Lighting</span><strong id="cue-preview-lighting"></strong></div>
-            <div><span>Priority Camera</span><strong id="cue-preview-priority"></strong></div>
-            <div><span>Main Tracking</span><strong id="cue-preview-tracking"></strong></div>
-          </div>
-
-          <div class="cue-preview-cameras">
-            ${['main', 'left', 'right'].map(role => `
-              <article class="cue-preview-camera" data-preview-role="${role}">
-                <span>${role.toUpperCase()} CAMERA</span>
-                <strong data-preview-camera-name>Not configured</strong>
-                <small data-preview-preset-name>No preset selected</small>
-              </article>`).join('')}
           </div>
 
           <div id="cue-preview-warnings" class="cue-preview-warnings" hidden></div>
@@ -742,8 +744,9 @@ function openCueEditor(index) {
       </div>
 
       <div class="cue-editor-actions">
+        <div class="cue-editor-error" role="alert" hidden></div>
         <button type="button" class="cancel-cue">Cancel</button>
-        <button type="button" class="save-cue">Save Cue</button>
+        <button type="button" class="save-cue">${creating ? 'Add to Service' : 'Save Cue'}</button>
       </div>
     </section>`;
 
@@ -754,48 +757,18 @@ function openCueEditor(index) {
   const lightingSelect = backdrop.querySelector('#cue-edit-lighting');
   const notesInput = backdrop.querySelector('#cue-edit-notes');
 
-  const cameraItems = () => {
-    const devices = (state.devices || []).filter(item => item.type === 'camera');
-    const known = new Set(devices.map(item => item.id));
-    return [...devices, ...(state.cameras || []).filter(item => item?.id && !known.has(item.id))];
-  };
-
-  const cameraForAssignment = assignment =>
-    cameraItems().find(item => item.id === assignment?.cameraId || item.id === assignment?.cameraDeviceId);
-
-  const presetForAssignment = assignment =>
-    (state.cameraPresets || []).find(item =>
-      item.id === assignment?.presetId &&
-      (!assignment?.cameraId || item.cameraDeviceId === assignment.cameraId)
-    );
-
   const updatePreview = () => {
     const look = byId(state.productionLooks, lookSelect.value);
     const lighting = byId(state.lightingScenes, lightingSelect.value || look?.lightingSceneId);
-    const priority = cameraItems().find(item => item.id === look?.priorityCameraId);
     const warnings = [];
 
     backdrop.querySelector('#cue-preview-look').textContent = look?.name || 'Not assigned';
     backdrop.querySelector('#cue-preview-lighting').textContent = lighting?.name || 'Not assigned';
-    backdrop.querySelector('#cue-preview-priority').textContent = priority?.name || (look?.priorityCameraId ? 'Missing camera' : 'Not assigned');
-    backdrop.querySelector('#cue-preview-tracking').textContent = look?.startMainTracking ? 'Starts On' : 'Off';
 
-    if (!look) warnings.push('Choose a Production Look.');
+    if (lookSelect.value && !look) warnings.push('The selected Production Look is unavailable.');
     if (!lighting) warnings.push('No lighting scene will be recalled.');
     if (lighting?.productionScene === false) warnings.push('Scene is marked Utility but is still referenced.');
     if (look?.enabled === false) warnings.push('The selected Production Look is disabled.');
-
-    for (const role of ['main', 'left', 'right']) {
-      const assignment = look?.cameraPresets?.[role] || {};
-      const camera = cameraForAssignment(assignment);
-      const preset = presetForAssignment(assignment);
-      const card = backdrop.querySelector(`[data-preview-role="${role}"]`);
-      card.querySelector('[data-preview-camera-name]').textContent = camera?.name || (assignment.cameraId ? 'Missing camera' : 'Not configured');
-      card.querySelector('[data-preview-preset-name]').textContent = preset?.name || (assignment.presetId ? 'Missing preset' : 'No preset selected');
-      card.classList.toggle('warning', Boolean((assignment.cameraId && !camera) || (assignment.presetId && !preset)));
-      if (!assignment.cameraId || !assignment.presetId) warnings.push(`${role[0].toUpperCase() + role.slice(1)} camera preset is not configured.`);
-      else if (!camera || !preset) warnings.push(`${role[0].toUpperCase() + role.slice(1)} camera preset reference is missing.`);
-    }
 
     const warningBox = backdrop.querySelector('#cue-preview-warnings');
     warningBox.hidden = warnings.length === 0;
@@ -820,15 +793,28 @@ function openCueEditor(index) {
   backdrop.onclick = event => { if (event.target === backdrop) close(); };
 
   backdrop.querySelector('.save-cue').onclick = async () => {
-    state = await window.trinity.updateCue(index, {
-      name: nameInput.value.trim() || 'Untitled Cue',
+    const errorBox = backdrop.querySelector('.cue-editor-error');
+    const name = nameInput.value.trim();
+    if (!name) {
+      errorBox.textContent = 'Cue Name is required.';
+      errorBox.hidden = false;
+      nameInput.focus();
+      return;
+    }
+    const input = {
+      name,
       productionLookId: lookSelect.value,
       lightingSceneId: lightingSelect.value || '',
-      cameraLayoutId: '',
       notes: notesInput.value.trim()
-    });
-    close();
-    render();
+    };
+    try {
+      state = creating ? await window.trinity.createCue(input) : await window.trinity.updateCue(index, input);
+      close();
+      render();
+    } catch (error) {
+      errorBox.textContent = error.message || 'Cue could not be saved.';
+      errorBox.hidden = false;
+    }
   };
 
   nameInput.focus();
@@ -1460,7 +1446,10 @@ function servicePage() {
             <h2>Order of Service</h2>
             <p>Drag cues to reorder. Edit any cue marked Check before the service.</p>
           </div>
-          <span class="service-count-pill">${state.runOfService.length} cues</span>
+          <div class="service-heading-actions">
+            <span class="service-count-pill">${state.runOfService.length} cues</span>
+            <button type="button" id="service-create-cue" class="primary-button">+ ADD CUE</button>
+          </div>
         </div>
         ${servicePageError ? `<div class="service-operation-error" role="alert">${escapeHtml(servicePageError)}</div>` : ''}
 
@@ -1482,15 +1471,15 @@ function servicePage() {
         <div class="service-card-list">
           ${state.runOfService.length
             ? state.runOfService.map(cueCard).join('')
-            : '<div class="empty-state-card"><span aria-hidden="true">＋</span><h3>No cues have been added to this service.</h3><p>Choose a prepared template to begin building the service.</p><button type="button" id="service-add-first-cue" class="primary-button">Add First Cue</button></div>'}
+            : '<div class="empty-state-card"><span aria-hidden="true">＋</span><h3>No cues have been added to this service.</h3><p>Create a custom cue or use a prepared template.</p><button type="button" id="service-add-first-cue" class="primary-button">Add First Cue</button></div>'}
         </div>
       </section>
 
       <aside class="panel service-add-panel">
         <div class="service-page-heading">
           <div>
-            <h2>Add a Cue</h2>
-            <p>Choose a prepared cue template.</p>
+            <h2>Quick Add Templates</h2>
+            <p>Add a prepared cue, then edit it like any other cue.</p>
           </div>
         </div>
         <div class="template-grid">
@@ -1517,10 +1506,8 @@ function servicePage() {
       render();
     };
   });
-  document.getElementById('service-add-first-cue')?.addEventListener('click', () => {
-    document.querySelector('[data-template]')?.focus({ preventScroll: false });
-    document.querySelector('.service-add-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
+  document.getElementById('service-create-cue')?.addEventListener('click', () => openCueEditor());
+  document.getElementById('service-add-first-cue')?.addEventListener('click', () => openCueEditor());
 
   document.querySelectorAll('[data-go]').forEach(button => {
     button.onclick = async event => {

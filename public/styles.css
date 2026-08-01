@@ -591,6 +591,12 @@ button:disabled {
   color: #04111c;
 }
 
+.service-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .secondary-button {
   background: var(--surface-control);
 }

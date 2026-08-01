@@ -14,6 +14,26 @@ function createCueId() {
   return `cue-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function requiredCueName(value) {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!name) throw new TypeError("Cue Name is required");
+  return name;
+}
+
+function createCue(state, input = {}, { id = createCueId() } = {}) {
+  const list = cues(state);
+  const cue = {
+    id,
+    name: requiredCueName(input.name),
+    duration: Math.max(0, Number(input.duration) || 0),
+    notes: typeof input.notes === "string" ? input.notes.trim() : "",
+    productionLookId: typeof input.productionLookId === "string" ? input.productionLookId : "",
+    lightingSceneId: typeof input.lightingSceneId === "string" ? input.lightingSceneId : ""
+  };
+  list.push(cue);
+  return cue;
+}
+
 function reorderCue(state, from, to) {
   const list = cues(state);
   if (![from, to].every(Number.isInteger) || from < 0 || to < 0 || from >= list.length || to >= list.length || from === to) return state;
@@ -109,7 +129,7 @@ function updateCue(state, index, patch) {
   for (const key of allowed) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) cue[key] = patch[key];
   }
-  cue.name = String(cue.name || "Untitled Cue").trim() || "Untitled Cue";
+  cue.name = requiredCueName(cue.name);
   cue.duration = Math.max(0, Number(cue.duration) || 0);
   return state;
 }
@@ -133,6 +153,7 @@ function keyboardCommand(event) {
 }
 
 module.exports = {
+  createCue,
   deleteCue,
   deleteCueById,
   duplicateCue,

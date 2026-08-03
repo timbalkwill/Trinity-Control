@@ -1179,14 +1179,23 @@ function productionDirectorCameras() {
   });
 }
 
+function normalizedCameraControlIdentity(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function cameraAdapterSupported(camera) {
+  const adapter = normalizedCameraControlIdentity(camera?.adapterType);
+  const protocol = normalizedCameraControlIdentity(camera?.protocol || camera?.connection?.protocol);
+  return adapter === 'ptzoptics' || ['visca-udp', 'visca-over-ip', 'visca-ip'].includes(adapter) || ['visca-udp', 'visca-over-ip', 'visca-ip'].includes(protocol);
+}
+
 function directorCameraStatus(camera) {
   if (camera.missing) return { label: 'Not Configured', available: false, className: 'not-configured' };
   if (camera.enabled === false) return { label: 'Disabled', available: false, className: 'disabled' };
   if (['offline', 'error', 'unavailable'].includes(String(camera.connectionStatus || '').toLowerCase())) {
     return { label: 'Unavailable', available: false, className: 'unavailable' };
   }
-  const host = camera.ipAddress || camera.connection?.host;
-  if (camera.adapterType !== 'ptzoptics' || !host) return { label: 'Not Configured', available: false, className: 'not-configured' };
+  if (!cameraAdapterSupported(camera) || !deviceConfigured(camera)) return { label: 'Not Configured', available: false, className: 'not-configured' };
   return { label: 'Ready', available: true, className: 'ready' };
 }
 
@@ -1897,7 +1906,7 @@ function camerasPage() {
   const presets = allPresets.filter(preset => (!cameraPresetCategory || (preset.category || 'Utility').toLowerCase() === cameraPresetCategory.toLowerCase()) && (!cameraPresetSearch || `${preset.name} ${preset.category || 'Utility'}`.toLowerCase().includes(cameraPresetSearch.toLowerCase())));
   const currentPreset = allPresets.find(preset => preset.id === managerMetadata.currentPresetId);
   const diagnostic = selected?.metadata?.diagnostic;
-  const readiness = !selected?.enabled ? 'Disabled' : !deviceConfigured(selected) ? 'Not configured' : diagnostic?.message || 'Adapter not implemented';
+  const readiness = !selected?.enabled ? 'Disabled' : !deviceConfigured(selected) ? 'Not configured' : diagnostic?.message || (cameraAdapterSupported(selected) ? 'Configured — not tested' : 'Adapter not implemented');
   const presetUsage = preset => {
     const looks = (state.productionLooks || []).filter(look => {
       const refs = [
@@ -1917,7 +1926,7 @@ function camerasPage() {
     const devicePresets = (state.cameraPresets || []).filter(preset => preset.cameraDeviceId === device.id);
     const deviceShots = (state.shots || []).filter(shot => shot.cameraDeviceId === device.id || (!shot.cameraDeviceId && shot.logicalCameraRole === device.logicalRole));
     const favorites = devicePresets.filter(preset => preset.favorite && preset.enabled);
-    const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || 'Ready for adapter';
+    const status = !device.enabled ? 'Disabled' : !deviceConfigured(device) ? 'Not configured' : device.metadata?.diagnostic?.message || (cameraAdapterSupported(device) ? 'Configured — not tested' : 'Adapter not implemented');
     const output = state.live?.programCamera === device.id ? 'PROGRAM' : state.live?.previewCamera === device.id ? 'PREVIEW' : 'STANDBY';
     return `<button class="managed-camera-card ${device.id === selected?.id ? 'selected' : ''}" data-managed-camera="${device.id}">
       <div class="managed-camera-card-top"><span class="role-pill">${escapeHtml(device.logicalRole || 'camera')}</span><span class="camera-output ${output.toLowerCase()}">${output}</span></div>
@@ -2186,7 +2195,11 @@ function shotsPage() {
 
 function deviceConfigured(device) {
   if (device.type === 'browserOperator') return true;
-  if (device.type === 'camera') return Boolean(device.ipAddress && device.protocol);
+  if (device.type === 'camera') {
+    const protocol = normalizedCameraControlIdentity(device.protocol || device.connection?.protocol);
+    const needsUdpPort = normalizedCameraControlIdentity(device.adapterType) === 'visca-udp' || protocol.includes('visca');
+    return Boolean(device.ipAddress && device.protocol && (!needsUdpPort || Number(device.port) > 0));
+  }
   return Boolean(device.connection?.host || device.metadata?.configured);
 }
 
@@ -2458,12 +2471,13 @@ function settingsPage() {
     <div class="settings-form">
       <label>Name<input data-device-field="name" value="${escapeHtml(selected.name)}"></label>
       ${selected.type === 'camera' ? `<label>Logical role<input data-device-field="logicalRole" list="camera-roles" value="${escapeHtml(selected.logicalRole || '')}"><datalist id="camera-roles">${['main','left','right','audience','pastor','choir'].map(role => `<option value="${role}">`).join('')}</datalist></label>` : ''}
-      ${selected.type === 'camera' ? `<label>Camera adapter<select data-device-field="adapterType"><option value="" ${!selected.adapterType ? 'selected' : ''}>Not configured</option><option value="ptzoptics" ${selected.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics</option></select></label>` : ''}
+      ${selected.type === 'camera' ? `<label>Camera adapter<select data-device-field="adapterType"><option value="" ${!selected.adapterType ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${selected.adapterType === 'visca-udp' ? 'selected' : ''}>VISCA over UDP</option><option value="ptzoptics" ${selected.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics HTTP CGI (legacy)</option></select></label>` : ''}
       <label>Manufacturer<input data-device-field="manufacturer" value="${escapeHtml(selected.manufacturer || '')}"></label>
       <label>Model<input data-device-field="model" value="${escapeHtml(selected.model || '')}"></label>
       <label>IP address / host<input data-device-field="ipAddress" value="${escapeHtml(selected.ipAddress || selected.connection?.host || '')}"></label>
       <label>Port<input type="number" min="0" max="65535" data-device-field="port" value="${selected.port ?? ''}"></label>
-      <label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}" placeholder="visca-over-ip"></label>
+      ${selected.type === 'camera' ? `<label>Protocol<select data-device-field="protocol"><option value="" ${!selected.protocol ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${['visca-udp','visca-over-ip','visca-ip'].includes(normalizedCameraControlIdentity(selected.protocol)) ? 'selected' : ''}>VISCA (UDP)</option><option value="http" ${selected.protocol === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${selected.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select></label>` : `<label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}"></label>`}
+      ${selected.type === 'camera' ? `<label>VISCA address<input type="number" min="1" max="7" data-device-field="viscaAddress" value="${selected.viscaAddress ?? ''}" placeholder="1"></label>` : ''}
       <label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label>
       <label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>
       ${selected.type === 'camera' ? `<label class="checkbox-label"><input type="checkbox" data-device-field="trackingEnabled" ${selected.trackingEnabled ? 'checked' : ''}> Tracking enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="presetSupport" ${selected.presetSupport ? 'checked' : ''}> Preset support</label>` : ''}

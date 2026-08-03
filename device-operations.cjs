@@ -24,6 +24,26 @@ function portValue(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : null;
 }
 
+function viscaAddressValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const address = Number(value);
+  return Number.isInteger(address) && address >= 1 && address <= 7 ? address : null;
+}
+
+function normalizedControlIdentity(value) {
+  return text(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function inferredCameraAdapter(input, connection) {
+  const explicit = nullable(input.adapterType ?? input.metadata?.adapter);
+  if (explicit) return explicit;
+  const protocol = normalizedControlIdentity(input.protocol ?? connection.protocol);
+  const manufacturerModel = `${text(input.manufacturer)} ${text(input.model)}`.trim();
+  if (["visca-udp", "visca-over-ip", "visca-ip"].includes(protocol)) return "visca-udp";
+  if (["udp", "visca"].includes(protocol) && /ptz\s*optics/i.test(manufacturerModel)) return "visca-udp";
+  return null;
+}
+
 function normalizeDevice(input = {}, { now } = {}) {
   const type = DEVICE_TYPES.has(input.type) ? input.type : "camera";
   const createdAt = nullable(input.createdAt) || (now ? new Date(now).toISOString() : EPOCH);
@@ -49,7 +69,8 @@ function normalizeDevice(input = {}, { now } = {}) {
       timeoutMs: portValue(connection.timeoutMs ?? input.timeoutMs),
       username: nullable(connection.username ?? input.username),
       credentialReference: nullable(connection.credentialReference ?? input.credentialReference),
-      password: nullable(connection.password ?? input.password)
+      password: nullable(connection.password ?? input.password),
+      viscaAddress: viscaAddressValue(connection.viscaAddress ?? input.viscaAddress)
     },
     capabilities: {
       tracking: capabilities.tracking === true || input.trackingEnabled === true,
@@ -59,12 +80,13 @@ function normalizeDevice(input = {}, { now } = {}) {
     },
     metadata,
     logicalRole: camera ? (nullable(input.logicalRole ?? input.role) || "camera") : null,
-    adapterType: nullable(input.adapterType ?? input.metadata?.adapter),
+    adapterType: camera ? inferredCameraAdapter(input, connection) : nullable(input.adapterType ?? input.metadata?.adapter),
     manufacturer: camera ? text(input.manufacturer) : text(input.manufacturer),
     model: camera ? text(input.model) : text(input.model),
     ipAddress: camera ? nullable(input.ipAddress ?? connection.host) : nullable(input.ipAddress ?? connection.host),
     port: portValue(input.port ?? connection.port),
     protocol: nullable(input.protocol ?? connection.protocol),
+    viscaAddress: camera ? viscaAddressValue(input.viscaAddress ?? connection.viscaAddress) : null,
     timeoutMs: portValue(input.timeoutMs ?? connection.timeoutMs),
     username: nullable(input.username ?? connection.username),
     credentialReference: nullable(input.credentialReference ?? connection.credentialReference),
@@ -81,6 +103,7 @@ function normalizeDevice(input = {}, { now } = {}) {
 function cameraFromLegacy(camera, index) {
   const suggested = ["main", "left", "right"][index] || camera?.role || "camera";
   return normalizeDevice({
+    ...camera,
     id: camera?.id,
     type: "camera",
     name: camera?.name || `${suggested[0].toUpperCase()}${suggested.slice(1)} Camera`,
@@ -90,6 +113,7 @@ function cameraFromLegacy(camera, index) {
     ipAddress: camera?.host,
     port: camera?.port,
     protocol: camera?.protocol,
+    viscaAddress: camera?.viscaAddress,
     enabled: camera?.enabled !== false,
     trackingEnabled: camera?.tracking === true,
     motionEnabled: camera?.motionEnabled === true,
@@ -136,6 +160,7 @@ function validateDevice(device, state) {
   if (!DEVICE_TYPES.has(device?.type)) errors.push("Unsupported device type");
   if (device?.type === "camera" && !text(device.logicalRole)) errors.push("Camera logical role is required");
   if (device?.port !== null && (!Number.isInteger(device.port) || device.port < 0 || device.port > 65535)) errors.push("Port must be between 0 and 65535");
+  if (device?.type === "camera" && device.viscaAddress !== null && (!Number.isInteger(device.viscaAddress) || device.viscaAddress < 1 || device.viscaAddress > 7)) errors.push("VISCA address must be between 1 and 7");
   if (device?.type === "camera" && device.enabled) {
     const duplicates = (state?.devices || []).filter(item => item.id !== device.id && item.type === "camera" && item.enabled && item.logicalRole === device.logicalRole);
     if (duplicates.length) warnings.push(`Logical role "${device.logicalRole}" is also used by ${duplicates.map(item => item.name).join(", ")}`);
@@ -233,7 +258,11 @@ function deleteDevice(state, deviceId, { confirmReferences = false } = {}) {
 
 function configured(device) {
   if (device?.type === "browserOperator") return true;
-  if (device?.type === "camera") return Boolean(device.ipAddress && device.protocol);
+  if (device?.type === "camera") {
+    const protocol = normalizedControlIdentity(device.protocol ?? device.connection?.protocol);
+    const needsUdpPort = ["visca-udp", "visca-over-ip", "visca-ip"].includes(protocol) || device.adapterType === "visca-udp";
+    return Boolean(device.ipAddress && device.protocol && (!needsUdpPort || (Number.isInteger(device.port) && device.port > 0)));
+  }
   return Boolean(device?.connection?.host || device?.metadata?.configured);
 }
 
@@ -263,6 +292,7 @@ function diagnosticResult(device, now = Date.now()) {
   let message = "Adapter not implemented";
   if (!device.enabled) message = "Disabled";
   else if (!configured(device)) message = "Not configured";
+  else if (device.type === "camera" && ["visca-udp", "ptzoptics"].includes(device.adapterType)) message = "Configured — not tested";
   else if (device.type === "browserOperator") message = "Ready for future test";
   return { status: "stub", message, testedAt: new Date(now).toISOString(), error: null };
 }

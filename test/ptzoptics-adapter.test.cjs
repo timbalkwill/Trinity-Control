@@ -4,8 +4,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { executeCue } = require("../cue-execution.cjs");
-const { createCameraExecutor } = require("../camera-adapter-registry.cjs");
-const { createPtzOpticsTransport } = require("../ptzoptics-adapter.cjs");
+const { createCameraExecutor, resolveCameraAdapter } = require("../camera-adapter-registry.cjs");
+const { createPtzOpticsTransport, createViscaPresetRecallPacket, createViscaUdpTransport } = require("../ptzoptics-adapter.cjs");
 const { normalizeShot } = require("../shot-operations.cjs");
 
 function state(references = [{ role: "main", shotId: "main-shot" }]) {
@@ -91,6 +91,16 @@ test("missing host and missing hardware mapping fail without transport", async (
   selected = executorFor(current);
   assert.equal((await selected.executor.recallPreset({ cameraDeviceId: "main", presetId: "same-id" })).code, "presetMappingMissing");
   assert.equal(selected.calls.length, 0);
+});
+
+test("VISCA UDP requires a configured port before transport execution", async () => {
+  const current = state();
+  current.devices[0] = { ...current.devices[0], adapterType: "visca-udp", protocol: "visca-udp", port: null };
+  const calls = [];
+  const executor = createCameraExecutor(current, { transports: { viscaUdp: configuration => { calls.push(configuration); return { ok: true }; } } });
+  const result = await executor.recallPreset({ cameraDeviceId: "main", presetId: "same-id" });
+  assert.equal(result.code, "configurationIncomplete");
+  assert.equal(calls.length, 0);
 });
 
 test("authentication, connection, timeout, rejection, and unexpected errors are normalized", async () => {
@@ -182,4 +192,59 @@ test("HTTP-CGI transport normalizes timeout and connection errors", async () => 
     assert.equal(result.code, code);
     assert.doesNotMatch(result.message, /private host/);
   }
+});
+
+test("VISCA UDP adapter resolution is protocol-based and independent of display model", () => {
+  assert.equal(resolveCameraAdapter({ adapterType: "visca-udp", manufacturer: "PTZOptics", model: "Move SE" }), "visca-udp");
+  assert.equal(resolveCameraAdapter({ adapterType: "ptzoptics", protocol: "VISCA (UDP)", model: "Move SE" }), "visca-udp");
+  assert.equal(resolveCameraAdapter({ protocol: "visca-over-ip", manufacturer: "Other compatible vendor" }), "visca-udp");
+  assert.equal(resolveCameraAdapter({ adapterType: "unsupported", protocol: "custom" }), null);
+});
+
+test("VISCA UDP preset packet contains the configured address and hardware preset", () => {
+  const packet = createViscaPresetRecallPacket({ address: 3, presetNumber: 42, sequenceNumber: 7 });
+  assert.deepEqual([...packet], [0x01, 0x00, 0x00, 0x07, 0, 0, 0, 7, 0x83, 0x01, 0x04, 0x3f, 0x02, 42, 0xff]);
+});
+
+test("VISCA UDP transport sends one datagram to the configured host and port", async () => {
+  const sends = [];
+  const socket = new EventEmitter();
+  socket.close = () => { socket.closed = true; };
+  socket.send = (packet, port, host, callback) => {
+    sends.push({ packet: [...packet], port, host });
+    callback(null);
+  };
+  const transport = createViscaUdpTransport({ socketFactory: () => socket, now: () => 10 });
+  const result = await transport({ host: "camera.test", port: 1259, viscaAddress: 2, presetNumber: 9, sequenceNumber: 1 });
+  assert.equal(result.ok, true);
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].host, "camera.test");
+  assert.equal(sends[0].port, 1259);
+  assert.deepEqual(sends[0].packet.slice(8), [0x82, 0x01, 0x04, 0x3f, 0x02, 9, 0xff]);
+  assert.equal(socket.closed, true);
+});
+
+test("configured church camera endpoints route once through injected VISCA UDP transport", async () => {
+  const cameras = [
+    ["main", "10.1.10.183", 1],
+    ["left", "10.1.10.197", 2],
+    ["right", "10.1.10.64", 3]
+  ];
+  const current = {
+    devices: cameras.map(([id, ipAddress, viscaAddress]) => ({
+      id, type: "camera", name: `${id} PTZ`, enabled: true, adapterType: "visca-udp",
+      manufacturer: "PTZOptics", model: "Move SE", ipAddress, port: 1259, protocol: "visca-udp", viscaAddress
+    })),
+    cameraPresets: cameras.map(([id], index) => ({ id: `${id}-preset`, cameraDeviceId: id, presetNumber: index + 10 }))
+  };
+  const calls = [];
+  const executor = createCameraExecutor(current, { transports: { viscaUdp: configuration => { calls.push(configuration); return { ok: true, message: "sent" }; } } });
+  for (const [id] of cameras) {
+    const result = await executor.recallPreset({ cameraDeviceId: id, presetId: `${id}-preset` });
+    assert.equal(result.ok, true);
+  }
+  assert.equal(calls.length, 3);
+  assert.deepEqual(calls.map(call => [call.host, call.port, call.viscaAddress]), [
+    ["10.1.10.183", 1259, 1], ["10.1.10.197", 1259, 2], ["10.1.10.64", 1259, 3]
+  ]);
 });

@@ -1,8 +1,64 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const dgram = require("node:dgram");
 const http = require("node:http");
 const https = require("node:https");
+
+let viscaSequence = 0;
+
+function viscaAddress(value) {
+  const address = Number(value ?? 1);
+  return Number.isInteger(address) && address >= 1 && address <= 7 ? address : 1;
+}
+
+function createViscaPresetRecallPacket({ presetNumber, address = 1, sequenceNumber } = {}) {
+  if (!Number.isInteger(presetNumber) || presetNumber < 0 || presetNumber > 254) {
+    throw new RangeError("VISCA preset number must be between 0 and 254");
+  }
+  const payload = Buffer.from([0x80 + viscaAddress(address), 0x01, 0x04, 0x3f, 0x02, presetNumber, 0xff]);
+  const packet = Buffer.alloc(8 + payload.length);
+  packet.writeUInt16BE(0x0100, 0);
+  packet.writeUInt16BE(payload.length, 2);
+  packet.writeUInt32BE((sequenceNumber ?? viscaSequence++) >>> 0, 4);
+  payload.copy(packet, 8);
+  return packet;
+}
+
+function createViscaUdpTransport({ socketFactory = () => dgram.createSocket("udp4"), now = Date.now } = {}) {
+  return function recallViscaPreset(configuration) {
+    const startedAt = now();
+    const port = Number(configuration.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return Promise.resolve({ ok: false, code: "configurationIncomplete", message: "Camera UDP port is not configured" });
+    }
+    let packet;
+    try {
+      packet = createViscaPresetRecallPacket({
+        presetNumber: configuration.presetNumber,
+        address: configuration.viscaAddress,
+        sequenceNumber: configuration.sequenceNumber
+      });
+    } catch {
+      return Promise.resolve({ ok: false, code: "presetMappingMissing", message: "Camera preset hardware mapping is missing or invalid" });
+    }
+    return new Promise(resolve => {
+      const socket = socketFactory();
+      let settled = false;
+      const finish = result => {
+        if (settled) return;
+        settled = true;
+        try { socket.close(); } catch { /* Socket may already be closed. */ }
+        resolve({ ...result, elapsedMs: Math.max(0, now() - startedAt) });
+      };
+      socket.once("error", error => finish(normalizedFailure(error)));
+      socket.send(packet, port, configuration.host, error => {
+        if (error) finish(normalizedFailure(error));
+        else finish({ ok: true, message: "VISCA UDP preset recall command sent" });
+      });
+    });
+  };
+}
 
 function digestChallenge(header = "") {
   if (!/^Digest\s/i.test(header)) return null;
@@ -96,4 +152,10 @@ function createPtzOpticsTransport({ requestImpl, timeoutMs = 3000, now = Date.no
   };
 }
 
-module.exports = { createPtzOpticsTransport, digestAuthorization, digestChallenge };
+module.exports = {
+  createPtzOpticsTransport,
+  createViscaPresetRecallPacket,
+  createViscaUdpTransport,
+  digestAuthorization,
+  digestChallenge
+};

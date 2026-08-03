@@ -17,6 +17,9 @@ let servicePageError = '';
 let selectedLookId = null;
 let lookSearch = '';
 let settingsSection = 'devices';
+let backupImportPreview = null;
+let lastBackupExportAt = null;
+let backupBusy = false;
 let systemStatus = null;
 let systemStatusLoading = false;
 let rendererFps = null;
@@ -2475,6 +2478,7 @@ function settingsPage() {
     ['presentation', 'Presentation'],
     ['network', 'Network'],
     ['diagnostics', 'Diagnostics'],
+    ['backup', 'Backup & Transfer'],
     ['systemStatus', 'System Status']
   ];
   const devices = state.devices || [];
@@ -2623,6 +2627,25 @@ function settingsPage() {
   } else if (settingsSection === 'diagnostics') {
     body = `<div class="settings-heading"><div><span class="eyebrow">STUB ADAPTER STATUS</span><h1>Diagnostics</h1><p>Results are configuration checks only; no hardware connection is attempted.</p></div><button id="run-all-tests">RUN ALL TESTS</button></div>
       <div class="diagnostic-table">${devices.map(device => { const result = device.metadata?.diagnostic; return `<div><strong>${escapeHtml(device.name)}</strong><span>${escapeHtml(device.type)}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${escapeHtml(deviceStatusLabel(device.connectionStatus))}</span><span>${escapeHtml(result?.message || 'Not tested')}</span><button data-test-device="${device.id}">TEST</button><button data-clear-diagnostic="${device.id}">CLEAR</button></div>`; }).join('')}</div>`;
+  } else if (settingsSection === 'backup') {
+    const countRows = preview => [
+      ['Service Cues', preview.counts.serviceCues], ['Quick Add Templates', preview.counts.quickAddTemplates],
+      ['Production Looks', preview.counts.productionLooks], ['Lighting Scenes', preview.counts.lightingScenes],
+      ['Cameras', preview.counts.cameras], ['Camera Presets', preview.counts.cameraPresets],
+      ['Shots', preview.counts.shots], ['Devices', preview.counts.devices]
+    ].map(([label, count]) => `<div><span>${label}</span><strong>${Number(count) || 0}</strong></div>`).join('');
+    body = `<div class="settings-heading"><div><span class="eyebrow">PORTABLE CONFIGURATION</span><h1>Backup & Transfer</h1><p>Move Trinity configuration between computers or create a safety backup.</p></div></div>
+      <div class="backup-transfer-grid">
+        <section class="panel backup-transfer-panel"><div><span class="eyebrow">EXPORT</span><h2>Create a Trinity backup</h2><p>Creates one portable file containing production configuration and stable IDs.</p></div><button id="backup-export" ${backupBusy ? 'disabled' : ''}>${backupBusy ? 'WORKING…' : 'EXPORT TRINITY BACKUP'}</button><small>Last Export: ${lastBackupExportAt ? escapeHtml(new Date(lastBackupExportAt).toLocaleString()) : 'Not exported in this application session'}</small></section>
+        <section class="panel backup-transfer-panel"><div><span class="eyebrow">IMPORT</span><h2>Restore a Trinity backup</h2><p>Selecting a file only validates and previews it. Nothing is replaced until you confirm.</p></div><button id="backup-select" ${backupBusy ? 'disabled' : ''}>SELECT BACKUP FILE</button><small>Passwords, tokens, runtime status, and computer-specific QLC+ paths are not transferred.</small></section>
+      </div>
+      ${backupImportPreview ? `<section class="panel backup-preview" role="region" aria-labelledby="backup-preview-title">
+        <div><span class="eyebrow">TRINITY BACKUP</span><h2 id="backup-preview-title">Ready to import</h2></div>
+        <div class="backup-metadata"><span>Created <strong>${escapeHtml(new Date(backupImportPreview.createdAt).toLocaleString())}</strong></span><span>Trinity Version <strong>${escapeHtml(backupImportPreview.trinityVersion)}</strong></span><span>Backup Format <strong>${backupImportPreview.backupFormatVersion}</strong></span></div>
+        <div class="backup-counts">${countRows(backupImportPreview)}</div>
+        <div class="settings-warning"><strong>This is a replace operation.</strong> Importing this backup will replace the portable Trinity configuration on this computer. A recovery backup of the current configuration will be created first.</div>
+        <div class="backup-preview-actions"><button id="backup-cancel">CANCEL</button><button id="backup-confirm" class="primary" ${backupBusy ? 'disabled' : ''}>IMPORT BACKUP</button></div>
+      </section>` : ''}`;
   } else if (settingsSection === 'systemStatus') {
     body = systemStatusPage();
   } else {
@@ -2637,6 +2660,36 @@ function settingsPage() {
     if (settingsSection === 'systemStatus' && !systemStatus) void refreshSystemStatus();
   });
   document.getElementById('refresh-system-status')?.addEventListener('click', () => void refreshSystemStatus());
+  document.getElementById('backup-export')?.addEventListener('click', async () => {
+    backupBusy = true; render();
+    try {
+      const result = await window.trinity.exportTrinityBackup();
+      if (!result.canceled) { lastBackupExportAt = Date.now(); showNotification('Trinity backup exported', { type: 'success' }); }
+    } catch (error) { showNotification(error.message || 'Backup export failed', { type: 'error' }); }
+    finally { backupBusy = false; render(); }
+  });
+  document.getElementById('backup-select')?.addEventListener('click', async () => {
+    backupBusy = true; render();
+    try {
+      const result = await window.trinity.selectTrinityBackup();
+      backupImportPreview = result.canceled ? null : result.preview;
+    } catch (error) {
+      backupImportPreview = null;
+      showNotification(error.message || 'The backup could not be validated', { type: 'error', persistent: true });
+    } finally { backupBusy = false; render(); }
+  });
+  document.getElementById('backup-cancel')?.addEventListener('click', async () => {
+    await window.trinity.cancelTrinityBackupImport(); backupImportPreview = null; render();
+  });
+  document.getElementById('backup-confirm')?.addEventListener('click', async () => {
+    backupBusy = true; render();
+    try {
+      const result = await window.trinity.importTrinityBackup();
+      state = result.state; backupImportPreview = null;
+      showNotification(`Backup imported. ${result.preview.counts.serviceCues} service cues and ${result.preview.counts.devices} devices restored. Restart Trinity to reload hardware services.`, { type: 'success', persistent: true });
+    } catch (error) { showNotification(error.message || 'Backup import failed; current configuration was preserved', { type: 'error', persistent: true }); }
+    finally { backupBusy = false; render(); }
+  });
   const typeFilter = document.getElementById('device-type-filter');
   if (typeFilter) typeFilter.onchange = () => { deviceTypeFilter = typeFilter.value; render(); };
   const enabledFilter = document.getElementById('device-enabled-filter');

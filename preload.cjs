@@ -44,6 +44,10 @@ contextBridge.exposeInMainWorld("trinity", {
     return () => ipcRenderer.removeListener("operator:state-changed", listener);
   },
   saveState: s => ipcRenderer.invoke("state:save", s),
+  exportTrinityBackup: () => ipcRenderer.invoke("backup:export"),
+  selectTrinityBackup: () => ipcRenderer.invoke("backup:select-import"),
+  cancelTrinityBackupImport: () => ipcRenderer.invoke("backup:cancel-import"),
+  importTrinityBackup: () => ipcRenderer.invoke("backup:confirm-import"),
   addCueTemplate: id => ipcRenderer.invoke("cue:addTemplate", id),
   moveCue: (from, to) => ipcRenderer.invoke("cue:move", { from, to }),
   reorderCueById: (cueId, targetCueId, placement) => ipcRenderer.invoke("cue:move-by-id", { cueId, targetCueId, placement }),

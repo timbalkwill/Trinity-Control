@@ -21,6 +21,7 @@ const {
 const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
 const { createAtemService } = require("./atem-service.cjs");
+const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
 
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
@@ -30,6 +31,7 @@ let mainWindow;
 let operatorServer;
 let qlcServiceManager;
 let atemService;
+let selectedBackupImportPath = null;
 let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
   running: false,
@@ -768,7 +770,7 @@ function loadState() {
   try { return migrate(JSON.parse(fs.readFileSync(dataPath(), "utf8"))); }
   catch { const s = migrate(defaultState()); saveState(s); return s; }
 }
-function saveState(state) { fs.writeFileSync(dataPath(), JSON.stringify(state, null, 2)); return state; }
+function saveState(state) { atomicWrite(dataPath(), `${JSON.stringify(state, null, 2)}\n`); return state; }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -799,6 +801,13 @@ function installApplicationMenu() {
 
 app.whenReady().then(async () => {
   const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
+  const backupManager = createBackupManager({
+    getState: commands.getState,
+    replaceState: commands.replaceState,
+    normalizeState: migrate,
+    trinityVersion: app.getVersion(),
+    userDataPath: app.getPath("userData")
+  });
   atemService = createAtemService({ getState: commands.getState, logger: console });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
@@ -857,6 +866,40 @@ app.whenReady().then(async () => {
     });
   });
   ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
+  ipcMain.handle("backup:export", async () => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "Export Trinity Backup",
+      defaultPath: path.join(app.getPath("documents"), defaultBackupFilename()),
+      filters: [{ name: "Trinity Backup", extensions: ["trinitybackup"] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const filePath = result.filePath.toLowerCase().endsWith(".trinitybackup") ? result.filePath : `${result.filePath}.trinitybackup`;
+    const exported = backupManager.exportTo(filePath);
+    return { canceled: false, preview: exported.preview };
+  });
+  ipcMain.handle("backup:select-import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select Trinity Backup",
+      properties: ["openFile"],
+      filters: [{ name: "Trinity Backup", extensions: ["trinitybackup"] }, { name: "All Files", extensions: ["*"] }]
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      selectedBackupImportPath = null;
+      return { canceled: true };
+    }
+    const filePath = result.filePaths[0];
+    const preview = backupManager.previewFile(filePath);
+    selectedBackupImportPath = filePath;
+    return { canceled: false, preview };
+  });
+  ipcMain.handle("backup:cancel-import", () => { selectedBackupImportPath = null; return true; });
+  ipcMain.handle("backup:confirm-import", async () => {
+    if (!selectedBackupImportPath) throw Object.assign(new Error("Select a Trinity backup before importing"), { code: "BACKUP_NOT_SELECTED" });
+    const filePath = selectedBackupImportPath;
+    selectedBackupImportPath = null;
+    const imported = await backupManager.importFile(filePath);
+    return { state: imported.state, preview: imported.preview, restartRequired: imported.restartRequired };
+  });
   ipcMain.handle("operator-server:status", () => operatorServerStatus);
   ipcMain.handle("qlc-service:status", () => qlcServiceStatus);
   ipcMain.handle("qlc-service:update-settings", (_e, patch) => commands.updateState(state => {

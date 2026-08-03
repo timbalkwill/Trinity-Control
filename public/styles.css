@@ -496,6 +496,16 @@
 }
 
 
+.backup-transfer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px}
+.backup-transfer-panel{display:grid;align-content:space-between;gap:18px;min-height:220px}
+.backup-transfer-panel h2,.backup-preview h2{margin:6px 0 8px}.backup-transfer-panel p{color:var(--muted);line-height:1.5}
+.backup-transfer-panel small{color:var(--muted)}.backup-preview{display:grid;gap:16px}
+.backup-metadata{display:flex;gap:10px;flex-wrap:wrap}.backup-metadata span{display:grid;gap:4px;background:#0b1620;border-radius:9px;padding:9px 12px;color:var(--muted)}
+.backup-metadata strong{color:var(--text)}.backup-counts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.backup-counts>div{display:flex;justify-content:space-between;gap:8px;background:#0b1620;border:1px solid var(--line);border-radius:9px;padding:10px}.backup-counts span{color:var(--muted)}
+.backup-preview-actions{display:flex;justify-content:flex-end;gap:8px}.backup-preview-actions .primary{background:var(--blue);color:#06111b}
+@media(max-width:1100px){.backup-transfer-grid{grid-template-columns:1fr}.backup-counts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 /* Home Assistant lighting power */
 .lighting-page-scroll { display: grid; gap: 14px; }
 .home-assistant-lighting-panel { border-color: rgba(71, 213, 158, .42); }

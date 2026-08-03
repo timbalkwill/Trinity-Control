@@ -9,7 +9,7 @@
   const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
   const currentIndex = () => Number(state?.live?.cueIndex) || 0;
   const connected = () => connectionStatus === "connected" && navigator.onLine;
-  const cameras = () => roles.map(role => (state?.managedCameras || []).find(camera => camera.logicalRole === role) || null);
+  const cameras = () => roles.map(role => (state?.managedCameras || []).find(camera => camera.productionRole === role) || null);
   const cameraId = camera => camera?.cameraDeviceId || null;
   const cameraReady = camera => Boolean(cameraId(camera) && camera.enabled !== false && camera.configured);
   const atemConnected = () => state?.atemStatus?.connectionState === "connected";
@@ -28,14 +28,14 @@
     return `<section class="camera-column${live ? " live" : ""}" data-camera-id="${escapeHtml(id || "")}" data-camera-role="${role}">
       <header><div><span class="camera-role">${role}</span><h2>${escapeHtml(name)}</h2></div><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
       <div class="live-badge">${live ? "LIVE" : "STANDBY"}</div>
-      <div class="control-group"><h3>PRESETS</h3><div class="button-stack">${presets.map(preset => {
+      <div class="camera-content-scroll"><div class="control-group"><h3>PRESETS</h3><div class="button-stack">${presets.map(preset => {
         const key = `preset:${id}:${preset.id}`;
         return `<button data-action="preset" data-camera-id="${escapeHtml(id)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(key, ready)}>${escapeHtml(preset.name)}</button>`;
       }).join("") || '<span class="empty">No presets</span>'}</div></div>
       <div class="control-group motion-group"><h3>MOTION</h3><div class="button-stack">${motions.map(shot => {
         const key = `motion:${id}:${shot.id}`;
         return `<button data-action="motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}>${escapeHtml(shot.name)}</button>`;
-      }).join("") || '<span class="empty">No motion shots</span>'}</div></div>
+      }).join("") || '<span class="empty">No motion shots</span>'}</div></div></div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
       <button class="take-live" data-action="take" data-camera-id="${escapeHtml(id || "")}"${disabledAttribute(`take:${id}`, takeReady && !live)}>${live ? "ON AIR" : "TAKE LIVE"}</button>
     </section>`;

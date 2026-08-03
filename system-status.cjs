@@ -33,7 +33,7 @@ function health(status, message) {
   return { status, message };
 }
 
-function buildSystemStatus({ state, qlcStatus = {}, appInfo, storage, now = () => new Date(), processInfo = {} }) {
+function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, appInfo, storage, now = () => new Date(), processInfo = {} }) {
   const devices = state?.devices || [];
   const cameras = devices.filter(device => device.type === "camera");
   const lightingDevice = devices.find(device => device.type === "lighting");
@@ -92,6 +92,21 @@ function buildSystemStatus({ state, qlcStatus = {}, appInfo, storage, now = () =
         : cameras.length
           ? health("healthy", `${cameras.length} cameras configured`)
           : health("warning", "No cameras configured")
+    },
+    atem: {
+      name: atemStatus.name || "ATEM Mini Pro",
+      enabled: atemStatus.enabled === true,
+      configured: atemStatus.configured === true,
+      connectionState: atemStatus.connectionState || "notConfigured",
+      host: atemStatus.host || "Not configured",
+      programInput: atemStatus.programInput ?? "Unknown",
+      liveCameraId: atemStatus.liveCameraId || null,
+      liveCameraName: cameras.find(camera => camera.id === atemStatus.liveCameraId)?.name || null,
+      health: atemStatus.connectionState === "connected"
+        ? health("healthy", "ATEM is connected")
+        : atemStatus.enabled === false
+          ? health("warning", "ATEM is disabled")
+          : health("error", atemStatus.message || "ATEM is not connected")
     },
     production: {
       servicePlan: state?.servicePlan?.name || state?.servicePlanName || (cues.length ? "Loaded service plan" : "None"),

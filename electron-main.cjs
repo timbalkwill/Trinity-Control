@@ -20,6 +20,7 @@ const {
 } = require("./device-operations.cjs");
 const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
+const { createAtemService } = require("./atem-service.cjs");
 
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
@@ -28,6 +29,7 @@ app.setPath("userData", existingUserDataPath);
 let mainWindow;
 let operatorServer;
 let qlcServiceManager;
+let atemService;
 let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
   running: false,
@@ -797,6 +799,7 @@ function installApplicationMenu() {
 
 app.whenReady().then(async () => {
   const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
+  atemService = createAtemService({ getState: commands.getState, logger: console });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -823,6 +826,7 @@ app.whenReady().then(async () => {
     return buildSystemStatus({
       state: commands.getState(),
       qlcStatus: qlcServiceStatus,
+      atemStatus: atemService.getStatus(),
       appInfo: {
         name: "Trinity Control",
         version: app.getVersion(),
@@ -898,7 +902,11 @@ app.whenReady().then(async () => {
   ipcMain.handle("look:duplicate", (_e, lookId) => commands.duplicateProductionLook(lookId));
   ipcMain.handle("look:delete", (_e, { lookId, options }) => commands.deleteProductionLook(lookId, options));
   ipcMain.handle("device:create", (_e, input) => commands.createDevice(input));
-  ipcMain.handle("device:update", (_e, { deviceId, patch }) => commands.updateDevice(deviceId, patch));
+  ipcMain.handle("device:update", async (_e, { deviceId, patch }) => {
+    const state = await commands.updateDevice(deviceId, patch);
+    if ((state.devices || []).find(device => device.id === deviceId)?.type === "switcher") await atemService.reconfigure();
+    return state;
+  });
   ipcMain.handle("device:duplicate", (_e, deviceId) => commands.duplicateDevice(deviceId));
   ipcMain.handle("device:delete", (_e, { deviceId, options }) => commands.deleteDevice(deviceId, options));
   ipcMain.handle("device:reorder", (_e, { from, to }) => commands.reorderDevice(from, to));
@@ -930,6 +938,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
+  ipcMain.handle("atem:status", () => atemService.getStatus());
+  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => atemService.takeLive(cameraDeviceId));
   ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
   ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
   ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());
@@ -977,6 +987,10 @@ app.whenReady().then(async () => {
 
   createWindow();
   installApplicationMenu();
+  atemService.subscribe(status => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("atem:status-changed", status);
+  });
+  void atemService.initialize();
   void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,
@@ -992,12 +1006,16 @@ app.whenReady().then(async () => {
 app.on("activate", () => { if (!mainWindow) createWindow(); });
 app.on("before-quit", event => {
   qlcServiceManager?.shutdown();
-  if (!operatorServer) return;
+  if (!operatorServer && !atemService) return;
   event.preventDefault();
   const server = operatorServer;
+  const switcher = atemService;
   operatorServer = null;
-  server.close()
-    .catch(error => console.error(`[Trinity Operator] Server failed to close cleanly: ${error.message}`))
+  atemService = null;
+  Promise.all([
+    server?.close().catch(error => console.error(`[Trinity Operator] Server failed to close cleanly: ${error.message}`)),
+    switcher?.shutdown()
+  ])
     .finally(() => app.quit());
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

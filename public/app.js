@@ -8,6 +8,7 @@ let showAllLightingControls = false;
 let showAllDiscoveredLightingControls = false;
 let lightingSceneFilter = 'production';
 let qlcServiceStatus = null;
+let atemStatus = null;
 let operatorServerStatus;
 let appInfo = null;
 let page = 'live';
@@ -1205,15 +1206,20 @@ function CameraDirectorCard(camera) {
   const presets = (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
   const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
   const controlsDisabled = !status.available || preparation.tracking?.active === true;
-  return `<article class="camera-director-card" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
+  const atemConnected = atemStatus?.connectionState === 'connected';
+  const atemInput = atemStatus?.cameraInputs?.[camera.id];
+  const isLive = atemConnected && atemStatus.liveCameraId === camera.id;
+  const takeDisabled = !atemConnected || atemInput === undefined || isLive;
+  return `<article class="camera-director-card ${isLive ? 'atem-live' : ''}" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
     <header>
       <div><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)}</strong></div>
-      <span class="camera-live-indicator" data-live-indicator hidden>● LIVE</span>
+      <span class="camera-live-indicator" data-live-indicator ${isLive ? '' : 'hidden'}>● LIVE</span>
     </header>
     <div class="camera-director-status">
       <span class="preparation-status ${status.className}">${escapeHtml(status.label)}</span>
       <small>${preparation.tracking?.active ? 'Tracking active — position controls disabled' : lastCommandedId ? `Last Commanded: ${escapeHtml(preparation.preparedAssignment.presetName || '')}` : 'No position commanded'}</small>
     </div>
+    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive ? 'LIVE' : 'TAKE LIVE'}</button>
     <div class="camera-action-section">
       <div class="camera-action-heading"><strong>PRESETS / STATIC SHOTS</strong><span>${presets.length}</span></div>
       <div class="camera-preset-list" data-camera-list="${escapeHtml(camera.id)}" data-scroll-key="camera-presets-${escapeHtml(camera.id)}" tabindex="0" aria-label="Available positions for ${escapeHtml(camera.name)}">
@@ -1245,7 +1251,7 @@ function livePage() {
       </div>
     </aside>
     <section class="simple-live-main">
-      <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>Manual camera positioning</small></div>
+      <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>ATEM: ${escapeHtml(atemStatus?.connectionState || 'Unknown')} · PROGRAM ${escapeHtml(atemStatus?.programInput ?? '—')}</small></div>
       <div class="camera-director-grid">${productionDirectorCameras().map(CameraDirectorCard).join('')}</div>
     </section>
   </div>`);
@@ -1260,6 +1266,16 @@ function livePage() {
       button.disabled = true;
       try { state = await window.trinity.recallCameraPreset(button.dataset.recallCamera, button.dataset.recallPreset); render(); }
       catch (error) { button.disabled = false; window.alert(error.message); }
+    };
+  });
+  document.querySelectorAll('[data-atem-take-live]').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true;
+      try { await window.trinity.takeCameraLive(button.dataset.atemTakeLive); }
+      catch (error) {
+        showNotification(error.message || 'ATEM switch failed', { type: 'error' });
+        button.disabled = false;
+      }
     };
   });
 }
@@ -2315,6 +2331,14 @@ function systemStatusPage() {
       ['Last successful command', formatDiagnosticDate(systemStatus.lighting.lastSuccessfulCommand)],
       ['Connection status', systemStatus.lighting.connectionStatus]
     ])],
+    ['ATEM Mini Pro', systemStatus.atem.health, diagnosticRows([
+      ['Enabled', systemStatus.atem.enabled ? 'Yes' : 'No'],
+      ['Configured', systemStatus.atem.configured ? 'Yes' : 'No'],
+      ['Connection state', systemStatus.atem.connectionState],
+      ['Host', systemStatus.atem.host],
+      ['Current PROGRAM input', systemStatus.atem.programInput],
+      ['Mapped LIVE camera', systemStatus.atem.liveCameraName || systemStatus.atem.liveCameraId || 'None']
+    ])],
     ['Production System', systemStatus.production.health, diagnosticRows([
       ['Loaded service plan', systemStatus.production.servicePlan],
       ['Current cue', systemStatus.production.currentCue],
@@ -2418,6 +2442,7 @@ function settingsPage() {
   const qlcplusPages = lightingDevice?.metadata?.qlcplusPages || [];
   const roleWarnings = cameras.filter(camera => camera.enabled && cameras.some(other => other.id !== camera.id && other.enabled && other.logicalRole === camera.logicalRole));
   const selected = byId(devices, selectedDeviceId) || null;
+  const selectedIsAtem = selected?.type === 'switcher' && (selected.adapterType === 'atem' || selected.metadata?.adapter === 'atem' || selected.id === 'device-atem');
   const selectedReferences = selected?.type === 'camera' ? cameraReferenceSummary(selected.id) : null;
   const summary = device => {
     const diagnostic = device.metadata?.diagnostic;
@@ -2441,6 +2466,15 @@ function settingsPage() {
         <div class="device-facts"><span>${enabled ? 'Enabled in Trinity' : 'Disabled in Trinity'}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>Process: ${escapeHtml(processLabel)}</span><span>Connection: ${escapeHtml(connectionLabel)}</span><span>Lighting execution: ${escapeHtml(executionLabel)}</span><span>Controls discovered: ${controls}</span></div>
         <small>${escapeHtml(!enabled && processLabel !== 'Stopped' ? 'QLC+ process still running. Trinity monitoring and execution are disabled.' : qlcServiceStatus?.message || diagnostic?.message || 'Status not checked')}</small>
         <div class="row-actions"><button data-configure-device="${device.id}">CONFIGURE</button><button data-toggle-device="${device.id}">${enabled ? 'DISABLE IN TRINITY' : 'ENABLE IN TRINITY'}</button><button data-duplicate-device="${device.id}">DUPLICATE</button><button class="danger" data-delete-device="${device.id}">DELETE</button></div>
+      </article>`;
+    }
+    if (device.type === 'switcher' && (device.adapterType === 'atem' || device.metadata?.adapter === 'atem' || device.id === 'device-atem')) {
+      return `<article class="device-card ${device.enabled ? '' : 'disabled'}">
+        <div class="device-card-head"><span class="device-type">switcher</span><strong>${escapeHtml(device.name)}</strong></div>
+        <div class="device-facts"><span>${device.enabled ? 'Enabled' : 'Disabled'}</span><span>${deviceConfigured(device) ? 'Configured' : 'Not configured'}</span><span>${escapeHtml(atemStatus?.connectionState || 'Unknown')}</span></div>
+        <small>${escapeHtml(device.ipAddress || device.connection?.host || 'No host assigned')}</small>
+        <small>PROGRAM input: ${escapeHtml(atemStatus?.programInput ?? 'Unknown')} · LIVE camera: ${escapeHtml(atemStatus?.liveCameraId || 'Unmapped / none')}</small>
+        <div class="row-actions"><button data-configure-device="${device.id}">CONFIGURE</button><button data-toggle-device="${device.id}">${device.enabled ? 'DISABLE' : 'ENABLE'}</button></div>
       </article>`;
     }
     return `<article class="device-card ${device.enabled ? '' : 'disabled'}">
@@ -2472,14 +2506,12 @@ function settingsPage() {
       <label>Name<input data-device-field="name" value="${escapeHtml(selected.name)}"></label>
       ${selected.type === 'camera' ? `<label>Logical role<input data-device-field="logicalRole" list="camera-roles" value="${escapeHtml(selected.logicalRole || '')}"><datalist id="camera-roles">${['main','left','right','audience','pastor','choir'].map(role => `<option value="${role}">`).join('')}</datalist></label>` : ''}
       ${selected.type === 'camera' ? `<label>Camera adapter<select data-device-field="adapterType"><option value="" ${!selected.adapterType ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${selected.adapterType === 'visca-udp' ? 'selected' : ''}>VISCA over UDP</option><option value="ptzoptics" ${selected.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics HTTP CGI (legacy)</option></select></label>` : ''}
-      <label>Manufacturer<input data-device-field="manufacturer" value="${escapeHtml(selected.manufacturer || '')}"></label>
-      <label>Model<input data-device-field="model" value="${escapeHtml(selected.model || '')}"></label>
+      ${selectedIsAtem ? '<span class="wide field-help">ATEM control and status use the switcher Ethernet connection only. No video is ingested.</span>' : `<label>Manufacturer<input data-device-field="manufacturer" value="${escapeHtml(selected.manufacturer || '')}"></label><label>Model<input data-device-field="model" value="${escapeHtml(selected.model || '')}"></label>`}
       <label>IP address / host<input data-device-field="ipAddress" value="${escapeHtml(selected.ipAddress || selected.connection?.host || '')}"></label>
-      <label>Port<input type="number" min="0" max="65535" data-device-field="port" value="${selected.port ?? ''}"></label>
-      ${selected.type === 'camera' ? `<label>Protocol<select data-device-field="protocol"><option value="" ${!selected.protocol ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${['visca-udp','visca-over-ip','visca-ip'].includes(normalizedCameraControlIdentity(selected.protocol)) ? 'selected' : ''}>VISCA (UDP)</option><option value="http" ${selected.protocol === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${selected.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select></label>` : `<label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}"></label>`}
+      ${selectedIsAtem ? '' : `<label>Port<input type="number" min="0" max="65535" data-device-field="port" value="${selected.port ?? ''}"></label>`}
+      ${selectedIsAtem ? '' : selected.type === 'camera' ? `<label>Protocol<select data-device-field="protocol"><option value="" ${!selected.protocol ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${['visca-udp','visca-over-ip','visca-ip'].includes(normalizedCameraControlIdentity(selected.protocol)) ? 'selected' : ''}>VISCA (UDP)</option><option value="http" ${selected.protocol === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${selected.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select></label>` : `<label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}"></label>`}
       ${selected.type === 'camera' ? `<label>VISCA address<input type="number" min="1" max="7" data-device-field="viscaAddress" value="${selected.viscaAddress ?? ''}" placeholder="1"></label>` : ''}
-      <label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label>
-      <label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>
+      ${selectedIsAtem ? productionDirectorCameras().map(camera => `<label>${escapeHtml(camera.name)} ATEM input<input type="number" min="1" data-atem-camera-input="${escapeHtml(camera.id)}" value="${selected.metadata?.atemCameraInputs?.[camera.id] ?? ''}" placeholder="Unmapped"></label>`).join('') : `<label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label><label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>`}
       ${selected.type === 'camera' ? `<label class="checkbox-label"><input type="checkbox" data-device-field="trackingEnabled" ${selected.trackingEnabled ? 'checked' : ''}> Tracking enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="presetSupport" ${selected.presetSupport ? 'checked' : ''}> Preset support</label>` : ''}
       <label class="checkbox-label"><input type="checkbox" data-device-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Notes<textarea data-device-field="notes">${escapeHtml(selected.notes || '')}</textarea></label>
@@ -2603,6 +2635,15 @@ function settingsPage() {
     const updated = byId(state.devices, selected.id);
     const duplicates = state.devices.filter(device => device.id !== updated.id && device.type === 'camera' && device.enabled && updated.enabled && device.logicalRole === updated.logicalRole);
     if (duplicates.length) window.alert(`Warning: logical role "${updated.logicalRole}" is also used by ${duplicates.map(device => device.name).join(', ')}.`);
+    render();
+  });
+  document.querySelectorAll('[data-atem-camera-input]').forEach(input => input.onchange = async () => {
+    const cameraInputs = { ...(selected.metadata?.atemCameraInputs || {}) };
+    if (input.value === '') delete cameraInputs[input.dataset.atemCameraInput];
+    else cameraInputs[input.dataset.atemCameraInput] = Number(input.value);
+    state = await window.trinity.updateDevice(selected.id, {
+      metadata: { ...(selected.metadata || {}), adapter: 'atem', atemCameraInputs: cameraInputs }
+    });
     render();
   });
   document.querySelectorAll('[data-lighting-device-field]').forEach(input => input.onchange = async () => {
@@ -2755,15 +2796,21 @@ document.addEventListener('keydown', async event => {
       if (unchanged) updateQlcStatusElements();
       else render({ reason: 'qlc-service-status-changed' });
     });
-    const [initialState, initialServerStatus, initialQlcServiceStatus, initialAppInfo] = await Promise.all([
+    window.trinity.onAtemStatusChanged(status => {
+      atemStatus = status;
+      if (state && (page === 'live' || page === 'settings')) render({ reason: 'atem-status-changed' });
+    });
+    const [initialState, initialServerStatus, initialQlcServiceStatus, initialAtemStatus, initialAppInfo] = await Promise.all([
       window.trinity.getState(),
       window.trinity.getOperatorServerStatus(),
       window.trinity.getQlcServiceStatus(),
+      window.trinity.getAtemStatus(),
       window.trinity.getAppInfo()
     ]);
     state = pendingState || initialState;
     operatorServerStatus = initialServerStatus;
     qlcServiceStatus = initialQlcServiceStatus;
+    atemStatus = initialAtemStatus;
     appInfo = initialAppInfo;
 
     render({ reason: 'initial-load', preserveScroll: false });

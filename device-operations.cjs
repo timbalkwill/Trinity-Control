@@ -125,7 +125,7 @@ function cameraFromLegacy(camera, index) {
 function defaultPlaceholders() {
   return [
     { id: "device-qlc", type: "lighting", name: "QLC+", metadata: { adapter: "qlc-plus" } },
-    { id: "device-atem", type: "switcher", name: "ATEM", metadata: { adapter: "atem" } },
+    { id: "device-atem", type: "switcher", name: "ATEM Mini Pro", metadata: { adapter: "atem" } },
     { id: "device-x32", type: "audio", name: "X32", metadata: { adapter: "x32" } },
     { id: "device-presentation", type: "presentation", name: "Presentation System" },
     { id: "device-browser-operator", type: "browserOperator", name: "Browser Operator" }

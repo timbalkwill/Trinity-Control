@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld("trinity", {
   },
   getOperatorServerStatus: () => ipcRenderer.invoke("operator-server:status"),
   getQlcServiceStatus: () => ipcRenderer.invoke("qlc-service:status"),
+  getAtemStatus: () => ipcRenderer.invoke("atem:status"),
+  onAtemStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("atem:status-changed", listener);
+    return () => ipcRenderer.removeListener("atem:status-changed", listener);
+  },
   onQlcServiceStatusChanged: subscriber => {
     const listener = (_event, status) => subscriber(status);
     ipcRenderer.on("qlc-service:status-changed", listener);
@@ -82,6 +88,7 @@ contextBridge.exposeInMainWorld("trinity", {
   setCameraMode: (cameraId, mode) => ipcRenderer.invoke("live:cameraMode", { cameraId, mode }),
   prepareCamera: (cameraId, selectionId) => ipcRenderer.invoke("live:prepareCamera", { cameraId, selectionId }),
   recallCameraPreset: (cameraId, presetId) => ipcRenderer.invoke("live:recallCameraPreset", { cameraId, presetId }),
+  takeCameraLive: cameraId => ipcRenderer.invoke("atem:take-live", cameraId),
   setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),

@@ -466,6 +466,9 @@
 .camera-director-card header>div{min-width:0;display:grid;gap:3px}
 .camera-director-card header strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:17px}
 .camera-live-indicator{color:var(--green);font-size:11px;font-weight:900;letter-spacing:.1em;white-space:nowrap}
+.camera-director-card.atem-live{border-color:var(--green);box-shadow:0 0 0 1px var(--green),0 0 22px #48e0a01c}
+.atem-take-live{width:100%;min-height:42px;background:#173149;font-weight:900;letter-spacing:.06em}
+.camera-director-card.atem-live .atem-take-live{background:var(--green);color:#06150f}
 .camera-director-status{display:grid;gap:7px;justify-items:start;min-height:52px}
 .camera-director-status small{color:var(--muted);line-height:1.3}
 .preparation-status.disabled,.preparation-status.unavailable{background:#461c1c;color:#ffaaa6}

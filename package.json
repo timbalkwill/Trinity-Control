@@ -5,9 +5,12 @@
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",
   "private": true,
+  "dependencies": {
+    "atem-connection": "^3.8.2"
+  },
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check application-menu.cjs && node --check qlcplus-service-manager.cjs && node --check lighting-scene-operations.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check camera-shot-execution.cjs && node --check camera-adapter-registry.cjs && node --check ptzoptics-adapter.cjs && node --check lighting-adapter-registry.cjs && node --check qlcplus-websocket-transport.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
+    "check": "node --check electron-main.cjs && node --check application-menu.cjs && node --check atem-service.cjs && node --check qlcplus-service-manager.cjs && node --check lighting-scene-operations.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check camera-shot-execution.cjs && node --check camera-adapter-registry.cjs && node --check ptzoptics-adapter.cjs && node --check lighting-adapter-registry.cjs && node --check qlcplus-websocket-transport.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"
@@ -37,6 +40,7 @@
       "device-operations.cjs",
       "camera-manager-operations.cjs",
       "camera-preset-operations.cjs",
+      "atem-service.cjs",
       "shot-operations.cjs",
       "live-operations.cjs",
       "camera-preparation-operations.cjs",

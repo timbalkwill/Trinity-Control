@@ -9,6 +9,7 @@ const shots = require("./shot-operations.cjs");
 const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
 const { createCameraExecutor } = require("./camera-adapter-registry.cjs");
+const { executeManualMotion, SHOT_EXECUTION_STATUS } = require("./camera-shot-execution.cjs");
 const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
 const lightingScenes = require("./lighting-scene-operations.cjs");
 const { createLightingExecutor } = require("./lighting-execution.cjs");
@@ -92,6 +93,38 @@ function createOperatorCommands({
       cameraPreparation.prepareCamera(state, cameraId, presetId);
       state.live.activityLog = [
         { at: Date.now(), message: `Camera preset commanded: ${camera.name} — ${preset.name}` },
+        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
+      ].slice(0, 8);
+    }),
+    runCameraMotion: (cameraId, shotId) => mutate(async state => {
+      const camera = (state.devices || []).find(item => item?.type === "camera" && item.id === cameraId && item.enabled !== false);
+      if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
+      const shot = (state.shots || []).find(item => item?.id === shotId && item.enabled !== false);
+      if (!shot || shot.shotType !== "motion" || shot.cameraDeviceId !== cameraId) {
+        throw new RangeError(`Unknown Motion Shot for camera ${cameraId}: ${shotId}`);
+      }
+      const execution = shots.resolveShotExecution(state, shot, { referenceSource: "live-camera-director" });
+      const outcome = await executeManualMotion(execution, { cameraExecutor: cameraExecutorFactory(state) });
+      if (outcome.status !== SHOT_EXECUTION_STATUS.MOTION_COMMANDED) {
+        const error = new Error(outcome.message || "Camera motion command failed");
+        error.code = outcome.code || "CAMERA_MOTION_FAILED";
+        error.statusCode = 409;
+        throw error;
+      }
+      state.live = state.live && typeof state.live === "object" ? state.live : {};
+      state.live.manualMotionCommands = state.live.manualMotionCommands && typeof state.live.manualMotionCommands === "object"
+        ? state.live.manualMotionCommands : {};
+      state.live.manualMotionCommands[cameraId] = {
+        shotId: shot.id,
+        shotName: shot.name,
+        startPresetId: execution.motion.startPreset.id,
+        endPresetId: execution.motion.endPreset.id,
+        speed: execution.motion.speed,
+        status: "commanded",
+        at: Date.now()
+      };
+      state.live.activityLog = [
+        { at: Date.now(), message: `Camera motion commanded: ${camera.name} — ${shot.name}` },
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
       ].slice(0, 8);
     }),

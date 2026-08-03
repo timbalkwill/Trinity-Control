@@ -3,6 +3,8 @@
 const SHOT_EXECUTION_STATUS = Object.freeze({
   STATIC_SUCCEEDED: "static-succeeded",
   STATIC_FAILED: "static-failed",
+  MOTION_COMMANDED: "motion-commanded",
+  MOTION_FAILED: "motion-failed",
   VALIDATION_SKIPPED: "validation-skipped",
   MOTION_UNSUPPORTED: "motion-unsupported",
   TRACKING_UNSUPPORTED: "tracking-unsupported",
@@ -109,8 +111,44 @@ function executeShotSnapshot(snapshot, { cameraExecutor = unavailableCameraExecu
   return results;
 }
 
+function executeManualMotion(execution, { cameraExecutor = unavailableCameraExecutor } = {}) {
+  if (execution?.valid !== true || execution?.type !== "motion") {
+    return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+      message: execution?.errors?.join("; ") || "A valid Motion Shot is required",
+      errors: Array.isArray(execution?.errors) ? [...execution.errors] : []
+    });
+  }
+  const cameraDeviceId = execution.camera?.id || null;
+  const presetId = execution.motion?.endPreset?.id || null;
+  if (!cameraDeviceId || !presetId) {
+    return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+      cameraDeviceId,
+      presetId,
+      message: !cameraDeviceId ? "Motion Shot camera is missing" : "Motion Shot end preset is missing"
+    });
+  }
+  const finish = outcome => resultFor(execution,
+    outcome?.ok === true ? SHOT_EXECUTION_STATUS.MOTION_COMMANDED : SHOT_EXECUTION_STATUS.MOTION_FAILED, {
+      cameraDeviceId,
+      presetId,
+      startPresetId: execution.motion.startPreset?.id || null,
+      speed: execution.motion.speed || null,
+      ...(outcome?.ok === true ? {} : { code: outcome?.code || "motionCommandFailed" }),
+      message: outcome?.message || (outcome?.ok === true ? "Motion end preset commanded" : "Motion command failed")
+    });
+  try {
+    const outcome = cameraExecutor?.recallPreset?.({ cameraDeviceId, presetId, shotId: execution.shotId });
+    return outcome && typeof outcome.then === "function"
+      ? outcome.then(finish, error => finish({ ok: false, code: error?.code, message: error?.message }))
+      : finish(outcome);
+  } catch (error) {
+    return finish({ ok: false, code: error?.code, message: error?.message || String(error) });
+  }
+}
+
 module.exports = {
   SHOT_EXECUTION_STATUS,
+  executeManualMotion,
   executeShotSnapshot,
   unavailableCameraExecutor
 };

@@ -1204,6 +1204,9 @@ function CameraDirectorCard(camera) {
   const preparation = cameraPreparation(camera.id);
   const status = directorCameraStatus(camera);
   const presets = (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
+  const cameraPresetById = new Map(presets.map(preset => [preset.id, preset]));
+  const motionShots = (state.shots || []).filter(shot => shot.enabled !== false && shot.shotType === 'motion' && shot.cameraDeviceId === camera.id);
+  const lastMotion = state.live?.manualMotionCommands?.[camera.id] || null;
   const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
   const controlsDisabled = !status.available || preparation.tracking?.active === true;
   const atemConnected = atemStatus?.connectionState === 'connected';
@@ -1219,9 +1222,8 @@ function CameraDirectorCard(camera) {
       <span class="preparation-status ${status.className}">${escapeHtml(status.label)}</span>
       <small>${preparation.tracking?.active ? 'Tracking active — position controls disabled' : lastCommandedId ? `Last Commanded: ${escapeHtml(preparation.preparedAssignment.presetName || '')}` : 'No position commanded'}</small>
     </div>
-    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive ? 'LIVE' : 'TAKE LIVE'}</button>
     <div class="camera-action-section">
-      <div class="camera-action-heading"><strong>PRESETS / STATIC SHOTS</strong><span>${presets.length}</span></div>
+      <div class="camera-action-heading"><strong>PRESETS</strong><span>${presets.length}</span></div>
       <div class="camera-preset-list" data-camera-list="${escapeHtml(camera.id)}" data-scroll-key="camera-presets-${escapeHtml(camera.id)}" tabindex="0" aria-label="Available positions for ${escapeHtml(camera.name)}">
         ${presets.length ? presets.map(preset => `<button
           class="camera-preset-action ${preset.id === lastCommandedId ? 'last-commanded' : ''}"
@@ -1232,6 +1234,32 @@ function CameraDirectorCard(camera) {
         ><span>${escapeHtml(preset.name)}</span>${preset.id === lastCommandedId ? '<small>✓ Last Commanded</small>' : ''}</button>`).join('') : '<div class="camera-empty-state">No saved presets for this camera.</div>'}
       </div>
     </div>
+    <div class="camera-action-section camera-motion-section">
+      <div class="camera-action-heading"><strong>MOTION</strong><span>${motionShots.length}</span></div>
+      <div class="camera-preset-list camera-motion-list" data-scroll-key="camera-motion-${escapeHtml(camera.id)}" tabindex="0" aria-label="Motion shots for ${escapeHtml(camera.name)}">
+        ${motionShots.length ? motionShots.map(shot => {
+          const startPreset = cameraPresetById.get(shot.cameraPresetId);
+          const endPreset = cameraPresetById.get(shot.motionEndPresetId);
+          const unavailableReason = !status.available ? status.label
+            : preparation.tracking?.active === true ? 'Tracking active'
+            : !startPreset ? 'Start preset is missing, disabled, or belongs to another camera'
+            : !endPreset ? 'End preset is missing, disabled, or belongs to another camera'
+            : null;
+          const isLastMotion = lastMotion?.shotId === shot.id;
+          const speedLabel = ({ verySlow: 'Very Slow', slow: 'Slow', medium: 'Medium', fast: 'Fast' })[shot.motionSpeedSetting] || 'Medium';
+          return `<button
+            class="camera-preset-action camera-motion-action ${isLastMotion ? 'last-commanded' : ''}"
+            data-run-motion-camera="${escapeHtml(camera.id)}"
+            data-run-motion-shot="${escapeHtml(shot.id)}"
+            aria-label="Run motion ${escapeHtml(shot.name)} on ${escapeHtml(camera.name)}"
+            title="${escapeHtml(unavailableReason || `${startPreset.name} to ${endPreset.name} at ${speedLabel}`)}"
+            ${unavailableReason ? 'disabled' : ''}
+          ><span><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')} · ${escapeHtml(speedLabel)}</small></span>${isLastMotion ? '<small>✓ Last Commanded Motion</small>' : ''}</button>`;
+        }).join('') : '<div class="camera-empty-state">No saved Motion Shots for this camera.</div>'}
+      </div>
+      <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${lastMotion ? `Last Commanded Motion: ${escapeHtml(lastMotion.shotName)}` : 'Ready'}</small>
+    </div>
+    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive ? 'LIVE' : 'TAKE LIVE'}</button>
   </article>`;
 }
 
@@ -1266,6 +1294,23 @@ function livePage() {
       button.disabled = true;
       try { state = await window.trinity.recallCameraPreset(button.dataset.recallCamera, button.dataset.recallPreset); render(); }
       catch (error) { button.disabled = false; window.alert(error.message); }
+    };
+  });
+  document.querySelectorAll('[data-run-motion-camera]').forEach(button => {
+    button.onclick = async () => {
+      const feedback = document.querySelector(`[data-motion-feedback="${button.dataset.runMotionCamera}"]`);
+      button.disabled = true;
+      button.classList.add('executing');
+      if (feedback) feedback.textContent = 'Executing…';
+      try {
+        state = await window.trinity.runCameraMotion(button.dataset.runMotionCamera, button.dataset.runMotionShot);
+        render();
+      } catch (error) {
+        button.disabled = false;
+        button.classList.remove('executing');
+        if (feedback) feedback.textContent = `Failed: ${error.message || 'Motion command failed'}`;
+        showNotification(error.message || 'Motion command failed', { type: 'error' });
+      }
     };
   });
   document.querySelectorAll('[data-atem-take-live]').forEach(button => {

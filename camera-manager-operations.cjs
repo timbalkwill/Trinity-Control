@@ -133,6 +133,8 @@ function summarizeManagedCamera(camera) {
     displayName: camera.displayName,
     logicalRole: camera.logicalRole,
     enabled: camera.enabled,
+    configured: camera.configured,
+    adapterId: camera.adapterId,
     readiness: camera.readiness,
     connectionStatus: camera.connectionStatus,
     currentPresetId: camera.currentPresetId,

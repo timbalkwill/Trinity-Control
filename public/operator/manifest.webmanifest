@@ -1,0 +1,11 @@
+{
+  "name": "Trinity Browser Operator",
+  "short_name": "Trinity",
+  "start_url": "/operator/",
+  "scope": "/operator/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#071019",
+  "theme_color": "#071019",
+  "icons": [{ "src": "/operator/trinity-logo.png", "sizes": "any", "type": "image/png" }]
+}

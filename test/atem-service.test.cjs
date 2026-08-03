@@ -170,7 +170,9 @@ test("desktop integration keeps ATEM switching manual and isolated", () => {
   assert.match(card, /window\.trinity\.takeCameraLive/);
   assert.match(preload, /takeCameraLive: cameraId => ipcRenderer\.invoke\("atem:take-live", cameraId\)/);
   assert.match(main, /ipcMain\.handle\("atem:take-live"/);
-  assert.doesNotMatch(server, /atem:take-live|takeCameraLive|changeProgramInput/);
+  assert.match(server, /\/api\/atem\/take-live/);
+  assert.match(server, /await takeCameraLive\(body\.cameraId\)/);
+  assert.doesNotMatch(server, /changeProgramInput/);
   assert.doesNotMatch(cueExecution, /atem|changeProgramInput/i);
   assert.doesNotMatch(looks, /changeProgramInput|takeCameraLive/);
   assert.doesNotMatch(commands, /atem|changeProgramInput|takeCameraLive/i);

@@ -395,7 +395,10 @@ function projectBrowserState(state) {
       category: shot.category || null,
       cameraDeviceId: shot.cameraDeviceId || null,
       logicalCameraRole: shot.logicalCameraRole || null,
-      cameraPresetId: shot.cameraPresetId || null
+      cameraPresetId: shot.cameraPresetId || null,
+      shotType: shot.shotType || (shot.motionEnabled === true ? "motion" : "static"),
+      motionEnabled: shot.motionEnabled === true,
+      motionEndPresetId: shot.motionEndPresetId || null
     })),
     cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
       id: preset.id,

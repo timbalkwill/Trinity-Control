@@ -7,7 +7,7 @@ const { normalizeExecutionSnapshot } = require("./cue-execution.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 const { normalizeProductionLooks } = require("./production-look-operations.cjs");
 const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.cjs");
-const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
+const { CAMERA_PRESET_SCHEMA_VERSION, hasDuplicateCameraPresetIds, migrateDuplicateCameraPresetIds, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
 const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
@@ -763,12 +763,36 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
   }));
-  return merged;
+  return migrateDuplicateCameraPresetIds(merged);
 }
 
 function loadState() {
-  try { return migrate(JSON.parse(fs.readFileSync(dataPath(), "utf8"))); }
-  catch { const s = migrate(defaultState()); saveState(s); return s; }
+  let serialized;
+  let parsed;
+  try {
+    serialized = fs.readFileSync(dataPath(), "utf8");
+    parsed = JSON.parse(serialized);
+  } catch {
+    const state = migrate(defaultState());
+    saveState(state);
+    return state;
+  }
+  const needsPresetIdMigration = hasDuplicateCameraPresetIds(parsed);
+  let migrated;
+  try { migrated = migrate(parsed); }
+  catch (error) {
+    if (error?.code === "CAMERA_PRESET_MIGRATION_AMBIGUOUS") throw error;
+    const state = migrate(defaultState());
+    saveState(state);
+    return state;
+  }
+  if (needsPresetIdMigration) {
+    const recoveryDirectory = path.join(app.getPath("userData"), "Trinity Recovery Backups");
+    const timestamp = new Date().toISOString().replace(/[:]/g, "-").replace(/\.\d{3}Z$/, "Z");
+    atomicWrite(path.join(recoveryDirectory, `trinity-data-before-preset-id-migration-${timestamp}.json`), serialized);
+    saveState(migrated);
+  }
+  return migrated;
 }
 function saveState(state) { atomicWrite(dataPath(), `${JSON.stringify(state, null, 2)}\n`); return state; }
 
@@ -1038,7 +1062,10 @@ app.whenReady().then(async () => {
   void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,
-    assetsDirectory: path.join(__dirname, "public")
+    assetsDirectory: path.join(__dirname, "public"),
+    getAtemStatus: () => atemService?.getStatus(),
+    subscribeAtemStatus: subscriber => atemService?.subscribe(subscriber) || (() => {}),
+    takeCameraLive: cameraDeviceId => atemService.takeLive(cameraDeviceId)
   });
   try {
     operatorServerStatus = await operatorServer.start();

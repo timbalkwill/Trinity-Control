@@ -25,6 +25,9 @@ function networkUrls(port) {
 function createOperatorServer({
   commands,
   assetsDirectory,
+  getAtemStatus = () => null,
+  subscribeAtemStatus = null,
+  takeCameraLive = null,
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   logger = console
@@ -38,6 +41,7 @@ function createOperatorServer({
     ["/operator/production-look-view.js", ["production-look-view.js", "text/javascript; charset=utf-8"]],
     ["/operator/operator.css", ["operator/operator.css", "text/css; charset=utf-8"]],
     ["/operator/compact.css", ["operator/compact.css", "text/css; charset=utf-8"]],
+    ["/operator/manifest.webmanifest", ["operator/manifest.webmanifest", "application/manifest+json; charset=utf-8"]],
     ["/operator/trinity-logo.png", ["assets/trinity-logo.png", "image/png"]]
   ]);
 
@@ -49,8 +53,23 @@ function createOperatorServer({
     response.end(JSON.stringify(payload));
   }
 
+  function operatorState(state = commands.getState()) {
+    const atem = getAtemStatus?.();
+    const atemStatus = atem ? {
+      name: atem.name || "ATEM",
+      enabled: atem.enabled === true,
+      configured: atem.configured === true,
+      connectionState: atem.connectionState || "disconnected",
+      programInput: atem.programInput ?? null,
+      liveCameraId: atem.liveCameraId || null,
+      cameraInputs: { ...(atem.cameraInputs || {}) },
+      message: atem.message || null
+    } : null;
+    return { ...projectBrowserState(state), atemStatus };
+  }
+
   function writeEvent(response, state) {
-    response.write(`event: state\ndata: ${JSON.stringify(projectBrowserState(state))}\n\n`);
+    response.write(`event: state\ndata: ${JSON.stringify(operatorState(state))}\n\n`);
   }
 
   async function readJson(request) {
@@ -88,6 +107,12 @@ function createOperatorServer({
     ["/api/live/camera-mode", body => commands.setCameraMode(body.cameraId, body.mode)],
     ["/api/live/prepare-camera", body => commands.prepareCamera(body.cameraId, body.selectionId)],
     ["/api/live/recall-camera-preset", body => commands.recallCameraPreset(body.cameraId, body.presetId)],
+    ["/api/live/run-camera-motion", body => commands.runCameraMotion(body.cameraId, body.shotId)],
+    ["/api/atem/take-live", async body => {
+      if (typeof takeCameraLive !== "function") throw Object.assign(new Error("ATEM control is unavailable"), { code: "ATEM_UNAVAILABLE" });
+      await takeCameraLive(body.cameraId);
+      return commands.getState();
+    }],
     ["/api/live/camera-tracking", body => commands.setCameraTracking(body.cameraId, body.active === true)],
     ["/api/live/make-camera-live", body => commands.makeCameraLive(body.cameraId)],
     ["/api/live/hold", () => commands.toggleHold()],
@@ -120,7 +145,7 @@ function createOperatorServer({
       return json(response, 200, { status: "ok", port: server.address()?.port || port });
     }
     if (request.method === "GET" && pathname === "/api/state") {
-      return json(response, 200, projectBrowserState(commands.getState()));
+      return json(response, 200, operatorState());
     }
     if (request.method === "GET" && pathname === "/api/events") {
       const clientId = nextClientId++;
@@ -163,7 +188,7 @@ function createOperatorServer({
       try {
         const body = await readJson(request);
         const state = await commandRoutes.get(pathname)(body);
-        return json(response, 200, projectBrowserState(state));
+        return json(response, 200, operatorState(state));
       } catch (error) {
         const status = error.statusCode || (error instanceof TypeError ? 400 : error instanceof RangeError ? 404 : 500);
         return json(response, status, { error: error.message, code: error.code, references: error.references });
@@ -182,6 +207,12 @@ function createOperatorServer({
       }
     }
   });
+  const unsubscribeAtem = typeof subscribeAtemStatus === "function" ? subscribeAtemStatus(() => {
+    for (const [clientId, response] of clients) {
+      try { writeEvent(response, commands.getState()); }
+      catch { clients.delete(clientId); response.destroy(); }
+    }
+  }) : () => {};
 
   return {
     start: () => new Promise((resolve, reject) => {
@@ -204,6 +235,7 @@ function createOperatorServer({
     }),
     close: () => new Promise((resolve, reject) => {
       unsubscribe();
+      unsubscribeAtem();
       for (const response of clients.values()) response.end();
       clients.clear();
       if (!server.listening) return resolve();

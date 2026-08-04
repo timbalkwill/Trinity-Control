@@ -138,6 +138,29 @@ test("macOS bundle resolution falls back safely and validates every path before 
   );
 });
 
+test("Windows executable resolution preserves paths with spaces and fails safely when missing", () => {
+  const application = "C:\\Program Files\\QLC+\\qlcplus.exe";
+  const workspace = "D:\\Lighting Workspaces\\Trinity Sunday.qxw";
+  const existing = new Set([application, workspace]);
+  assert.deepEqual(launchArguments(
+    { applicationPath: application, workspacePath: workspace },
+    "win32",
+    value => existing.has(value)
+  ), {
+    command: application,
+    args: ["--web", "--open", workspace],
+    mode: "executable"
+  });
+  assert.throws(
+    () => launchArguments(
+      { applicationPath: application, workspacePath: workspace },
+      "win32",
+      value => value === workspace
+    ),
+    /QLC\+ application not found\./
+  );
+});
+
 test("disabled automatic management performs no health check or launch", async () => {
   let calls = 0;
   const current = context({ manageAutomatically: false });

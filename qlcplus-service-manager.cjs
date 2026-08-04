@@ -44,6 +44,7 @@ function safeErrorMessage(error) {
 function launchArguments(settings, platform = process.platform, existsSync = fs.existsSync) {
   const normalized = normalizeQlcServiceSettings(settings);
   const isMacBundle = platform === "darwin" && normalized.applicationPath.toLocaleLowerCase().endsWith(".app");
+  const platformPath = platform === "win32" ? path.win32 : path.posix;
   if (!normalized.applicationPath || !existsSync(normalized.applicationPath)) {
     throw Object.assign(new Error("QLC+ application not found."), { code: "application-not-found" });
   }
@@ -53,8 +54,8 @@ function launchArguments(settings, platform = process.platform, existsSync = fs.
   if (!isMacBundle) {
     return { command: normalized.applicationPath, args: ["--web", "--open", normalized.workspacePath], mode: "executable" };
   }
-  const preferred = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus-qml");
-  const fallback = path.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus");
+  const preferred = platformPath.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus-qml");
+  const fallback = platformPath.join(normalized.applicationPath, "Contents", "MacOS", "qlcplus");
   const executable = existsSync(preferred) ? preferred : existsSync(fallback) ? fallback : null;
   if (!executable) {
     throw Object.assign(new Error("QLC+ executable not found inside application bundle."), { code: "bundle-executable-not-found" });

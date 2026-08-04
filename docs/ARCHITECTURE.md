@@ -15,7 +15,7 @@ The app uses a separate product name and application ID so it does not overwrite
 
 ## Browser Operator
 
-Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with the Electron application. Browse to `http://<Mac-LAN-IP>:4310/operator/` from a trusted device on the same local network. `/` redirects to the Operator page.
+Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with the Electron application. Browse to `http://<host-LAN-IP>:4310/operator/` from a trusted device on the same local network. On Windows, allow Trinity Control on private networks if Windows Firewall prompts. `/` redirects to the Operator page.
 
 The browser API exposes only state reads, health, SSE state events, and the approved operator commands. It does not expose Electron, filesystem access, arbitrary state replacement, or arbitrary static files. Electron IPC and browser requests call the same serialized command service, which persists state before broadcasting the authoritative snapshot to connected SSE clients.
 

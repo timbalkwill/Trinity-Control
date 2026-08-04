@@ -59,6 +59,7 @@ test("system status summarizes current state without mutating it", () => {
   const status = buildSystemStatus({
     state,
     qlcStatus: { state: "connected", connectionState: "connected" },
+    operatorStatus: { running: true, port: 4310, localUrl: "http://localhost:4310", networkUrls: ["http://192.168.1.20:4310"] },
     appInfo: { version: "1.2.3", commit: "abc123" },
     storage: { userData: "/data", configuration: "/data/config.json", servicePlans: "/data", logs: "/logs" },
     processInfo: { memoryBytes: 1024, uptimeSeconds: 12, activeTimers: 2 },
@@ -75,6 +76,8 @@ test("system status summarizes current state without mutating it", () => {
   assert.equal(status.production.currentLook, "Welcome Look");
   assert.equal(status.operator.goReady, true);
   assert.equal(status.operator.backReady, false);
+  assert.equal(status.host.operatorServerRunning, true);
+  assert.equal(status.host.operatorNetworkUrls[0], "http://192.168.1.20:4310");
 });
 
 test("health reporting distinguishes warnings and errors", () => {
@@ -119,6 +122,7 @@ test("System Status UI uses one read-only refresh IPC surface", () => {
   assert.match(statusView, /Camera System/);
   assert.match(statusView, /Production System/);
   assert.match(statusView, /Operator Controls/);
+  assert.match(statusView, /Production Host/);
   assert.match(statusView, /Performance/);
   assert.match(statusView, /Storage/);
   assert.match(preload, /getSystemStatus: \(\) => ipcRenderer\.invoke\("system:status"\)/);

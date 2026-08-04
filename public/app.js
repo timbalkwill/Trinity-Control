@@ -2401,6 +2401,14 @@ function systemStatusPage() {
       ['BACK ready', systemStatus.operator.backReady ? 'Yes' : 'No'],
       ['Live state', systemStatus.operator.liveState]
     ])],
+    ['Production Host', systemStatus.host.health, diagnosticRows([
+      ['Platform', `${systemStatus.host.platform} · ${systemStatus.host.architecture}`],
+      ['Operator server', systemStatus.host.operatorServerRunning ? 'Running' : 'Not running'],
+      ['Operator port', systemStatus.host.operatorPort],
+      ['Operator LAN URL', systemStatus.host.operatorNetworkUrls?.[0] || systemStatus.host.operatorLocalUrl],
+      ['QLC+ executable', systemStatus.host.qlcApplicationConfigured ? 'Configured' : 'Needs configuration'],
+      ['QLC+ workspace', systemStatus.host.qlcWorkspaceConfigured ? 'Configured' : 'Needs configuration']
+    ])],
     ['Performance', systemStatus.performance.health, diagnosticRows([
       ['Renderer FPS', rendererFps === null ? 'Unavailable' : rendererFps.toFixed(0)],
       ['Memory usage', formatBytes(systemStatus.performance.memoryBytes)],
@@ -2605,7 +2613,7 @@ function settingsPage() {
       </section>
       <section class="panel settings-form" id="qlc-service-configuration"><span class="eyebrow wide">QLC+ SERVICE SETTINGS</span>
         <label class="checkbox-label"><input type="checkbox" data-qlc-service-field="manageAutomatically" ${serviceSettings.manageAutomatically ? 'checked' : ''}> Manage QLC+ Automatically</label>
-        <label class="wide">QLC+ Application<div class="path-picker"><input data-qlc-service-field="applicationPath" value="${escapeHtml(serviceSettings.applicationPath || '')}" placeholder="/Applications/QLC+.app"><button type="button" id="qlc-browse-application">BROWSE</button></div></label>
+        <label class="wide">QLC+ Application<div class="path-picker"><input data-qlc-service-field="applicationPath" value="${escapeHtml(serviceSettings.applicationPath || '')}" placeholder="${appInfo?.platform === 'win32' ? 'C:\\Program Files\\QLC+\\qlcplus.exe' : '/Applications/QLC+.app'}"><button type="button" id="qlc-browse-application">BROWSE</button></div></label>
         <label class="wide">QLC+ Workspace<div class="path-picker"><input data-qlc-service-field="workspacePath" value="${escapeHtml(serviceSettings.workspacePath || '')}" placeholder="Choose a .qxw workspace"><button type="button" id="qlc-browse-workspace">BROWSE</button></div></label>
         <label>Startup Timeout (ms)<input type="number" min="1000" max="120000" data-qlc-service-field="startupTimeoutMs" value="${serviceSettings.startupTimeoutMs || 15000}"></label>
         <label>Health Check Interval (ms)<input type="number" min="1000" max="60000" data-qlc-service-field="healthCheckIntervalMs" value="${serviceSettings.healthCheckIntervalMs || 5000}"></label>

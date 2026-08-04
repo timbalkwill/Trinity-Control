@@ -33,7 +33,7 @@ function health(status, message) {
   return { status, message };
 }
 
-function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, appInfo, storage, now = () => new Date(), processInfo = {} }) {
+function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorStatus = {}, appInfo, storage, localSettings = {}, now = () => new Date(), processInfo = {} }) {
   const devices = state?.devices || [];
   const cameras = devices.filter(device => device.type === "camera");
   const lightingDevice = devices.find(device => device.type === "lighting");
@@ -129,6 +129,19 @@ function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, appInfo, st
       health: state?.live?.hold
         ? health("warning", "Operator controls are on hold")
         : health("healthy", "Operator controls are available")
+    },
+    host: {
+      platform: appInfo?.operatingSystem || process.platform,
+      architecture: appInfo?.architecture || process.arch,
+      operatorServerRunning: operatorStatus.running === true,
+      operatorPort: operatorStatus.port || 4310,
+      operatorLocalUrl: operatorStatus.localUrl || "http://localhost:4310",
+      operatorNetworkUrls: Array.isArray(operatorStatus.networkUrls) ? [...operatorStatus.networkUrls] : [],
+      qlcApplicationConfigured: localSettings.qlcApplicationConfigured === true,
+      qlcWorkspaceConfigured: localSettings.qlcWorkspaceConfigured === true,
+      health: operatorStatus.running === true
+        ? health("healthy", "Windows host services are available")
+        : health("warning", "Browser Operator server is not running")
     },
     performance: {
       memoryBytes: processInfo.memoryBytes ?? null,

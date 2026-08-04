@@ -27,6 +27,9 @@ const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control 
 app.setName("Trinity Control");
 app.setPath("userData", existingUserDataPath);
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+
 let mainWindow;
 let operatorServer;
 let qlcServiceManager;
@@ -39,6 +42,13 @@ let operatorServerStatus = {
   localUrl: `http://localhost:${DEFAULT_PORT}`,
   networkUrls: []
 };
+
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function defaultState() {
@@ -860,6 +870,7 @@ app.whenReady().then(async () => {
       state: commands.getState(),
       qlcStatus: qlcServiceStatus,
       atemStatus: atemService.getStatus(),
+      operatorStatus: operatorServerStatus,
       appInfo: {
         name: "Trinity Control",
         version: app.getVersion(),
@@ -886,6 +897,10 @@ app.whenReady().then(async () => {
         configuration: dataPath(),
         servicePlans: app.getPath("userData"),
         logs: app.getPath("logs")
+      },
+      localSettings: {
+        qlcApplicationConfigured: Boolean(commands.getState().settings?.qlcplusService?.applicationPath),
+        qlcWorkspaceConfigured: Boolean(commands.getState().settings?.qlcplusService?.workspacePath)
       }
     });
   });
@@ -938,7 +953,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("qlc-service:browse-application", async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: "Choose QLC+ Application",
-      properties: process.platform === "darwin" ? ["openFile", "openDirectory"] : ["openFile"]
+      properties: process.platform === "darwin" ? ["openFile", "openDirectory"] : ["openFile"],
+      ...(process.platform === "win32" ? { filters: [{ name: "QLC+ Application", extensions: ["exe"] }] } : {})
     });
     return result.canceled ? null : result.filePaths[0] || null;
   });

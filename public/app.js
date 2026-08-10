@@ -40,10 +40,14 @@ let shotCategory = '';
 let shotCamera = '';
 let shotFavorite = '';
 let shotEnabled = '';
+let shotTypeFilter = '';
+const motionCapabilitiesByCamera = new Map();
 let renderSequence = 0;
 let renderInProgress = false;
 const suggestedPresetCategories = ['Pastor', 'Platform', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
 const suggestedShotCategories = ['Pastor', 'Platform', 'Music', 'Piano', 'Choir', 'Baptistry', 'Congregation', 'Wide', 'Utility'];
+const motionStyleLabels = { presetTransition: 'Preset Transition', pushIn: 'Push In', pullOut: 'Pull Out', panLeft: 'Pan Left', panRight: 'Pan Right', tiltUp: 'Tilt Up', tiltDown: 'Tilt Down', diagonalDrift: 'Diagonal / Drift', reveal: 'Reveal', custom: 'Custom' };
+const motionSpeedLabels = { verySlow: 'Very Slow', slow: 'Slow', medium: 'Medium', fast: 'Fast' };
 
 const nav = [
   ['live', 'Live'],
@@ -1256,7 +1260,8 @@ function CameraDirectorCard(camera) {
             : !endPreset ? 'End preset is missing, disabled, or belongs to another camera'
             : null;
           const isLastMotion = lastMotion?.shotId === shot.id;
-          const speedLabel = ({ verySlow: 'Very Slow', slow: 'Slow', medium: 'Medium', fast: 'Fast' })[shot.motionSpeedSetting] || 'Medium';
+          const speedLabel = motionSpeedLabels[shot.motionSpeedSetting] || 'Medium';
+          const styleLabel = motionStyleLabels[shot.motionStyle] || 'Preset Transition';
           return `<button
             class="camera-preset-action camera-motion-action ${isLastMotion ? 'last-commanded' : ''}"
             data-run-motion-camera="${escapeHtml(camera.id)}"
@@ -1264,7 +1269,7 @@ function CameraDirectorCard(camera) {
             aria-label="Run motion ${escapeHtml(shot.name)} on ${escapeHtml(camera.name)}"
             title="${escapeHtml(unavailableReason || `${startPreset.name} to ${endPreset.name} at ${speedLabel}`)}"
             ${unavailableReason ? 'disabled' : ''}
-          ><span><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')} · ${escapeHtml(speedLabel)}</small></span>${isLastMotion ? '<small>✓ Last Commanded Motion</small>' : ''}</button>`;
+          ><span><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')}</small><small>${escapeHtml(styleLabel)} · ${escapeHtml(speedLabel)}</small></span>${isLastMotion ? '<small>✓ Last Commanded Motion</small>' : ''}</button>`;
         }).join('') : '<div class="camera-empty-state">No saved Motion Shots for this camera.</div>'}
       </div>
       <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${lastMotion ? `Last Commanded Motion: ${escapeHtml(lastMotion.shotName)}` : 'Ready'}</small>
@@ -2192,16 +2197,22 @@ function shotsPage() {
     (!shotCamera || shot.cameraDeviceId === shotCamera || shot.logicalCameraRole === shotCamera) &&
     (!shotFavorite || String(shot.favorite) === shotFavorite) &&
     (!shotEnabled || String(shot.enabled) === shotEnabled)
+    && (!shotTypeFilter || shot.shotType === shotTypeFilter)
   );
   const options = (items, current, empty) => `<option value="">${empty}</option>${items.map(item => `<option value="${item.id}" ${item.id === current ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}`;
   const card = shot => {
     const resolved = shotResolution(shot);
+    const cardCameraId = shot.cameraDeviceId || resolved.camera?.id || null;
+    const cardPresets = cameraScopedPresets(state.cameraPresets, cardCameraId);
+    const startPreset = cardPresets.find(item => item.id === shot.cameraPresetId);
+    const endPreset = cardPresets.find(item => item.id === shot.motionEndPresetId);
+    const motionReady = shot.shotType === 'motion' && resolved.camera?.enabled !== false && startPreset && endPreset && cameraAdapterSupported(resolved.camera);
+    const motionStatus = !resolved.camera || resolved.camera.enabled === false || !cameraAdapterSupported(resolved.camera) ? 'Unavailable' : motionReady ? 'Ready' : 'Needs Attention';
     const index = shots.indexOf(shot);
     return `<article class="shot-card ${shot.id === selectedShotId ? 'selected' : ''} ${shot.enabled ? '' : 'disabled'}" data-select-shot="${shot.id}">
       <div><span>${shot.favorite ? '★' : escapeHtml(shot.icon || '◎')}</span><strong>${escapeHtml(shot.name)}</strong><em>${escapeHtml(resolved.readiness)}</em></div>
       <small>${escapeHtml(shot.category || 'Utility')} · ${escapeHtml([shot.subject, shot.framingType].filter(Boolean).join(' · ') || 'Framing not assigned')}</small>
-      <small>Camera: ${escapeHtml(resolved.camera?.name || 'Not assigned')} · Preset: ${escapeHtml(resolved.preset?.name || (shot.cameraPresetId ? 'Missing preset' : 'Not assigned'))}</small>
-      <small>Tracking: ${shot.trackingPreferred ? 'Preferred' : escapeHtml(shot.trackingMode || 'Off')} · Motion: ${shot.motionEnabled ? 'On' : 'Off'}</small>
+      ${shot.shotType === 'motion' ? `<small>${escapeHtml(resolved.camera?.name || 'Camera missing')} · ${escapeHtml(startPreset?.name || 'Missing Start')} → ${escapeHtml(endPreset?.name || 'Missing End')}</small><small>${escapeHtml(motionStyleLabels[shot.motionStyle] || `Needs Review: ${shot.motionStyle || 'style'}`)} · ${escapeHtml(motionSpeedLabels[shot.motionSpeedSetting] || 'Medium')} · <em>${motionStatus}</em></small>` : `<small>Camera: ${escapeHtml(resolved.camera?.name || 'Not assigned')} · Preset: ${escapeHtml(resolved.preset?.name || (shot.cameraPresetId ? 'Missing preset' : 'Not assigned'))}</small><small>Tracking: ${shot.trackingPreferred ? 'Preferred' : escapeHtml(shot.trackingMode || 'Off')} · Motion: ${shot.motionEnabled ? 'On' : 'Off'}</small>`}
       <span class="shot-order-controls"><button data-move-shot="${shot.id}" data-direction="-1" ${index === 0 ? 'disabled' : ''}>↑</button><button data-move-shot="${shot.id}" data-direction="1" ${index === shots.length - 1 ? 'disabled' : ''}>↓</button></span>
     </article>`;
   };
@@ -2220,12 +2231,27 @@ function shotsPage() {
     ['medium', 'Medium'],
     ['fast', 'Fast']
   ].map(([value, label]) => `<option value="${value}" ${(selected?.motionSpeedSetting || 'medium') === value ? 'selected' : ''}>${label}</option>`).join('');
-  const editor = selected ? `<div class="shot-editor">
-    <div class="shot-editor-heading"><div><span class="eyebrow">SHOT DETAILS</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(resolved.readiness)}</p></div><div class="row-actions"><button id="shot-save" class="live-button">SAVE</button><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
+  const motionStyleOptions = Object.entries(motionStyleLabels).map(([value, label]) => `<option value="${value}" ${(selected?.motionStyle || 'presetTransition') === value ? 'selected' : ''}>${label}</option>`).join('');
+  const selectedEndPreset = scopedPresets.find(item => item.id === selected?.motionEndPresetId);
+  const motionErrors = selectedType === 'motion' ? [
+    !resolved?.camera ? 'Camera is missing' : resolved.camera.enabled === false ? 'Camera is disabled' : null,
+    !selected?.cameraPresetId ? 'Start preset is required' : !resolved?.preset ? 'Start preset is missing or belongs to another camera' : null,
+    !selected?.motionEndPresetId ? 'End preset is required' : !selectedEndPreset ? 'End preset is missing or belongs to another camera' : null,
+    selected?.motionStyle && !motionStyleLabels[selected.motionStyle] ? 'Motion style needs review' : null,
+    resolved?.camera && !cameraAdapterSupported(resolved.camera) ? 'Current camera adapter cannot recall presets' : null
+  ].filter(Boolean) : [];
+  const motionBlockingErrors = motionErrors.filter(error => error !== 'Motion style needs review');
+  const motionStatus = !resolved?.camera || resolved.camera.enabled === false || !cameraAdapterSupported(resolved.camera) ? 'UNAVAILABLE' : motionErrors.length ? 'NEEDS ATTENTION' : 'READY';
+  const capabilities = motionCapabilitiesByCamera.get(selectedCameraId) || null;
+  const lastCommandedStart = selectedCameraId && cameraPreparation(selectedCameraId)?.preparedAssignment?.startingPresetId === selected?.cameraPresetId;
+  const editor = selected ? `<div class="shot-editor ${selectedType === 'motion' ? 'motion-studio-editor' : ''}">
+    <div class="shot-editor-heading"><div><span class="eyebrow">${selectedType === 'motion' ? 'MOTION STUDIO' : 'SHOT DETAILS'}</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</p></div><div class="row-actions"><button id="shot-save" class="live-button">SAVE</button><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
     <div class="shot-section-grid">
       <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Shot Type<select data-shot-field="shotType"><option value="static" ${(selected.shotType || 'static') === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${selected.shotType === 'motion' ? 'selected' : ''}>Motion</option><option value="tracking" ${selected.shotType === 'tracking' ? 'selected' : ''}>Tracking</option></select></label><label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> Favorite</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label></fieldset>
-      <fieldset><legend>CAMERA TARGET</legend><label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'Start Preset' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<label>End Preset<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select></label><label>Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(resolved.readiness)}</em></div></fieldset>
+      <fieldset><legend>CAMERA TARGET</legend><label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'START' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<div class="motion-transition-arrow" aria-hidden="true">↓</div><label>END<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select><small>${escapeHtml(selectedEndPreset?.name || (selected.motionEndPresetId ? 'Selected End preset is missing or does not match the camera' : 'No End preset selected'))}</small></label><label>Motion Style<select data-shot-field="motionStyle">${selected.motionStyle && !motionStyleLabels[selected.motionStyle] ? `<option value="${escapeHtml(selected.motionStyle)}" selected>Needs Review: ${escapeHtml(selected.motionStyle)}</option>` : ''}${motionStyleOptions}</select></label><label>Intended Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select><small>Creative intent only; current adapters do not apply speed.</small></label><label>Target Duration<input type="number" min="0" step="0.5" data-shot-duration-seconds value="${selected.motionTargetDurationMs ? selected.motionTargetDurationMs / 1000 : ''}" placeholder="Optional seconds"><small>Target only; actual duration is not guaranteed.</small></label><label class="wide">Motion Intent Notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</em>${motionErrors.map(error => `<small>⚠ ${escapeHtml(error)}</small>`).join('')}</div></fieldset>
     </div>
+    ${selectedType === 'motion' ? `<section class="motion-studio-summary panel"><span class="eyebrow">MOTION SUMMARY</span><h2>${escapeHtml(selected.name)}</h2><strong>${escapeHtml(resolved.camera?.name || 'Camera missing')}</strong><p>${escapeHtml(resolved.preset?.name || 'Missing Start')} → ${escapeHtml(selectedEndPreset?.name || 'Missing End')}</p><p>${escapeHtml(motionStyleLabels[selected.motionStyle] || `Needs Review: ${selected.motionStyle}`)} · ${escapeHtml(motionSpeedLabels[selected.motionSpeedSetting] || 'Medium')}${selected.motionTargetDurationMs ? ` · ~${selected.motionTargetDurationMs / 1000} sec target` : ''}</p><small>Execution today: camera preset transition to End. Start position and physical duration are not verified.</small></section>
+    <section class="motion-capability-panel panel"><span class="eyebrow">EXECUTION CAPABILITY</span><h2>${escapeHtml(capabilities?.adapterType || 'Adapter not configured')}</h2><ul><li class="${capabilities?.presetTransition ? 'supported' : 'unsupported'}">${capabilities?.presetTransition ? '✓' : '○'} Camera preset transition</li><li class="unsupported">○ Trinity speed control not available</li><li class="unsupported">○ Trinity duration control not available</li><li class="unsupported">○ Stop Motion not available</li><li class="unsupported">○ Physical position feedback not available</li></ul><p>Required Start: <strong>${escapeHtml(resolved.preset?.name || 'Missing Start')}</strong></p><p>Status: ${lastCommandedStart ? 'Start preset was last commanded by Trinity; physical position remains unverified.' : 'Start position not verified.'}</p><div class="row-actions"><button id="motion-prepare-start" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>PREPARE START</button><button id="motion-run" class="live-button" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>RUN MOTION</button></div></section>` : ''}
     <details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES</summary><div class="advanced-camera-notes-grid">
       ${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}
       ${textField('Subject','subject',selected.subject)}
@@ -2241,14 +2267,15 @@ function shotsPage() {
     </div></details>
   </div>` : '<div class="empty-state">Create a Shot to begin.</div>';
 
-  shell(`<div class="shot-library page-scroll"><aside class="panel shot-sidebar"><div class="section-title"><span>SHOT LIBRARY</span><strong>${shots.length} reusable Shots</strong></div><div class="shot-filters"><input id="shot-search" value="${escapeHtml(shotSearch)}" placeholder="Search Shots"><select id="shot-category"><option value="">All categories</option>${[...categories.values()].map(category => `<option ${shotCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><select id="shot-camera"><option value="">All cameras / roles</option>${cameras.map(camera => `<option value="${camera.id}" ${shotCamera === camera.id ? 'selected' : ''}>${escapeHtml(camera.name)}</option>`).join('')}${[...new Set(cameras.map(camera => camera.logicalRole).filter(Boolean))].map(role => `<option value="${escapeHtml(role)}" ${shotCamera === role ? 'selected' : ''}>Role: ${escapeHtml(role)}</option>`).join('')}</select><select id="shot-favorite"><option value="">All favorites</option><option value="true" ${shotFavorite === 'true' ? 'selected' : ''}>Favorites only</option></select><select id="shot-enabled"><option value="">Enabled and disabled</option><option value="true" ${shotEnabled === 'true' ? 'selected' : ''}>Enabled</option><option value="false" ${shotEnabled === 'false' ? 'selected' : ''}>Disabled</option></select><button id="shot-new">NEW SHOT</button></div><div class="shot-list">${filtered.map(card).join('') || '<div class="empty-state">No matching Shots.</div>'}</div></aside><main class="panel">${editor}</main></div>`);
+  shell(`<div class="shot-library page-scroll ${shotTypeFilter === 'motion' ? 'motion-studio-workspace' : ''}"><aside class="panel shot-sidebar"><div class="section-title"><span>${shotTypeFilter === 'motion' ? 'MOTION STUDIO' : 'SHOT LIBRARY'}</span><strong>${filtered.length} ${shotTypeFilter === 'motion' ? 'Motion Shots' : 'reusable Shots'}</strong></div><div class="shot-filters"><input id="shot-search" value="${escapeHtml(shotSearch)}" placeholder="Search Shots"><select id="shot-type"><option value="" ${!shotTypeFilter ? 'selected' : ''}>All Shot types</option><option value="static" ${shotTypeFilter === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${shotTypeFilter === 'motion' ? 'selected' : ''}>Motion Studio</option><option value="tracking" ${shotTypeFilter === 'tracking' ? 'selected' : ''}>Tracking</option></select><select id="shot-category"><option value="">All categories</option>${[...categories.values()].map(category => `<option ${shotCategory === category ? 'selected' : ''}>${escapeHtml(category)}</option>`).join('')}</select><select id="shot-camera"><option value="">All cameras / roles</option>${cameras.map(camera => `<option value="${camera.id}" ${shotCamera === camera.id ? 'selected' : ''}>${escapeHtml(camera.name)}</option>`).join('')}${[...new Set(cameras.map(camera => camera.logicalRole).filter(Boolean))].map(role => `<option value="${escapeHtml(role)}" ${shotCamera === role ? 'selected' : ''}>Role: ${escapeHtml(role)}</option>`).join('')}</select><select id="shot-favorite"><option value="">All favorites</option><option value="true" ${shotFavorite === 'true' ? 'selected' : ''}>Favorites only</option></select><select id="shot-enabled"><option value="">Enabled and disabled</option><option value="true" ${shotEnabled === 'true' ? 'selected' : ''}>Enabled</option><option value="false" ${shotEnabled === 'false' ? 'selected' : ''}>Disabled</option></select><button id="shot-new">${shotTypeFilter === 'motion' ? '+ NEW MOTION SHOT' : 'NEW SHOT'}</button></div><div class="shot-list">${filtered.map(card).join('') || '<div class="empty-state">No matching Shots.</div>'}</div></aside><main class="panel">${editor}</main></div>`);
 
   document.getElementById('shot-search').oninput = event => { shotSearch = event.target.value; shotsPage(); document.getElementById('shot-search')?.focus(); };
+  document.getElementById('shot-type').onchange = event => { shotTypeFilter = event.target.value; selectedShotId = filtered.find(shot => shot.shotType === shotTypeFilter)?.id || shots.find(shot => !shotTypeFilter || shot.shotType === shotTypeFilter)?.id || null; render(); };
   document.getElementById('shot-category').onchange = event => { shotCategory = event.target.value; render(); };
   document.getElementById('shot-camera').onchange = event => { shotCamera = event.target.value; render(); };
   document.getElementById('shot-favorite').onchange = event => { shotFavorite = event.target.value; render(); };
   document.getElementById('shot-enabled').onchange = event => { shotEnabled = event.target.value; render(); };
-  document.getElementById('shot-new').onclick = async () => { state = await window.trinity.createShot({ name: 'New Shot', shotType: 'static', enabled: true }); selectedShotId = state.shots.at(-1).id; render(); };
+  document.getElementById('shot-new').onclick = async () => { const motion = shotTypeFilter === 'motion'; state = await window.trinity.createShot({ name: motion ? 'New Motion Shot' : 'New Shot', shotType: motion ? 'motion' : 'static', motionStyle: 'presetTransition', motionSpeedSetting: 'medium', enabled: true }); selectedShotId = state.shots.at(-1).id; render(); };
   document.querySelectorAll('[data-select-shot]').forEach(cardElement => cardElement.onclick = event => { if (event.target.closest('[data-move-shot]')) return; selectedShotId = cardElement.dataset.selectShot; render(); });
   document.querySelectorAll('[data-move-shot]').forEach(button => button.onclick = async event => { event.stopPropagation(); const from = state.shots.findIndex(shot => shot.id === button.dataset.moveShot); state = await window.trinity.reorderShot(from, from + Number(button.dataset.direction)); render(); });
   if (!selected) return;
@@ -2258,9 +2285,14 @@ function shotsPage() {
     if (input.dataset.shotField === 'tags') value = input.value.split(',').map(tag => tag.trim()).filter(Boolean);
     return value;
   };
-  const visibleShotPatch = () => Object.fromEntries(
-    [...document.querySelectorAll('[data-shot-field]')].map(input => [input.dataset.shotField, shotFieldValue(input)])
-  );
+  const visibleShotPatch = () => {
+    const patch = Object.fromEntries(
+      [...document.querySelectorAll('[data-shot-field]')].map(input => [input.dataset.shotField, shotFieldValue(input)])
+    );
+    const duration = document.querySelector('[data-shot-duration-seconds]');
+    if (duration) patch.motionTargetDurationMs = Math.max(0, Number(duration.value) || 0) * 1000;
+    return patch;
+  };
   document.querySelectorAll('[data-shot-field]').forEach(input => input.onchange = () => {
     const value = shotFieldValue(input);
     if (input.dataset.shotField === 'cameraDeviceId') {
@@ -2274,11 +2306,27 @@ function shotsPage() {
     }
     save({ [input.dataset.shotField]: value });
   });
+  const durationInput = document.querySelector('[data-shot-duration-seconds]');
+  if (durationInput) durationInput.onchange = () => save({ motionTargetDurationMs: Math.max(0, Number(durationInput.value) || 0) * 1000 });
   const saveButton = document.getElementById('shot-save');
   saveButton.onpointerdown = event => { event.preventDefault(); save(visibleShotPatch()); };
   saveButton.onclick = event => { if (event.detail === 0) save(visibleShotPatch()); };
   document.getElementById('shot-duplicate').onclick = async () => { state = await window.trinity.duplicateShot(selected.id); selectedShotId = state.shots.at(-1).id; render(); };
   document.getElementById('shot-toggle').onclick = () => save({ enabled: !selected.enabled });
+  document.getElementById('motion-prepare-start')?.addEventListener('click', async () => {
+    try {
+      state = await window.trinity.prepareMotionStart(selectedCameraId, selected.id);
+      showNotification('Start preset commanded. Physical position remains unverified.', { type: 'success' });
+      render();
+    } catch (error) { showNotification(error.message || 'Start preset could not be prepared.', { type: 'error' }); }
+  });
+  document.getElementById('motion-run')?.addEventListener('click', async () => {
+    try {
+      state = await window.trinity.runCameraMotion(selectedCameraId, selected.id);
+      showNotification('Motion End preset commanded. Speed and duration remain camera-controlled.', { type: 'success' });
+      render();
+    } catch (error) { showNotification(error.message || 'Motion command failed.', { type: 'error' }); }
+  });
   const remove = async () => {
     const referenceSummary = shotReferenceSummary(selected.id);
     if (!window.confirm(`Delete ${selected.name}?\n\n${Object.entries(referenceSummary.counts).map(([label,count]) => `${label}: ${count}`).join('\n')}\nTotal: ${referenceSummary.total}\n\nReferences will remain saved as missing Shot references.`)) return;
@@ -2287,6 +2335,11 @@ function shotsPage() {
     render();
   };
   document.getElementById('shot-delete').onclick = remove;
+  if (selectedType === 'motion' && selectedCameraId && !motionCapabilitiesByCamera.has(selectedCameraId)) {
+    window.trinity.getCameraExecutionCapabilities(selectedCameraId)
+      .then(value => { motionCapabilitiesByCamera.set(selectedCameraId, value); if (page === 'shots' && selectedShotId === selected.id) render(); })
+      .catch(() => { motionCapabilitiesByCamera.set(selectedCameraId, { presetRecall: false, presetTransition: false }); if (page === 'shots') render(); });
+  }
 }
 
 function deviceConfigured(device) {

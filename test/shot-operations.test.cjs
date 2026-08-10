@@ -103,6 +103,7 @@ test("Shot types migrate, default, and persist through CRUD", () => {
 
 test("type-specific Shot fields normalize, persist, and duplicate", () => {
   const current = state();
+  current.cameraPresets.push(normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true }));
   const legacy = normalizeShot({ id: "legacy", name: "Legacy", cameraPresetId: "pastor-tight", trackingPreferred: true, motionSpeed: 0.5 });
   assert.equal(legacy.shotType, "static");
   assert.equal(legacy.cameraPresetId, "pastor-tight");
@@ -116,14 +117,14 @@ test("type-specific Shot fields normalize, persist, and duplicate", () => {
     shotType: "motion",
     cameraDeviceId: "main",
     cameraPresetId: "pastor-tight",
-    motionEndPresetId: "left-wide",
+    motionEndPresetId: "main-end",
     motionSpeedSetting: "verySlow"
   }, { id: "motion", now: 1000 });
   const copy = duplicateShot(current, "motion", { id: "motion-copy", now: 2000 });
   assert.equal(copy.shotType, "motion");
   assert.equal(copy.cameraDeviceId, "main");
   assert.equal(copy.cameraPresetId, "pastor-tight");
-  assert.equal(copy.motionEndPresetId, "left-wide");
+  assert.equal(copy.motionEndPresetId, "main-end");
   assert.equal(copy.motionSpeedSetting, "verySlow");
 
   updateShot(current, "motion", { motionSpeedSetting: "fast" }, { now: 3000 });

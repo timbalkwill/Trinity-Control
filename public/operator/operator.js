@@ -34,7 +34,9 @@
       }).join("") || '<span class="empty">No presets</span>'}</div></div>
       <div class="control-group motion-group"><h3>MOTION</h3><div class="button-stack">${motions.map(shot => {
         const key = `motion:${id}:${shot.id}`;
-        return `<button data-action="motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}>${escapeHtml(shot.name)}</button>`;
+        const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
+        const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
+        return `<button data-action="motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)}</small></button>`;
       }).join("") || '<span class="empty">No motion shots</span>'}</div></div></div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
       <button class="take-live" data-action="take" data-camera-id="${escapeHtml(id || "")}"${disabledAttribute(`take:${id}`, takeReady && !live)}>${live ? "ON AIR" : "TAKE LIVE"}</button>

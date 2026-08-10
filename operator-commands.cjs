@@ -8,7 +8,7 @@ const presets = require("./camera-preset-operations.cjs");
 const shots = require("./shot-operations.cjs");
 const liveOperations = require("./live-operations.cjs");
 const cameraPreparation = require("./camera-preparation-operations.cjs");
-const { createCameraExecutor } = require("./camera-adapter-registry.cjs");
+const { cameraExecutionCapabilities, createCameraExecutor } = require("./camera-adapter-registry.cjs");
 const { executeManualMotion, SHOT_EXECUTION_STATUS } = require("./camera-shot-execution.cjs");
 const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.cjs");
 const lightingScenes = require("./lighting-scene-operations.cjs");
@@ -125,6 +125,31 @@ function createOperatorCommands({
       cameraPreparation.prepareCamera(state, cameraId, presetId);
       state.live.activityLog = [
         { at: Date.now(), message: `Camera preset commanded: ${camera.name} — ${preset.name}` },
+        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
+      ].slice(0, 8);
+    }),
+    getCameraExecutionCapabilities: cameraId => {
+      const camera = (loadState().devices || []).find(item => item?.type === "camera" && item.id === cameraId);
+      if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
+      return cameraExecutionCapabilities(camera);
+    },
+    prepareMotionStart: (cameraId, shotId) => mutate(async state => {
+      const shot = (state.shots || []).find(item => item?.id === shotId && item.enabled !== false);
+      if (!shot || shot.shotType !== "motion" || shot.cameraDeviceId !== cameraId) throw new RangeError(`Unknown Motion Shot for camera ${cameraId}: ${shotId}`);
+      const execution = shots.resolveShotExecution(state, shot, { referenceSource: "motion-studio-prepare-start" });
+      if (!execution.valid || !execution.motion?.startPreset?.id) throw new RangeError(execution.errors?.join("; ") || "Motion Shot Start preset is unavailable");
+      const presetId = execution.motion.startPreset.id;
+      const outcome = await cameraExecutorFactory(state).recallPreset({ cameraDeviceId: cameraId, presetId });
+      if (outcome?.ok !== true) {
+        const error = new Error(outcome?.message || "Camera Start preset recall failed");
+        error.code = outcome?.code || "CAMERA_PRESET_RECALL_FAILED";
+        error.statusCode = 409;
+        throw error;
+      }
+      cameraPreparation.setCameraMode(state, cameraId, "motion");
+      cameraPreparation.prepareCamera(state, cameraId, shotId);
+      state.live.activityLog = [
+        { at: Date.now(), message: `Motion start commanded: ${execution.camera.name || cameraId} — ${execution.motion.startPreset.name || presetId}` },
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
       ].slice(0, 8);
     }),

@@ -398,7 +398,10 @@ function projectBrowserState(state) {
       cameraPresetId: shot.cameraPresetId || null,
       shotType: shot.shotType || (shot.motionEnabled === true ? "motion" : "static"),
       motionEnabled: shot.motionEnabled === true,
-      motionEndPresetId: shot.motionEndPresetId || null
+      motionEndPresetId: shot.motionEndPresetId || null,
+      motionStyle: shot.motionStyle || "presetTransition",
+      motionSpeedSetting: shot.motionSpeedSetting || "medium",
+      motionTargetDurationMs: Number(shot.motionTargetDurationMs) || 0
     })),
     cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
       id: preset.id,

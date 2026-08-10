@@ -1,8 +1,9 @@
 "use strict";
 
-const SHOT_SCHEMA_VERSION = 3;
+const SHOT_SCHEMA_VERSION = 4;
 const SHOT_TYPES = ["static", "motion", "tracking"];
 const MOTION_SPEED_SETTINGS = ["verySlow", "slow", "medium", "fast"];
+const MOTION_STYLES = ["presetTransition", "pushIn", "pullOut", "panLeft", "panRight", "tiltUp", "tiltDown", "diagonalDrift", "reveal", "custom"];
 const SUGGESTED_SHOT_CATEGORIES = ["Pastor", "Platform", "Music", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"];
 const EPOCH = "1970-01-01T00:00:00.000Z";
 const nullable = value => typeof value === "string" && value.trim() ? value.trim() : null;
@@ -13,7 +14,13 @@ const uniqueId = () => `shot-${Date.now()}-${Math.random().toString(36).slice(2,
 const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
 const shotType = value => SHOT_TYPES.includes(value) ? value : "static";
 const motionSpeedSetting = value => MOTION_SPEED_SETTINGS.includes(value) ? value : "medium";
+const motionStyle = value => nullable(value) || "presetTransition";
 const speedLabel = value => ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[value] || "Medium";
+const styleLabel = value => ({
+  presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left",
+  panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift",
+  reveal: "Reveal", custom: "Custom"
+})[value] || `Needs Review: ${value}`;
 const freeze = value => {
   if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
   Object.values(value).forEach(freeze);
@@ -68,6 +75,8 @@ function normalizeShot(input = {}, { id, now, order = 0 } = {}) {
     motionProfileId: nullable(input.motionProfileId),
     motionEndPresetId: nullable(input.motionEndPresetId),
     motionSpeedSetting: motionSpeedSetting(input.motionSpeedSetting),
+    motionStyle: motionStyle(input.motionStyle),
+    motionTargetDurationMs: finite(input.motionTargetDurationMs ?? input.motionDurationMs, 0),
     motionDurationMs: finite(input.motionDurationMs, 0),
     motionSpeed: finite(input.motionSpeed, 1),
     motionNotes: text(input.motionNotes),
@@ -107,10 +116,25 @@ function validateShot(shot) {
   return { valid: errors.length === 0, errors };
 }
 
+function validateShotReferences(state, shot) {
+  const errors = [];
+  if (shot?.shotType !== "motion") return errors;
+  const camera = (state?.devices || []).find(item => item?.type === "camera" && item.id === shot.cameraDeviceId);
+  if (!camera) return errors;
+  for (const [presetId, label] of [[shot.cameraPresetId, "Start preset"], [shot.motionEndPresetId, "End preset"]]) {
+    if (!presetId) continue;
+    const preset = (state?.cameraPresets || []).find(item => item?.id === presetId);
+    if (preset && preset.cameraDeviceId !== camera.id) errors.push(`${label} belongs to another camera`);
+  }
+  return errors;
+}
+
 function createShot(state, input = {}, { id, now = Date.now() } = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, "name") && !text(input.name)) throw new TypeError("Shot name is required");
   const shot = normalizeShot(input, { id: input.id || id || uniqueId(), now, order: collection(state).length });
   const validation = validateShot(shot);
-  if (!validation.valid) throw new TypeError(validation.errors.join("; "));
+  const referenceErrors = validateShotReferences(state, shot);
+  if (!validation.valid || referenceErrors.length) throw new TypeError([...validation.errors, ...referenceErrors].join("; "));
   if (state.shots.some(item => item.id === shot.id)) throw new RangeError(`Shot ID already exists: ${shot.id}`);
   state.shots.push(shot);
   return shot;
@@ -120,9 +144,11 @@ function updateShot(state, shotId, patch = {}, { now = Date.now() } = {}) {
   const index = collection(state).findIndex(item => item.id === shotId);
   if (index < 0) throw new RangeError(`Unknown Shot: ${shotId}`);
   const current = state.shots[index];
+  if (Object.prototype.hasOwnProperty.call(patch, "name") && !text(patch.name)) throw new TypeError("Shot name is required");
   const updated = normalizeShot({ ...current, ...clone(patch), id: current.id, createdAt: current.createdAt, updatedAt: new Date(now).toISOString() }, { order: current.order });
   const validation = validateShot(updated);
-  if (!validation.valid) throw new TypeError(validation.errors.join("; "));
+  const referenceErrors = validateShotReferences(state, updated);
+  if (!validation.valid || referenceErrors.length) throw new TypeError([...validation.errors, ...referenceErrors].join("; "));
   state.shots[index] = updated;
   return updated;
 }
@@ -312,7 +338,9 @@ function resolveShotExecution(state, shotOrId, { referenceRole = null, reference
     motionExecution = {
       startPreset: resolvePreset(shot.cameraPresetId, "start preset"),
       endPreset: resolvePreset(shot.motionEndPresetId, "end preset"),
-      speed: { value: shot.motionSpeedSetting, label: speedLabel(shot.motionSpeedSetting) }
+      speed: { value: shot.motionSpeedSetting, label: speedLabel(shot.motionSpeedSetting) },
+      style: { value: shot.motionStyle, label: styleLabel(shot.motionStyle), recognized: MOTION_STYLES.includes(shot.motionStyle) },
+      targetDurationMs: shot.motionTargetDurationMs
     };
   } else {
     trackingExecution = {
@@ -398,6 +426,7 @@ function filterShots(state, filters = {}) {
 module.exports = {
   DEFAULT_SHOT_DEFINITIONS,
   MOTION_SPEED_SETTINGS,
+  MOTION_STYLES,
   SHOT_SCHEMA_VERSION,
   SHOT_TYPES,
   SUGGESTED_SHOT_CATEGORIES,
@@ -419,6 +448,8 @@ module.exports = {
   resolveShotExecution,
   summarizeShot,
   summarizeShotReadiness,
+  speedLabel,
+  styleLabel,
   updateShot,
   validateShot
 };

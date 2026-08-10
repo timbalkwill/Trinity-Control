@@ -23,6 +23,23 @@ function resolveCameraAdapter(camera) {
   return null;
 }
 
+function cameraExecutionCapabilities(camera) {
+  const adapterType = resolveCameraAdapter(camera);
+  const presetRecall = Boolean(adapterType);
+  return Object.freeze({
+    adapterType: adapterType || camera?.adapterType || null,
+    presetRecall,
+    presetTransition: presetRecall,
+    presetSpeedControl: false,
+    panTiltVelocity: false,
+    zoomVelocity: false,
+    durationControl: false,
+    motionStop: false,
+    absolutePosition: false,
+    positionInquiry: false
+  });
+}
+
 function createCameraExecutor(state, { transports = {}, timeoutMs } = {}) {
   const devices = clone(Array.isArray(state?.devices) ? state.devices : []);
   const presets = clone(Array.isArray(state?.cameraPresets) ? state.cameraPresets : []);
@@ -66,4 +83,4 @@ function createCameraExecutor(state, { transports = {}, timeoutMs } = {}) {
   });
 }
 
-module.exports = { createCameraExecutor, resolveCameraAdapter };
+module.exports = { cameraExecutionCapabilities, createCameraExecutor, resolveCameraAdapter };

@@ -99,3 +99,35 @@
 .lighting-missing-replacement {
   border-color: rgba(239, 107, 115, .55);
 }
+.motion-studio-workspace .shot-sidebar .section-title span,
+.motion-studio-editor .shot-editor-heading .eyebrow {
+  color: var(--accent, #4da9ff);
+}
+
+.motion-transition-arrow {
+  align-self: center;
+  color: var(--muted, #91a8ba);
+  font-size: 1.35rem;
+  text-align: center;
+}
+
+.motion-studio-summary,
+.motion-capability-panel {
+  margin: 0 1rem 1rem;
+  padding: 1rem;
+}
+
+.motion-studio-summary p {
+  margin: .35rem 0;
+}
+
+.motion-capability-panel ul {
+  display: grid;
+  gap: .35rem;
+  list-style: none;
+  margin: .75rem 0;
+  padding: 0;
+}
+
+.motion-capability-panel li.supported { color: var(--success, #35d59a); }
+.motion-capability-panel li.unsupported { color: var(--muted, #91a8ba); }

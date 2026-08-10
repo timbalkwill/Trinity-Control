@@ -6,7 +6,7 @@ function normalizeBaseUrl(value) {
 }
 
 function normalizeEntities(value) {
-  const source = Array.isArray(value) ? value : String(value || '').split(',');
+  const source = Array.isArray(value) ? value : String(value || '').split(/[\n,]+/);
   return [...new Set(source.map(item => String(item).trim()).filter(Boolean))];
 }
 
@@ -42,6 +42,36 @@ function createHomeAssistantController({ app, projectDirectory = __dirname, fetc
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required.');
 
   const config = () => resolveConfig({ app, projectDirectory, env });
+
+  function getConfiguration() {
+    const current = config();
+    return {
+      baseUrl: current.baseUrl,
+      entities: current.entities,
+      tokenConfigured: Boolean(current.token),
+      configured: current.configured,
+      configPath: current.configPath
+    };
+  }
+
+  function saveConfiguration(patch = {}) {
+    const current = config();
+    const next = {
+      baseUrl: patch.baseUrl === undefined ? current.baseUrl : normalizeBaseUrl(patch.baseUrl),
+      token: String(patch.token || current.token || '').trim(),
+      entities: patch.entities === undefined ? current.entities : normalizeEntities(patch.entities)
+    };
+    const temporaryPath = `${current.configPath}.tmp-${process.pid}-${Date.now()}`;
+    fs.mkdirSync(path.dirname(current.configPath), { recursive: true });
+    try {
+      fs.writeFileSync(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(temporaryPath, current.configPath);
+    } catch (error) {
+      try { fs.unlinkSync(temporaryPath); } catch { /* Nothing to clean up. */ }
+      throw error;
+    }
+    return getConfiguration();
+  }
 
   async function request(endpoint, options = {}) {
     const current = config();
@@ -126,7 +156,9 @@ function createHomeAssistantController({ app, projectDirectory = __dirname, fetc
   }
 
   return {
+    getConfiguration,
     getStatus,
+    saveConfiguration,
     turnOn: () => setPower(true),
     turnOff: () => setPower(false)
   };

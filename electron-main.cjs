@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
 const { createHomeAssistantController } = require("./home-assistant-operations.cjs");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { createOperatorCommands } = require("./operator-commands.cjs");
 const { normalizeExecutionSnapshot } = require("./cue-execution.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
@@ -22,6 +23,7 @@ const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
 const { createAtemService } = require("./atem-service.cjs");
 const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
+const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
 
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
@@ -63,6 +65,7 @@ function defaultState() {
     settings: {
       qlcplusService: normalizeQlcServiceSettings()
     },
+    setup: normalizeSetup(),
     cameras: [
       { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
       { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
@@ -735,6 +738,9 @@ function migrate(state) {
     ...(state?.settings || {}),
     qlcplusService: normalizeQlcServiceSettings(state?.settings?.qlcplusService)
   };
+  merged.setup = normalizeSetup(state?.setup, {
+    legacy: !Object.prototype.hasOwnProperty.call(state || {}, "setup")
+  });
   for (const key of ["lightingScenes", "cameraLayouts", "cueTemplates"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
@@ -788,6 +794,7 @@ function loadState() {
     return state;
   }
   const needsPresetIdMigration = hasDuplicateCameraPresetIds(parsed);
+  const needsSetupMigration = !Object.prototype.hasOwnProperty.call(parsed, "setup");
   let migrated;
   try { migrated = migrate(parsed); }
   catch (error) {
@@ -800,8 +807,8 @@ function loadState() {
     const recoveryDirectory = path.join(app.getPath("userData"), "Trinity Recovery Backups");
     const timestamp = new Date().toISOString().replace(/[:]/g, "-").replace(/\.\d{3}Z$/, "Z");
     atomicWrite(path.join(recoveryDirectory, `trinity-data-before-preset-id-migration-${timestamp}.json`), serialized);
-    saveState(migrated);
   }
+  if (needsPresetIdMigration || needsSetupMigration) saveState(migrated);
   return migrated;
 }
 function saveState(state) { atomicWrite(dataPath(), `${JSON.stringify(state, null, 2)}\n`); return state; }
@@ -939,6 +946,51 @@ app.whenReady().then(async () => {
     const imported = await backupManager.importFile(filePath);
     return { state: imported.state, preview: imported.preview, restartRequired: imported.restartRequired };
   });
+  const setupContext = () => {
+    const current = commands.getState();
+    const qlcSettings = current.settings?.qlcplusService || {};
+    const homeAssistantConfiguration = homeAssistant.getConfiguration();
+    return {
+      platform: process.platform,
+      hostLabel: process.platform === "win32" ? "Windows production host" : process.platform === "darwin" ? "macOS host" : `${process.platform} host`,
+      version: app.getVersion(),
+      computerName: os.hostname(),
+      dataLocation: app.getPath("userData"),
+      operator: operatorServerStatus,
+      qlcplus: {
+        settings: qlcSettings,
+        status: qlcServiceStatus,
+        applicationPathValid: Boolean(qlcSettings.applicationPath && fs.existsSync(qlcSettings.applicationPath)),
+        workspacePathValid: Boolean(qlcSettings.workspacePath && fs.existsSync(qlcSettings.workspacePath))
+      },
+      atem: atemService.getStatus(),
+      cameras: (current.devices || []).filter(device => device.type === "camera" && ["main", "left", "right"].includes(device.logicalRole || device.id)),
+      homeAssistant: homeAssistantConfiguration,
+      readiness: setupReadiness({
+        state: current,
+        operatorStatus: operatorServerStatus,
+        qlcStatus: qlcServiceStatus,
+        atemStatus: atemService.getStatus(),
+        homeAssistant: homeAssistantConfiguration
+      })
+    };
+  };
+  ipcMain.handle("setup:context", setupContext);
+  ipcMain.handle("setup:finish", (_event, options) => commands.updateState(state => {
+    completeSetup(state, { skippedSystems: options?.skippedSystems });
+  }));
+  ipcMain.handle("setup:update-device", (_event, { deviceId, patch }) => {
+    const current = commands.getState();
+    const device = (current.devices || []).find(item => item.id === deviceId);
+    if (!device || !["camera", "switcher"].includes(device.type)) throw new RangeError("Setup device not found");
+    const allowed = device.type === "camera"
+      ? ["name", "enabled", "adapterType", "protocol", "ipAddress", "port", "viscaAddress"]
+      : ["name", "enabled", "ipAddress", "metadata"];
+    const safePatch = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key)));
+    return commands.updateDevice(deviceId, safePatch);
+  });
+  ipcMain.handle("home-assistant:configuration", () => homeAssistant.getConfiguration());
+  ipcMain.handle("home-assistant:update-configuration", (_event, patch) => homeAssistant.saveConfiguration(patch));
   ipcMain.handle("operator-server:status", () => operatorServerStatus);
   ipcMain.handle("qlc-service:status", () => qlcServiceStatus);
   ipcMain.handle("qlc-service:update-settings", (_e, patch) => commands.updateState(state => {

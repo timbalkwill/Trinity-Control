@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld("trinity", {
   selectTrinityBackup: () => ipcRenderer.invoke("backup:select-import"),
   cancelTrinityBackupImport: () => ipcRenderer.invoke("backup:cancel-import"),
   importTrinityBackup: () => ipcRenderer.invoke("backup:confirm-import"),
+  getSetupContext: () => ipcRenderer.invoke("setup:context"),
+  finishSetup: options => ipcRenderer.invoke("setup:finish", options),
+  updateSetupDevice: (deviceId, patch) => ipcRenderer.invoke("setup:update-device", { deviceId, patch }),
   addCueTemplate: id => ipcRenderer.invoke("cue:addTemplate", id),
   moveCue: (from, to) => ipcRenderer.invoke("cue:move", { from, to }),
   reorderCueById: (cueId, targetCueId, placement) => ipcRenderer.invoke("cue:move-by-id", { cueId, targetCueId, placement }),
@@ -98,6 +101,8 @@ contextBridge.exposeInMainWorld("trinity", {
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
   getHomeAssistantStatus: () => ipcRenderer.invoke("home-assistant:status"),
+  getHomeAssistantConfiguration: () => ipcRenderer.invoke("home-assistant:configuration"),
+  updateHomeAssistantConfiguration: patch => ipcRenderer.invoke("home-assistant:update-configuration", patch),
   turnLightingPowerOn: () => ipcRenderer.invoke("home-assistant:lighting-on"),
   turnLightingPowerOff: () => ipcRenderer.invoke("home-assistant:lighting-off")
 });

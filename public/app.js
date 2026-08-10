@@ -20,6 +20,10 @@ let settingsSection = 'devices';
 let backupImportPreview = null;
 let lastBackupExportAt = null;
 let backupBusy = false;
+let setupWizardOpen = false;
+let setupStep = 'welcome';
+let setupContext = null;
+let setupSkippedSystems = new Set();
 let systemStatus = null;
 let systemStatusLoading = false;
 let rendererFps = null;
@@ -2330,6 +2334,118 @@ async function confirmAndDeleteCamera(deviceId, { returnToCameraManager = false 
   }
 }
 
+async function selectBackupForImport() {
+  backupBusy = true;
+  render();
+  try {
+    const result = await window.trinity.selectTrinityBackup();
+    backupImportPreview = result.canceled ? null : result.preview;
+    return result;
+  } catch (error) {
+    backupImportPreview = null;
+    showNotification(error.message || 'The backup could not be validated', { type: 'error', persistent: true });
+    return { canceled: true, error };
+  } finally {
+    backupBusy = false;
+    render();
+  }
+}
+
+async function confirmSelectedBackupImport() {
+  backupBusy = true;
+  render();
+  try {
+    const result = await window.trinity.importTrinityBackup();
+    state = result.state;
+    backupImportPreview = null;
+    showNotification(`Backup imported. ${result.preview.counts.serviceCues} service cues and ${result.preview.counts.devices} devices restored. Machine-local settings still require review.`, { type: 'success', persistent: true });
+    return result;
+  } catch (error) {
+    showNotification(error.message || 'Backup import failed; current configuration was preserved', { type: 'error', persistent: true });
+    return null;
+  } finally {
+    backupBusy = false;
+    render();
+  }
+}
+
+async function refreshSetupContext() {
+  setupContext = await window.trinity.getSetupContext();
+  if (setupWizardOpen) render({ reason: 'setup-context' });
+  return setupContext;
+}
+
+function setupStatusBadge(item) {
+  const skipped = setupSkippedSystems.has(item.id);
+  const status = skipped ? 'skipped' : item.state;
+  const label = skipped ? 'Skipped' : status === 'ready' ? 'Ready' : status === 'needs-review' ? 'Needs Review' : 'Not Configured';
+  return `<span class="setup-status ${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+}
+
+function setupWizardPage() {
+  const steps = ['host', 'browser', 'qlcplus', 'atem', 'cameras', 'homeAssistant', 'review'];
+  const stepIndex = steps.indexOf(setupStep);
+  const context = setupContext;
+  const cameras = context?.cameras || [];
+  const atemDevice = (state.devices || []).find(device => device.type === 'switcher' && (device.adapterType === 'atem' || device.metadata?.adapter === 'atem' || device.id === 'device-atem'));
+  const qlc = context?.qlcplus?.settings || state.settings?.qlcplusService || {};
+  const operatorUrl = context?.operator?.networkUrls?.[0] || context?.operator?.localUrl || 'Available after the Browser Operator starts';
+  const wizardNavigation = setupStep === 'welcome' ? '' : `<div class="setup-navigation">
+    <button id="setup-back" ${stepIndex <= 0 ? 'disabled' : ''}>BACK</button>
+    <span>Step ${Math.max(1, stepIndex + 1)} of ${steps.length}</span>
+    ${setupStep === 'review' ? '<button id="setup-finish" class="primary">FINISH SETUP</button>' : '<button id="setup-next" class="primary">NEXT</button>'}
+  </div>`;
+  let content;
+  if (!context) {
+    content = '<section class="panel setup-loading">Reading local setup status…</section>';
+  } else if (setupStep === 'welcome') {
+    const counts = backupImportPreview?.counts;
+    content = `<section class="setup-welcome"><span class="eyebrow">TRINITY CONTROL SETUP</span><h1>Welcome to Trinity Control</h1>
+      <p>This desktop computer is the production host. An iPad can be used as the remote operator surface on your trusted local network.</p>
+      <p>Setup guides configuration and validation only. It will not move cameras, recall presets, switch ATEM, execute lighting, or run GO/BACK.</p>
+      <div class="setup-choice-grid"><button id="setup-import" class="setup-choice">IMPORT TRINITY BACKUP<small>Validate and restore an existing portable configuration</small></button><button id="setup-new" class="setup-choice primary">SET UP AS NEW<small>Review this computer’s machine-local configuration</small></button></div>
+      ${backupImportPreview ? `<section class="panel setup-import-preview"><h2>Backup ready to import</h2><p>${Number(counts.serviceCues) || 0} service cues · ${Number(counts.devices) || 0} devices · ${Number(counts.lightingScenes) || 0} lighting scenes</p><div class="settings-warning">Portable configuration will be replaced only after confirmation. QLC+ paths and credentials remain machine-local and require review.</div><div class="row-actions"><button id="setup-import-cancel">CANCEL</button><button id="setup-import-confirm" class="primary">CONFIRM IMPORT</button></div></section>` : ''}
+    </section>`;
+  } else if (setupStep === 'host') {
+    content = `<section class="panel setup-step"><span class="eyebrow">REQUIRED</span><h1>Production Host</h1><p>This computer runs production execution. These values are read-only.</p>${diagnosticRows([
+      ['Host type', context.hostLabel], ['Platform', context.platform], ['Application version', context.version], ['Computer name', context.computerName], ['Trinity data location', context.dataLocation], ['Operator server port', context.operator?.port || 4310]
+    ])}</section>`;
+  } else if (setupStep === 'browser') {
+    content = `<section class="panel setup-step"><span class="eyebrow">REQUIRED · TRUSTED LAN</span><h1>Browser Operator</h1>${diagnosticRows([
+      ['Status', context.operator?.running ? 'Enabled and running' : 'Enabled; server needs review'], ['Port', context.operator?.port || 4310], ['Operator URL', operatorUrl]
+    ])}<div class="setup-guidance"><strong>iPad setup</strong><p>Open the Operator URL on the iPad → Add to Home Screen → use landscape orientation.</p><p>Browser Operator is currently available to devices that can reach this computer on the local network. A later security sprint will add access control.</p>${context.platform === 'win32' ? '<p>Windows Firewall may ask for private-network access. Trinity does not modify firewall rules automatically.</p>' : ''}</div></section>`;
+  } else if (setupStep === 'qlcplus') {
+    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>Lighting / QLC+</h1><p>Select machine-local paths. Browsing and saving these paths does not launch QLC+ or activate lighting.</p>
+      <div class="settings-form"><label class="wide">QLC+ executable / application<div class="path-picker"><input value="${escapeHtml(qlc.applicationPath || '')}" readonly><button id="setup-browse-qlc">BROWSE</button></div></label><label class="wide">QLC+ workspace<div class="path-picker"><input value="${escapeHtml(qlc.workspacePath || '')}" readonly><button id="setup-browse-workspace">BROWSE</button></div></label></div>
+      ${diagnosticRows([['Executable path', context.qlcplus.applicationPathValid ? 'Valid' : qlc.applicationPath ? 'Needs review' : 'Not selected'], ['Workspace path', context.qlcplus.workspacePathValid ? 'Valid' : qlc.workspacePath ? 'Needs review' : 'Not selected'], ['Connection', context.qlcplus.status?.connectionState || context.qlcplus.status?.state || 'Not tested']])}
+      <button class="setup-skip" data-setup-skip="qlcplus">${setupSkippedSystems.has('qlcplus') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></section>`;
+  } else if (setupStep === 'atem') {
+    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>ATEM</h1><p>Saving setup fields does not connect or switch PROGRAM.</p>${atemDevice ? `<div class="settings-form"><label>Name<input id="setup-atem-name" value="${escapeHtml(atemDevice.name)}"></label><label>Host / IP<input id="setup-atem-host" value="${escapeHtml(atemDevice.ipAddress || '')}"></label><label class="checkbox-label"><input id="setup-atem-enabled" type="checkbox" ${atemDevice.enabled ? 'checked' : ''}> Enabled</label>${cameras.map(camera => `<label>${escapeHtml(camera.name)} input<input type="number" min="1" data-setup-atem-input="${escapeHtml(camera.id)}" value="${atemDevice.metadata?.atemCameraInputs?.[camera.id] ?? ''}"></label>`).join('')}</div><div class="row-actions"><button id="setup-save-atem">SAVE ATEM SETTINGS</button><button class="setup-skip" data-setup-skip="atem">${setupSkippedSystems.has('atem') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></div>${diagnosticRows([['Connection state', context.atem.connectionState || 'Not tested'], ['PROGRAM input', context.atem.connectionState === 'connected' ? context.atem.programInput ?? 'Unknown' : 'Not read']])}` : '<div class="settings-warning">ATEM device record is unavailable. You can finish setup and configure it later.</div>'}</section>`;
+  } else if (setupStep === 'cameras') {
+    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>Cameras</h1><p>These fields save configuration only. Setup cannot recall presets, run Motion, or send PTZ commands.</p><div class="setup-camera-grid">${cameras.map(camera => `<article class="panel" data-setup-camera="${escapeHtml(camera.id)}"><h2>${escapeHtml(camera.logicalRole || camera.id)}</h2><label>Name<input data-setup-camera-field="name" value="${escapeHtml(camera.name)}"></label><label>Adapter<select data-setup-camera-field="adapterType"><option value="">Not configured</option><option value="visca-udp" ${camera.adapterType === 'visca-udp' ? 'selected' : ''}>VISCA UDP</option><option value="ptzoptics" ${camera.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics HTTP</option></select></label><label>Protocol<input data-setup-camera-field="protocol" value="${escapeHtml(camera.protocol || '')}"></label><label>Host / IP<input data-setup-camera-field="ipAddress" value="${escapeHtml(camera.ipAddress || '')}"></label><label>Port<input type="number" data-setup-camera-field="port" value="${camera.port ?? ''}"></label><label>VISCA address<input type="number" min="1" max="7" data-setup-camera-field="viscaAddress" value="${camera.viscaAddress ?? ''}"></label><label class="checkbox-label"><input type="checkbox" data-setup-camera-field="enabled" ${camera.enabled ? 'checked' : ''}> Enabled</label><small>Presets: ${(state.cameraPresets || []).filter(preset => preset.cameraDeviceId === camera.id).length} · ${escapeHtml(deviceStatusLabel(camera.connectionStatus))}</small><button data-setup-save-camera="${escapeHtml(camera.id)}">SAVE CAMERA</button></article>`).join('')}</div><button class="setup-skip" data-setup-skip="cameras">${setupSkippedSystems.has('cameras') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></section>`;
+  } else if (setupStep === 'homeAssistant') {
+    const ha = context.homeAssistant;
+    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL · MACHINE-LOCAL CREDENTIAL</span><h1>Home Assistant</h1><p>Portable backups exclude the access token. Enter a token only when it needs to be added or replaced; saved tokens are never displayed.</p><div class="settings-form"><label class="wide">Home Assistant URL<input id="setup-ha-url" value="${escapeHtml(ha.baseUrl || '')}" placeholder="http://homeassistant.local:8123"></label><label class="wide">Access token<input id="setup-ha-token" type="password" value="" placeholder="${ha.tokenConfigured ? 'Token saved — leave blank to keep it' : 'Enter a long-lived access token'}" autocomplete="new-password"></label><label class="wide">Lighting entities<textarea id="setup-ha-entities">${escapeHtml((ha.entities || []).join('\n'))}</textarea></label></div><div class="row-actions"><button id="setup-save-ha">SAVE HOME ASSISTANT SETTINGS</button><button class="setup-skip" data-setup-skip="homeAssistant">${setupSkippedSystems.has('homeAssistant') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></div><small>Saving does not contact Home Assistant or issue a production command.</small></section>`;
+  } else {
+    content = `<section class="panel setup-step"><span class="eyebrow">FINAL REVIEW</span><h1>Setup Readiness</h1><p>Optional systems may remain incomplete. “Connected” appears only when authoritative runtime status confirms it.</p><div class="setup-review">${context.readiness.map(item => `<div><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.classification.toUpperCase())} · ${escapeHtml(setupSkippedSystems.has(item.id) ? 'Skipped for now' : item.detail)}</small></span>${setupStatusBadge(item)}</div>`).join('')}</div>${context.readiness.some(item => item.classification === 'optional' && item.state !== 'ready' && !setupSkippedSystems.has(item.id)) ? '<div class="settings-warning">Some optional systems remain incomplete. You may finish setup and configure them later from Settings.</div>' : ''}</section>`;
+  }
+  root.innerHTML = `<main class="setup-wizard"><header><img src="assets/trinity-logo.png" alt="Trinity Baptist Church"><span>FIRST-RUN SETUP</span>${state.setup?.completed ? '<button id="setup-close">CLOSE</button>' : ''}</header><div class="setup-wizard-body">${content}</div>${wizardNavigation}</main>`;
+  document.getElementById('setup-close')?.addEventListener('click', () => { setupWizardOpen = false; render(); });
+  document.getElementById('setup-new')?.addEventListener('click', () => { setupStep = 'host'; render(); });
+  document.getElementById('setup-import')?.addEventListener('click', () => void selectBackupForImport());
+  document.getElementById('setup-import-cancel')?.addEventListener('click', async () => { await window.trinity.cancelTrinityBackupImport(); backupImportPreview = null; render(); });
+  document.getElementById('setup-import-confirm')?.addEventListener('click', async () => { if (await confirmSelectedBackupImport()) { await refreshSetupContext(); setupStep = 'review'; render(); } });
+  document.getElementById('setup-back')?.addEventListener('click', () => { setupStep = steps[Math.max(0, stepIndex - 1)]; render(); });
+  document.getElementById('setup-next')?.addEventListener('click', async () => { await refreshSetupContext(); setupStep = steps[Math.min(steps.length - 1, stepIndex + 1)]; render(); });
+  document.querySelectorAll('[data-setup-skip]').forEach(button => button.onclick = () => { const id = button.dataset.setupSkip; setupSkippedSystems.has(id) ? setupSkippedSystems.delete(id) : setupSkippedSystems.add(id); render(); });
+  document.getElementById('setup-browse-qlc')?.addEventListener('click', async () => { const selected = await window.trinity.browseQlcApplication(); if (selected) state = await window.trinity.updateQlcServiceSettings({ applicationPath: selected }); await refreshSetupContext(); });
+  document.getElementById('setup-browse-workspace')?.addEventListener('click', async () => { const selected = await window.trinity.browseQlcWorkspace(); if (selected) state = await window.trinity.updateQlcServiceSettings({ workspacePath: selected }); await refreshSetupContext(); });
+  document.getElementById('setup-save-atem')?.addEventListener('click', async () => { const mappings = {}; document.querySelectorAll('[data-setup-atem-input]').forEach(input => { if (input.value) mappings[input.dataset.setupAtemInput] = Number(input.value); }); state = await window.trinity.updateSetupDevice(atemDevice.id, { name: document.getElementById('setup-atem-name').value, ipAddress: document.getElementById('setup-atem-host').value || null, enabled: document.getElementById('setup-atem-enabled').checked, metadata: { ...(atemDevice.metadata || {}), adapter: 'atem', atemCameraInputs: mappings } }); await refreshSetupContext(); showNotification('ATEM settings saved without switching PROGRAM', { type: 'success' }); });
+  document.querySelectorAll('[data-setup-save-camera]').forEach(button => button.onclick = async () => { const card = button.closest('[data-setup-camera]'); const patch = {}; card.querySelectorAll('[data-setup-camera-field]').forEach(input => { patch[input.dataset.setupCameraField] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null; }); state = await window.trinity.updateSetupDevice(button.dataset.setupSaveCamera, patch); await refreshSetupContext(); showNotification('Camera settings saved without sending a PTZ command', { type: 'success' }); });
+  document.getElementById('setup-save-ha')?.addEventListener('click', async () => { const token = document.getElementById('setup-ha-token').value; await window.trinity.updateHomeAssistantConfiguration({ baseUrl: document.getElementById('setup-ha-url').value, ...(token ? { token } : {}), entities: document.getElementById('setup-ha-entities').value }); await refreshSetupContext(); showNotification('Home Assistant settings saved without contacting the server', { type: 'success' }); });
+  document.getElementById('setup-finish')?.addEventListener('click', async () => { state = await window.trinity.finishSetup({ skippedSystems: [...setupSkippedSystems] }); setupWizardOpen = false; setupStep = 'welcome'; render({ reason: 'setup-finished', preserveScroll: false }); });
+}
+
 function formatDiagnosticDate(value) {
   if (!value || value === 'Never' || value === 'None recorded') return value || 'Unavailable';
   const date = new Date(value);
@@ -2487,7 +2603,8 @@ function settingsPage() {
     ['network', 'Network'],
     ['diagnostics', 'Diagnostics'],
     ['backup', 'Backup & Transfer'],
-    ['systemStatus', 'System Status']
+    ['systemStatus', 'System Status'],
+    ['runSetup', 'Run Setup Wizard']
   ];
   const devices = state.devices || [];
   const filtered = devices.filter(device =>
@@ -2662,6 +2779,14 @@ function settingsPage() {
 
   shell(`<div class="settings-layout"><aside class="settings-nav"><div class="settings-admin-label">⚠ ADMINISTRATOR SETTINGS</div>${sections.map(([id,label]) => `<button class="${settingsSection === id ? 'active' : ''}" data-settings-section="${id}">${label}</button>`).join('')}</aside><section class="settings-content page-scroll">${body}</section></div>${editor}`);
   document.querySelectorAll('[data-settings-section]').forEach(button => button.onclick = () => {
+    if (button.dataset.settingsSection === 'runSetup') {
+      setupWizardOpen = true;
+      setupStep = 'welcome';
+      setupSkippedSystems = new Set(state.setup?.skippedSystems || []);
+      render({ reason: 'setup-reopened', preserveScroll: false });
+      void refreshSetupContext();
+      return;
+    }
     settingsSection = button.dataset.settingsSection;
     selectedDeviceId = null;
     render();
@@ -2677,26 +2802,13 @@ function settingsPage() {
     finally { backupBusy = false; render(); }
   });
   document.getElementById('backup-select')?.addEventListener('click', async () => {
-    backupBusy = true; render();
-    try {
-      const result = await window.trinity.selectTrinityBackup();
-      backupImportPreview = result.canceled ? null : result.preview;
-    } catch (error) {
-      backupImportPreview = null;
-      showNotification(error.message || 'The backup could not be validated', { type: 'error', persistent: true });
-    } finally { backupBusy = false; render(); }
+    await selectBackupForImport();
   });
   document.getElementById('backup-cancel')?.addEventListener('click', async () => {
     await window.trinity.cancelTrinityBackupImport(); backupImportPreview = null; render();
   });
   document.getElementById('backup-confirm')?.addEventListener('click', async () => {
-    backupBusy = true; render();
-    try {
-      const result = await window.trinity.importTrinityBackup();
-      state = result.state; backupImportPreview = null;
-      showNotification(`Backup imported. ${result.preview.counts.serviceCues} service cues and ${result.preview.counts.devices} devices restored. Restart Trinity to reload hardware services.`, { type: 'success', persistent: true });
-    } catch (error) { showNotification(error.message || 'Backup import failed; current configuration was preserved', { type: 'error', persistent: true }); }
-    finally { backupBusy = false; render(); }
+    await confirmSelectedBackupImport();
   });
   const typeFilter = document.getElementById('device-type-filter');
   if (typeFilter) typeFilter.onchange = () => { deviceTypeFilter = typeFilter.value; render(); };
@@ -2838,7 +2950,9 @@ function render({ reason = 'application-state-change', preserveScroll = true } =
     : null;
 
   try {
-    if (page === 'live') {
+    if (setupWizardOpen) {
+      setupWizardPage();
+    } else if (page === 'live') {
       livePage();
     } else if (page === 'service') {
       servicePage();
@@ -2862,6 +2976,7 @@ function render({ reason = 'application-state-change', preserveScroll = true } =
 }
 
 document.addEventListener('keydown', async event => {
+  if (setupWizardOpen) return;
   const tag = event.target?.tagName?.toLowerCase();
   if (event.isComposing || event.repeat || cueEditorOpen || ['input', 'textarea', 'select'].includes(tag) || event.target?.isContentEditable) {
     if (event.key === 'Escape' && cueEditorOpen) document.querySelector('.cue-editor-close')?.click();
@@ -2918,6 +3033,10 @@ document.addEventListener('keydown', async event => {
     qlcServiceStatus = initialQlcServiceStatus;
     atemStatus = initialAtemStatus;
     appInfo = initialAppInfo;
+
+    setupWizardOpen = state.setup?.completed !== true;
+    setupSkippedSystems = new Set(state.setup?.skippedSystems || []);
+    if (setupWizardOpen) setupContext = await window.trinity.getSetupContext();
 
     render({ reason: 'initial-load', preserveScroll: false });
   } catch (error) {

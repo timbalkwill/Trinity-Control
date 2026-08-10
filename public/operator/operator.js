@@ -22,9 +22,10 @@
     const presets = (state.cameraPresetSummaries || []).filter(preset => preset.enabled && preset.cameraDeviceId === id);
     const motions = (state.shotSummaries || []).filter(shot => shot.enabled && shot.cameraDeviceId === id && (shot.motionEnabled || shot.shotType === "motion"));
     const preparation = (state.live?.cameraPreparations || []).find(item => item.cameraId === id);
+    const preparedMotion = state.live?.preparedMotions?.[id] || null;
     const ready = cameraReady(camera);
     const live = atemConnected() && state.atemStatus.liveCameraId === id;
-    const takeReady = ready && atemConnected() && state.atemStatus?.cameraInputs?.[id] !== undefined;
+    const takeReady = ready && atemConnected() && state.atemStatus?.cameraInputs?.[id] !== undefined && (!live || preparedMotion);
     return `<section class="camera-column${live ? " live" : ""}" data-camera-id="${escapeHtml(id || "")}" data-camera-role="${role}">
       <header><div><span class="camera-role">${role}</span><h2>${escapeHtml(name)}</h2></div><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
       <div class="live-badge">${live ? "LIVE" : "STANDBY"}</div>
@@ -36,10 +37,11 @@
         const key = `motion:${id}:${shot.id}`;
         const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
         const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
-        return `<button data-action="motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)}</small></button>`;
-      }).join("") || '<span class="empty">No motion shots</span>'}</div></div></div>
+        const isPrepared = preparedMotion?.shotId === shot.id;
+        return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
+      }).join("") || '<span class="empty">No motion shots</span>'}${preparedMotion ? `<button data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : ""}</div></div></div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
-      <button class="take-live" data-action="take" data-camera-id="${escapeHtml(id || "")}"${disabledAttribute(`take:${id}`, takeReady && !live)}>${live ? "ON AIR" : "TAKE LIVE"}</button>
+      <button class="take-live" data-action="take" data-camera-id="${escapeHtml(id || "")}"${disabledAttribute(`take:${id}`, takeReady)}>${live && preparedMotion ? "RUN PREPARED MOVE" : live ? "ON AIR" : preparedMotion ? "TAKE LIVE + MOVE" : "TAKE LIVE"}</button>
     </section>`;
   }
 
@@ -73,7 +75,13 @@
     const id = button.dataset.cameraId;
     try {
       if (action === "preset") await command(`preset:${id}:${button.dataset.presetId}`, "/api/live/recall-camera-preset", { cameraId: id, presetId: button.dataset.presetId });
-      if (action === "motion") await command(`motion:${id}:${button.dataset.shotId}`, "/api/live/run-camera-motion", { cameraId: id, shotId: button.dataset.shotId });
+      if (action === "prepare-motion") {
+        const existing = state.live?.preparedMotions?.[id];
+        if (!existing || existing.shotId === button.dataset.shotId || window.confirm(`Replace prepared Motion ${existing.shotName}?`)) {
+          await command(`motion:${id}:${button.dataset.shotId}`, "/api/live/prepare-motion", { cameraId: id, shotId: button.dataset.shotId });
+        }
+      }
+      if (action === "cancel-prep") await command(`cancel-prep:${id}`, "/api/live/cancel-prepared-motion", { cameraId: id });
       if (action === "take") await command(`take:${id}`, "/api/atem/take-live", { cameraId: id });
       if (action === "cue") await command(`cue:${button.dataset.index}`, "/api/live/go", { index: Number(button.dataset.index), confirmJump: true });
       if (action === "back") await command("back", "/api/live/back");

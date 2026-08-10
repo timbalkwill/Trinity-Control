@@ -1220,13 +1220,14 @@ function CameraDirectorCard(camera) {
   const presets = (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
   const cameraPresetById = new Map(presets.map(preset => [preset.id, preset]));
   const motionShots = (state.shots || []).filter(shot => shot.enabled !== false && shot.shotType === 'motion' && shot.cameraDeviceId === camera.id);
+  const preparedMotion = state.live?.preparedMotions?.[camera.id] || null;
   const lastMotion = state.live?.manualMotionCommands?.[camera.id] || null;
   const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
   const controlsDisabled = !status.available || preparation.tracking?.active === true;
   const atemConnected = atemStatus?.connectionState === 'connected';
   const atemInput = atemStatus?.cameraInputs?.[camera.id];
   const isLive = atemConnected && atemStatus.liveCameraId === camera.id;
-  const takeDisabled = !atemConnected || atemInput === undefined || isLive;
+  const takeDisabled = !atemConnected || atemInput === undefined || (isLive && !preparedMotion);
   return `<article class="camera-director-card ${isLive ? 'atem-live' : ''}" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
     <header>
       <div><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)}</strong></div>
@@ -1260,21 +1261,23 @@ function CameraDirectorCard(camera) {
             : !endPreset ? 'End preset is missing, disabled, or belongs to another camera'
             : null;
           const isLastMotion = lastMotion?.shotId === shot.id;
+          const isPrepared = preparedMotion?.shotId === shot.id;
           const speedLabel = motionSpeedLabels[shot.motionSpeedSetting] || 'Medium';
           const styleLabel = motionStyleLabels[shot.motionStyle] || 'Preset Transition';
           return `<button
-            class="camera-preset-action camera-motion-action ${isLastMotion ? 'last-commanded' : ''}"
-            data-run-motion-camera="${escapeHtml(camera.id)}"
-            data-run-motion-shot="${escapeHtml(shot.id)}"
-            aria-label="Run motion ${escapeHtml(shot.name)} on ${escapeHtml(camera.name)}"
+            class="camera-preset-action camera-motion-action ${isLastMotion ? 'last-commanded' : ''} ${isPrepared ? 'prepared' : ''}"
+            data-prepare-motion-camera="${escapeHtml(camera.id)}"
+            data-prepare-motion-shot="${escapeHtml(shot.id)}"
+            aria-label="Prepare motion ${escapeHtml(shot.name)} on ${escapeHtml(camera.name)}"
             title="${escapeHtml(unavailableReason || `${startPreset.name} to ${endPreset.name} at ${speedLabel}`)}"
             ${unavailableReason ? 'disabled' : ''}
-          ><span><strong>${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')}</small><small>${escapeHtml(styleLabel)} · ${escapeHtml(speedLabel)}</small></span>${isLastMotion ? '<small>✓ Last Commanded Motion</small>' : ''}</button>`;
+          ><span><strong>${isPrepared ? '✓ ' : ''}${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')}</small><small>${escapeHtml(styleLabel)} · ${escapeHtml(speedLabel)}</small></span><small>${isPrepared ? escapeHtml(preparedMotion.statusLabel || 'READY / START COMMANDED') : 'PREPARE'}</small></button>`;
         }).join('') : '<div class="camera-empty-state">No saved Motion Shots for this camera.</div>'}
       </div>
-      <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${lastMotion ? `Last Commanded Motion: ${escapeHtml(lastMotion.shotName)}` : 'Ready'}</small>
+      <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${preparedMotion ? `${escapeHtml(preparedMotion.statusLabel)} · Start commanded, position not verified` : lastMotion ? `Last Motion: ${escapeHtml(lastMotion.shotName)} · Commanded` : 'NOT PREPARED'}</small>
+      ${preparedMotion ? `<button type="button" class="secondary-button cancel-prepared-motion" data-cancel-prepared-motion="${escapeHtml(camera.id)}">CANCEL PREP</button>` : ''}
     </div>
-    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive ? 'LIVE' : 'TAKE LIVE'}</button>
+    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive && preparedMotion ? 'RUN PREPARED MOVE' : isLive ? 'LIVE' : preparedMotion ? 'TAKE LIVE + MOVE' : 'TAKE LIVE'}</button>
   </article>`;
 }
 
@@ -1311,22 +1314,27 @@ function livePage() {
       catch (error) { button.disabled = false; window.alert(error.message); }
     };
   });
-  document.querySelectorAll('[data-run-motion-camera]').forEach(button => {
+  document.querySelectorAll('[data-prepare-motion-camera]').forEach(button => {
     button.onclick = async () => {
-      const feedback = document.querySelector(`[data-motion-feedback="${button.dataset.runMotionCamera}"]`);
+      const feedback = document.querySelector(`[data-motion-feedback="${button.dataset.prepareMotionCamera}"]`);
+      const existing = state.live?.preparedMotions?.[button.dataset.prepareMotionCamera];
+      if (existing && existing.shotId !== button.dataset.prepareMotionShot && !window.confirm(`Replace prepared Motion ${existing.shotName} with this Motion Shot?`)) return;
       button.disabled = true;
       button.classList.add('executing');
-      if (feedback) feedback.textContent = 'Executing…';
+      if (feedback) feedback.textContent = 'PREPARING…';
       try {
-        state = await window.trinity.runCameraMotion(button.dataset.runMotionCamera, button.dataset.runMotionShot);
+        state = await window.trinity.prepareMotionStart(button.dataset.prepareMotionCamera, button.dataset.prepareMotionShot);
         render();
       } catch (error) {
         button.disabled = false;
         button.classList.remove('executing');
-        if (feedback) feedback.textContent = `Failed: ${error.message || 'Motion command failed'}`;
-        showNotification(error.message || 'Motion command failed', { type: 'error' });
+        if (feedback) feedback.textContent = `FAILED: ${error.message || 'Preparation failed'}`;
+        showNotification(error.message || 'Motion preparation failed', { type: 'error' });
       }
     };
+  });
+  document.querySelectorAll('[data-cancel-prepared-motion]').forEach(button => {
+    button.onclick = async () => { state = await window.trinity.cancelPreparedMotion(button.dataset.cancelPreparedMotion); render(); };
   });
   document.querySelectorAll('[data-atem-take-live]').forEach(button => {
     button.onclick = async () => {
@@ -1747,7 +1755,9 @@ function lightingPage() {
   const selectedScene = byId(state.lightingScenes || [], selectedLightingSceneId);
   const productionScenes = (state.lightingScenes || []).filter(scene => scene.productionScene !== false && scene.available !== false);
   const utilityScenes = (state.lightingScenes || []).filter(scene => scene.productionScene === false && scene.available !== false);
-  const missingScenes = (state.lightingScenes || []).filter(scene => scene.available === false);
+  const reconciliationScenes = (state.lightingScenes || []).filter(scene => scene.reconciliationStatus === 'needs-reconciliation');
+  const missingScenes = (state.lightingScenes || []).filter(scene => scene.available === false && scene.reconciliationStatus !== 'needs-reconciliation');
+  const availableScenes = (state.lightingScenes || []).filter(scene => scene.available !== false);
   const filteredScenes = lightingSceneFilter === 'all'
     ? state.lightingScenes
     : lightingSceneFilter === 'utility' ? utilityScenes : productionScenes;
@@ -1770,7 +1780,8 @@ function lightingPage() {
   const visibleControls = showAllLightingControls ? discoveredControls : compatibleControls;
   const availableReplacements = (state.lightingScenes || []).filter(scene => scene.available !== false && scene.id !== selectedScene?.id);
   const controlOption = control => `${control.name || 'Unnamed'} — ${control.widgetType || 'Unknown'} — ID ${control.widgetId}${control.status !== undefined ? ` — ${control.status}` : ''}`;
-  const missingReplacement = selectedScene?.available === false ? `<section class="wide panel lighting-missing-replacement"><span class="eyebrow">MISSING QLC+ FUNCTION</span>
+  const selectedNeedsReconciliation = selectedScene?.reconciliationStatus === 'needs-reconciliation';
+  const missingReplacement = selectedScene?.available === false && !selectedNeedsReconciliation ? `<section class="wide panel lighting-missing-replacement"><span class="eyebrow">MISSING QLC+ FUNCTION</span>
         <p class="look-warning">⚠ ${escapeHtml(selectedScene.qlcMirror?.name || selectedScene.name)} (Widget ID ${escapeHtml(selectedScene.qlcMirror?.widgetId || mapping?.widgetId || 'unknown')}) is no longer available.</p>
         <p>Used by ${selectedLookReferences.length} Production Look${selectedLookReferences.length === 1 ? '' : 's'} and ${selectedCueReferences.length} Service Cue${selectedCueReferences.length === 1 ? '' : 's'}.</p>
         <div class="lighting-replacement-references">${[
@@ -1780,7 +1791,7 @@ function lightingPage() {
         ].map(item => `<label class="checkbox-label"><input type="checkbox" data-lighting-reference="${item.type}" value="${escapeHtml(item.id)}" checked> ${escapeHtml(item.label)}</label>`).join('')}</div>
         <label>Replace selected references with<select id="lighting-replacement-scene"><option value="">Choose an available QLC+ function</option>${availableReplacements.map(scene => `<option value="${escapeHtml(scene.id)}">${escapeHtml(scene.name)}</option>`).join('')}</select></label>
         <button type="button" id="lighting-apply-replacement">APPLY REPLACEMENT</button>
-      </section>` : '';
+      </section>` : selectedNeedsReconciliation ? `<section class="wide panel lighting-reconciliation-review"><span class="eyebrow">NEEDS RECONCILIATION</span><p class="look-warning">This legacy record has no safe authoritative QLC+ widget identity.</p><p>No automatic remap will be performed. Review its mapping against discovered QLC+ controls.</p></section>` : '';
   const editor = selectedScene ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
     <div class="look-editor-header"><div><span class="eyebrow">LIGHTING SCENE</span><h1>${escapeHtml(selectedScene.name)}</h1></div><button id="lighting-editor-close">×</button></div>
     <div class="settings-form">
@@ -1830,7 +1841,7 @@ function lightingPage() {
           <span>LIGHTING LIBRARY</span>
 
           <strong>
-            ${productionScenes.length} Production · ${utilityScenes.length} Utility · ${missingScenes.length} Missing · ${state.productionLooks.length} Looks · ${state.runOfService.length} Cues
+            ${availableScenes.length} Available · ${missingScenes.length} Missing${reconciliationScenes.length ? ` · ${reconciliationScenes.length} Needs Reconciliation` : ''} · ${state.productionLooks.length} Production Looks · ${state.runOfService.length} Service Cues
           </strong>
         </div>
         <div class="look-toolbar"><select id="lighting-scene-filter"><option value="production" ${lightingSceneFilter === 'production' ? 'selected' : ''}>Production Scenes (${productionScenes.length})</option><option value="utility" ${lightingSceneFilter === 'utility' ? 'selected' : ''}>Utility Scenes (${utilityScenes.length})</option><option value="all" ${lightingSceneFilter === 'all' ? 'selected' : ''}>All Scenes (${state.lightingScenes.length})</option></select></div>
@@ -1838,41 +1849,43 @@ function lightingPage() {
         <div class="card-grid lighting-scene-grid">
           ${filteredScenes
             .map(scene => {
+              const needsReconciliation = scene.reconciliationStatus === 'needs-reconciliation';
+              const isMissing = scene.available === false && !needsReconciliation;
+              const authoritativeName = scene.qlcMirror?.name || scene.externalControl?.widgetName || scene.name || 'Unnamed QLC+ function';
+              const pageName = scene.qlcMirror?.pageName || null;
+              const widgetType = scene.qlcMirror?.type || scene.externalControl?.widgetType || 'Button';
+              const widgetId = scene.qlcMirror?.widgetId || scene.externalControl?.widgetId || null;
               const lookReferences = (state.productionLooks || [])
                 .filter(look => look.lightingSceneId === scene.id);
               const cueReferences = (state.runOfService || [])
                 .filter(cue => cueLightingId(cue) === scene.id);
-              const referenceNames = [
-                ...lookReferences.map(look => look.name),
-                ...cueReferences.map(cue => cue.name)
-              ].filter((name, index, names) => name && names.indexOf(name) === index);
-              const usageSummary = referenceNames.length
-                ? referenceNames.slice(0, 3).map(escapeHtml).join(' · ') + (referenceNames.length > 3 ? ` · +${referenceNames.length - 3}` : '')
-                : 'Not currently used';
+              const usageSummary = lookReferences.length || cueReferences.length
+                ? `<span><b>${lookReferences.length}</b> Production Look${lookReferences.length === 1 ? '' : 's'}</span><span><b>${cueReferences.length}</b> Service Cue${cueReferences.length === 1 ? '' : 's'}</span>`
+                : '<small>Not currently used</small>';
 
-              return `<article class="edit-card lighting-scene-card ${scene.available === false ? 'lighting-scene-missing' : ''}" ${scene.available === false ? '' : `data-select-lighting="${scene.id}"`}>
+              return `<article class="edit-card lighting-scene-card ${isMissing ? 'lighting-scene-missing' : needsReconciliation ? 'lighting-scene-reconciliation' : ''}">
                 <header class="lighting-scene-card-header">
                   <div>
-                    <small>${escapeHtml(scene.category || 'Custom')} · <span class="scene-classification-badge ${scene.available === false ? 'missing' : scene.productionScene === false ? 'utility' : 'production'}">${scene.available === false ? 'Missing' : scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
-                    <h2>${escapeHtml(scene.name)}</h2>
+                    <small>Trinity classification · <span class="scene-classification-badge ${scene.productionScene === false ? 'utility' : 'production'}">${scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
+                    <h2>${escapeHtml(authoritativeName)}</h2>
                   </div>
                 </header>
 
-                <div class="metrics">
-                  <span>Platform <b>${scene.platform}%</b></span>
-                  <span>Fill <b>${scene.fill}%</b></span>
-                  <span>House <b>${scene.house}%</b></span>
-                  <span>Fade <b>${scene.fade}s</b></span>
+                <div class="lighting-authoritative-details">
+                  <strong class="lighting-availability ${isMissing ? 'missing' : needsReconciliation ? 'reconciliation' : 'available'}">${isMissing ? '⚠ Missing in QLC+' : needsReconciliation ? 'Needs Reconciliation' : '● Available'}</strong>
+                  ${pageName ? `<span>QLC+ · ${escapeHtml(pageName)}</span>` : '<span>QLC+</span>'}
+                  ${isMissing && pageName ? `<small>Last known page: ${escapeHtml(pageName)}</small>` : ''}
+                  ${needsReconciliation ? '<small>No automatic remap</small>' : widgetId ? `<small>${escapeHtml(widgetType)} · QLC+ Widget ${escapeHtml(widgetId)}</small>` : `<small>${escapeHtml(widgetType)}</small>`}
                 </div>
 
                 <div class="lighting-scene-usage">
-                  <div class="lighting-usage-counts">
-                    <span><b>${lookReferences.length}</b> Look${lookReferences.length === 1 ? '' : 's'}</span>
-                    <span><b>${cueReferences.length}</b> Cue${cueReferences.length === 1 ? '' : 's'}</span>
-                  </div>
-                  <small title="${escapeHtml(referenceNames.join(' · '))}">${usageSummary}</small>
+                  <span class="eyebrow">USED BY</span>
+                  <div class="lighting-usage-counts">${usageSummary}</div>
                 </div>
-                <button data-edit-lighting="${scene.id}">EDIT</button>
+                <div class="lighting-card-actions">
+                  ${scene.available !== false ? `<button data-activate-lighting="${scene.id}" class="success">ACTIVATE</button>` : ''}
+                  <button data-edit-lighting="${scene.id}">${isMissing ? 'REVIEW / REPLACE' : 'REVIEW'}</button>
+                </div>
               </article>`;
             })
             .join('') || '<p class="empty-state">No scenes in this classification.</p>'}
@@ -1919,10 +1932,12 @@ function lightingPage() {
     render();
   });
 
-  document.querySelectorAll('[data-select-lighting]').forEach(card => {
-    card.addEventListener('click', async event => {
-      if (event.target.closest('[data-edit-lighting]')) return;
-      await window.trinity.executeLightingScene(card.dataset.selectLighting);
+  document.querySelectorAll('[data-activate-lighting]').forEach(button => {
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try { await window.trinity.executeLightingScene(button.dataset.activateLighting); }
+      catch (error) { showNotification(error.message || 'Lighting activation failed', { type: 'error' }); }
+      finally { button.disabled = false; }
     });
   });
   document.querySelectorAll('[data-edit-lighting]').forEach(button => {
@@ -2243,7 +2258,8 @@ function shotsPage() {
   const motionBlockingErrors = motionErrors.filter(error => error !== 'Motion style needs review');
   const motionStatus = !resolved?.camera || resolved.camera.enabled === false || !cameraAdapterSupported(resolved.camera) ? 'UNAVAILABLE' : motionErrors.length ? 'NEEDS ATTENTION' : 'READY';
   const capabilities = motionCapabilitiesByCamera.get(selectedCameraId) || null;
-  const lastCommandedStart = selectedCameraId && cameraPreparation(selectedCameraId)?.preparedAssignment?.startingPresetId === selected?.cameraPresetId;
+  const preparedStudioMotion = selectedCameraId ? state.live?.preparedMotions?.[selectedCameraId] || null : null;
+  const lastCommandedStart = preparedStudioMotion?.shotId === selected?.id;
   const editor = selected ? `<div class="shot-editor ${selectedType === 'motion' ? 'motion-studio-editor' : ''}">
     <div class="shot-editor-heading"><div><span class="eyebrow">${selectedType === 'motion' ? 'MOTION STUDIO' : 'SHOT DETAILS'}</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</p></div><div class="row-actions"><button id="shot-save" class="live-button">SAVE</button><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
     <div class="shot-section-grid">
@@ -2251,7 +2267,7 @@ function shotsPage() {
       <fieldset><legend>CAMERA TARGET</legend><label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'START' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<div class="motion-transition-arrow" aria-hidden="true">↓</div><label>END<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select><small>${escapeHtml(selectedEndPreset?.name || (selected.motionEndPresetId ? 'Selected End preset is missing or does not match the camera' : 'No End preset selected'))}</small></label><label>Motion Style<select data-shot-field="motionStyle">${selected.motionStyle && !motionStyleLabels[selected.motionStyle] ? `<option value="${escapeHtml(selected.motionStyle)}" selected>Needs Review: ${escapeHtml(selected.motionStyle)}</option>` : ''}${motionStyleOptions}</select></label><label>Intended Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select><small>Creative intent only; current adapters do not apply speed.</small></label><label>Target Duration<input type="number" min="0" step="0.5" data-shot-duration-seconds value="${selected.motionTargetDurationMs ? selected.motionTargetDurationMs / 1000 : ''}" placeholder="Optional seconds"><small>Target only; actual duration is not guaranteed.</small></label><label class="wide">Motion Intent Notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</em>${motionErrors.map(error => `<small>⚠ ${escapeHtml(error)}</small>`).join('')}</div></fieldset>
     </div>
     ${selectedType === 'motion' ? `<section class="motion-studio-summary panel"><span class="eyebrow">MOTION SUMMARY</span><h2>${escapeHtml(selected.name)}</h2><strong>${escapeHtml(resolved.camera?.name || 'Camera missing')}</strong><p>${escapeHtml(resolved.preset?.name || 'Missing Start')} → ${escapeHtml(selectedEndPreset?.name || 'Missing End')}</p><p>${escapeHtml(motionStyleLabels[selected.motionStyle] || `Needs Review: ${selected.motionStyle}`)} · ${escapeHtml(motionSpeedLabels[selected.motionSpeedSetting] || 'Medium')}${selected.motionTargetDurationMs ? ` · ~${selected.motionTargetDurationMs / 1000} sec target` : ''}</p><small>Execution today: camera preset transition to End. Start position and physical duration are not verified.</small></section>
-    <section class="motion-capability-panel panel"><span class="eyebrow">EXECUTION CAPABILITY</span><h2>${escapeHtml(capabilities?.adapterType || 'Adapter not configured')}</h2><ul><li class="${capabilities?.presetTransition ? 'supported' : 'unsupported'}">${capabilities?.presetTransition ? '✓' : '○'} Camera preset transition</li><li class="unsupported">○ Trinity speed control not available</li><li class="unsupported">○ Trinity duration control not available</li><li class="unsupported">○ Stop Motion not available</li><li class="unsupported">○ Physical position feedback not available</li></ul><p>Required Start: <strong>${escapeHtml(resolved.preset?.name || 'Missing Start')}</strong></p><p>Status: ${lastCommandedStart ? 'Start preset was last commanded by Trinity; physical position remains unverified.' : 'Start position not verified.'}</p><div class="row-actions"><button id="motion-prepare-start" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>PREPARE START</button><button id="motion-run" class="live-button" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>RUN MOTION</button></div></section>` : ''}
+    <section class="motion-capability-panel panel"><span class="eyebrow">EXECUTION CAPABILITY</span><h2>${escapeHtml(capabilities?.adapterType || 'Adapter not configured')}</h2><ul><li class="${capabilities?.presetTransition ? 'supported' : 'unsupported'}">${capabilities?.presetTransition ? '✓' : '○'} Camera preset transition</li><li class="unsupported">○ Trinity speed control not available</li><li class="unsupported">○ Trinity duration control not available</li><li class="unsupported">○ Stop Motion not available</li><li class="unsupported">○ Physical position feedback not available</li></ul><p>Required Start: <strong>${escapeHtml(resolved.preset?.name || 'Missing Start')}</strong></p><p>Status: ${lastCommandedStart ? `${escapeHtml(preparedStudioMotion.statusLabel)}; physical position remains unverified.` : 'NOT PREPARED · Start position not verified.'}</p><span class="eyebrow">TEST TOOLS</span><div class="row-actions"><button id="motion-prepare-start" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>PREPARE START</button><button id="motion-run" class="live-button" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>RUN MOTION TEST</button>${lastCommandedStart ? '<button id="motion-cancel-prep">CANCEL PREP</button>' : ''}</div><small>Production workflow: Prepare in Live, then Take Live. Run Motion Test does not switch ATEM.</small></section>` : ''}
     <details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES</summary><div class="advanced-camera-notes-grid">
       ${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}
       ${textField('Subject','subject',selected.subject)}
@@ -2326,6 +2342,10 @@ function shotsPage() {
       showNotification('Motion End preset commanded. Speed and duration remain camera-controlled.', { type: 'success' });
       render();
     } catch (error) { showNotification(error.message || 'Motion command failed.', { type: 'error' }); }
+  });
+  document.getElementById('motion-cancel-prep')?.addEventListener('click', async () => {
+    state = await window.trinity.cancelPreparedMotion(selectedCameraId);
+    render();
   });
   const remove = async () => {
     const referenceSummary = shotReferenceSummary(selected.id);

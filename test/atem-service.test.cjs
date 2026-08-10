@@ -108,11 +108,13 @@ test("TAKE LIVE sends exactly one mapped PROGRAM command and waits for ATEM conf
   for (const [cameraId, input] of [["main", 4], ["left", 2], ["right", 1]]) {
     const beforeLive = service.getStatus().liveCameraId;
     const beforeCalls = client.programCalls.length;
-    await service.takeLive(cameraId);
-    assert.equal(client.programCalls.length, beforeCalls + 1);
-    assert.equal(client.programCalls.at(-1), input);
+    const taking = service.takeLive(cameraId);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(client.programCalls.length, beforeCalls + (beforeLive === cameraId ? 0 : 1));
+    if (beforeLive !== cameraId) assert.equal(client.programCalls.at(-1), input);
     assert.equal(service.getStatus().liveCameraId, beforeLive);
-    client.setProgram(input);
+    if (beforeLive !== cameraId) client.setProgram(input);
+    await taking;
     assert.equal(service.getStatus().liveCameraId, cameraId);
   }
   assert.deepEqual(current.live, { cueIndex: 0 });

@@ -85,3 +85,12 @@ button:disabled { opacity: .38; }
   .rotate-message strong { font-size: 25px; }
   .rotate-message span { color: var(--muted); }
 }
+.motion-group button.prepared {
+  border-color: var(--success, #35d59a);
+  box-shadow: inset 0 0 0 1px rgba(53, 213, 154, .3);
+}
+
+.motion-group button small {
+  display: block;
+  margin-top: .2rem;
+}

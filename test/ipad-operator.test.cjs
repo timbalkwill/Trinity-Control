@@ -17,10 +17,12 @@ test("iPad operator uses the existing host command paths and stable camera IDs",
   assert.match(client, /preset\.cameraDeviceId === id/);
   assert.match(client, /shot\.cameraDeviceId === id/);
   assert.match(client, /\/api\/live\/recall-camera-preset/);
-  assert.match(client, /\/api\/live\/run-camera-motion/);
+  assert.match(client, /\/api\/live\/prepare-motion/);
+  assert.match(client, /\/api\/live\/cancel-prepared-motion/);
   assert.match(client, /\/api\/atem\/take-live/);
   assert.match(server, /commands\.recallCameraPreset\(body\.cameraId, body\.presetId\)/);
-  assert.match(server, /commands\.runCameraMotion\(body\.cameraId, body\.shotId\)/);
+  assert.match(server, /commands\.prepareMotionStart\(body\.cameraId, body\.shotId\)/);
+  assert.match(server, /commands\.cancelPreparedMotion\(body\.cameraId\)/);
   assert.match(server, /await takeCameraLive\(body\.cameraId\)/);
 });
 

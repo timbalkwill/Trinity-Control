@@ -232,7 +232,8 @@ test("desktop UI flags missing Looks and Cues, disables tombstone execution, and
   const source = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.match(source, /Missing QLC\+ lighting function/);
   assert.match(source, /lighting\?\.available === false/);
-  assert.match(source, /scene\.available === false \? '' : `data-select-lighting/);
+  assert.match(source, /scene\.available !== false \? `<button data-activate-lighting/);
+  assert.match(source, /Missing in QLC\+/);
   assert.match(source, /data-lighting-reference/);
   assert.match(source, /replaceLightingReferences\(selectedScene\.id, replacementSceneId, selection\)/);
   assert.match(source, /Lighting configuration changed/);

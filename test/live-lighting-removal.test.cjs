@@ -28,7 +28,7 @@ test("obsolete lighting override renderer, preload, IPC, command, and HTTP surfa
 
 test("Lighting Library retains direct execution through the shared lighting executor", () => {
   const lightingPage = renderer.slice(renderer.indexOf("function lightingPage()"), renderer.indexOf("function camerasPage()"));
-  assert.match(lightingPage, /window\.trinity\.executeLightingScene\(card\.dataset\.selectLighting\)/);
+  assert.match(lightingPage, /window\.trinity\.executeLightingScene\(button\.dataset\.activateLighting\)/);
   assert.match(preload, /executeLightingScene: sceneId => ipcRenderer\.invoke\("lighting-scene:execute", sceneId\)/);
   assert.match(main, /ipcMain\.handle\("lighting-scene:execute".*commands\.executeLightingScene/s);
   assert.match(commands, /executeLightingScene: sceneId => enqueue/);

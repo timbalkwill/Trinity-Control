@@ -46,7 +46,7 @@ function createDefaultClient() {
   return new Atem();
 }
 
-function createAtemService({ getState, clientFactory = createDefaultClient, logger = console } = {}) {
+function createAtemService({ getState, clientFactory = createDefaultClient, logger = console, confirmationTimeoutMs = 2000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   if (typeof getState !== "function") throw new TypeError("getState is required");
   const subscribers = new Set();
   let client = null;
@@ -147,9 +147,32 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     if (status.connectionState !== "connected" || !client) throw Object.assign(new Error("ATEM is disconnected"), { code: "ATEM_DISCONNECTED" });
     const input = configuration.cameraInputs[cameraDeviceId];
     if (input === undefined) throw Object.assign(new Error("Camera has no ATEM input mapping"), { code: "ATEM_MAPPING_MISSING" });
+    if (status.programInput === input) return status;
+    let cancelConfirmation = () => {};
+    const confirmation = new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimer(timer);
+        subscribers.delete(listener);
+        error ? reject(error) : resolve(value);
+      };
+      const listener = next => {
+        if (next.connectionState !== "connected") finish(Object.assign(new Error("ATEM disconnected before PROGRAM confirmation"), { code: "ATEM_CONFIRMATION_FAILED" }));
+        else if (next.programInput === input) finish(null, next);
+      };
+      const timer = setTimer(() => finish(Object.assign(new Error("ATEM PROGRAM confirmation timed out"), { code: "ATEM_CONFIRMATION_TIMEOUT" })), confirmationTimeoutMs);
+      subscribers.add(listener);
+      cancelConfirmation = () => finish(Object.assign(new Error("ATEM PROGRAM confirmation cancelled"), { code: "ATEM_CONFIRMATION_CANCELLED" }));
+    });
     try { await client.changeProgramInput(input); }
-    catch { throw Object.assign(new Error("ATEM rejected the PROGRAM switch"), { code: "ATEM_SWITCH_FAILED" }); }
-    return status;
+    catch {
+      cancelConfirmation();
+      confirmation.catch(() => {});
+      throw Object.assign(new Error("ATEM rejected the PROGRAM switch"), { code: "ATEM_SWITCH_FAILED" });
+    }
+    return confirmation;
   }
 
   return Object.freeze({

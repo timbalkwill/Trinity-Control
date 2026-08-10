@@ -108,6 +108,8 @@ function createOperatorServer({
     ["/api/live/prepare-camera", body => commands.prepareCamera(body.cameraId, body.selectionId)],
     ["/api/live/recall-camera-preset", body => commands.recallCameraPreset(body.cameraId, body.presetId)],
     ["/api/live/run-camera-motion", body => commands.runCameraMotion(body.cameraId, body.shotId)],
+    ["/api/live/prepare-motion", body => commands.prepareMotionStart(body.cameraId, body.shotId)],
+    ["/api/live/cancel-prepared-motion", body => commands.cancelPreparedMotion(body.cameraId)],
     ["/api/atem/take-live", async body => {
       if (typeof takeCameraLive !== "function") throw Object.assign(new Error("ATEM control is unavailable"), { code: "ATEM_UNAVAILABLE" });
       await takeCameraLive(body.cameraId);

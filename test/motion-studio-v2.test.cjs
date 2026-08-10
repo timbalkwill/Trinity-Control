@@ -116,7 +116,8 @@ test("Prepare Start recalls only Start once and invokes no ATEM or lighting path
   assert.deepEqual(recalls, [{ cameraDeviceId: "main", presetId: "main-wide" }]);
   assert.equal(atemCommands, 0);
   assert.equal(lightingCommands, 0);
-  assert.equal(current.live.cameraPreparations.find(item => item.cameraId === "main").preparedAssignment.startingPresetId, "main-wide");
+  assert.equal(current.live.cameraPreparations.find(item => item.cameraId === "main")?.preparedAssignment, undefined);
+  assert.equal(commands.getPreparedMotion("main").startPresetId, "main-wide");
 });
 
 test("Run Motion reuses manual executor, recalls End once, and sends no ATEM or lighting command", async () => {
@@ -169,8 +170,8 @@ test("GO and BACK retain zero Motion commands and iPad has no Motion editor", ()
   const operator = source("public/operator/operator.js");
   assert.doesNotMatch(cue, /executeManualMotion|runCameraMotion|prepareMotionStart/);
   assert.doesNotMatch(plan, /executeManualMotion|runCameraMotion|prepareMotionStart/);
-  assert.doesNotMatch(operator, /motionStyle.*select|motionTargetDuration.*input|prepareMotionStart/);
-  assert.match(operator, /data-action="motion"/);
+  assert.doesNotMatch(operator, /motionStyle.*select|motionTargetDuration.*input/);
+  assert.match(operator, /data-action="prepare-motion"/);
 });
 
 test("desktop capability IPC is read-only and uses the adapter registry", () => {

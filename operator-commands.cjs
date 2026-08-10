@@ -14,6 +14,7 @@ const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.c
 const lightingScenes = require("./lighting-scene-operations.cjs");
 const { createLightingExecutor } = require("./lighting-execution.cjs");
 const { createLightingActiveState } = require("./lighting-active-state.cjs");
+const { createPreparedMotionState } = require("./prepared-motion-state.cjs");
 const {
   reconcileLightingScenes,
   replaceLightingReferences,
@@ -29,17 +30,22 @@ function createOperatorCommands({
   lightingActiveState = createLightingActiveState(),
   lightingExecutionResolver = lightingScenes.resolveLightingExecution,
   lightingExecutorFactory = createLightingExecutor,
-  cameraExecutorFactory = createCameraExecutor
+  cameraExecutorFactory = createCameraExecutor,
+  preparedMotionState = createPreparedMotionState()
 }) {
   const subscribers = new Set();
   let queue = Promise.resolve();
 
   function publish(state) {
+    const projected = {
+      ...state,
+      live: { ...(state?.live || {}), preparedMotions: preparedMotionState.snapshot() }
+    };
     for (const subscriber of subscribers) {
-      try { subscriber(state); }
+      try { subscriber(projected); }
       catch { /* One disconnected client must not fail a persisted command. */ }
     }
-    return state;
+    return projected;
   }
 
   function enqueue(operation) {
@@ -91,7 +97,10 @@ function createOperatorCommands({
   }
 
   return {
-    getState: () => loadState(),
+    getState: () => {
+      const state = loadState();
+      return { ...state, live: { ...(state.live || {}), preparedMotions: preparedMotionState.snapshot() } };
+    },
     replaceState: state => enqueue(() => publish(saveState(normalizeState(state)))),
     updateState: operation => mutate(operation),
     goCue: (index, { confirmJump = false } = {}) => mutate(state => {
@@ -108,7 +117,10 @@ function createOperatorCommands({
     previousCue: () => mutate(state => executeRequestedCue(state, Number(state.live?.cueIndex || 0) - 1)),
     takeLive: () => mutate(state => liveOperations.takeLive(state)),
     setCameraMode: (cameraId, mode) => mutate(state => cameraPreparation.setCameraMode(state, cameraId, mode)),
-    prepareCamera: (cameraId, selectionId) => mutate(state => cameraPreparation.prepareCamera(state, cameraId, selectionId)),
+    prepareCamera: (cameraId, selectionId) => mutate(state => {
+      preparedMotionState.clear(cameraId);
+      return cameraPreparation.prepareCamera(state, cameraId, selectionId);
+    }),
     recallCameraPreset: (cameraId, presetId) => mutate(async state => {
       const camera = (state.devices || []).find(item => item?.type === "camera" && item.id === cameraId && item.enabled !== false);
       if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
@@ -121,6 +133,7 @@ function createOperatorCommands({
         error.statusCode = 409;
         throw error;
       }
+      preparedMotionState.clear(cameraId);
       cameraPreparation.setCameraMode(state, cameraId, "static");
       cameraPreparation.prepareCamera(state, cameraId, presetId);
       state.live.activityLog = [
@@ -146,8 +159,7 @@ function createOperatorCommands({
         error.statusCode = 409;
         throw error;
       }
-      cameraPreparation.setCameraMode(state, cameraId, "motion");
-      cameraPreparation.prepareCamera(state, cameraId, shotId);
+      preparedMotionState.prepare(cameraId, execution);
       state.live.activityLog = [
         { at: Date.now(), message: `Motion start commanded: ${execution.camera.name || cameraId} — ${execution.motion.startPreset.name || presetId}` },
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
@@ -168,6 +180,7 @@ function createOperatorCommands({
         error.statusCode = 409;
         throw error;
       }
+      preparedMotionState.clear(cameraId);
       state.live = state.live && typeof state.live === "object" ? state.live : {};
       state.live.manualMotionCommands = state.live.manualMotionCommands && typeof state.live.manualMotionCommands === "object"
         ? state.live.manualMotionCommands : {};
@@ -185,7 +198,10 @@ function createOperatorCommands({
         ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
       ].slice(0, 8);
     }),
-    setCameraTracking: (cameraId, active) => mutate(state => cameraPreparation.setCameraTracking(state, cameraId, active)),
+    setCameraTracking: (cameraId, active) => mutate(state => {
+      if (active === true) preparedMotionState.clear(cameraId);
+      return cameraPreparation.setCameraTracking(state, cameraId, active);
+    }),
     makeCameraLive: cameraId => mutate(state => cameraPreparation.makeCameraLive(state, cameraId)),
     toggleHold: () => mutate(state => {
       state.live = state.live && typeof state.live === "object" ? state.live : {};
@@ -230,9 +246,16 @@ function createOperatorCommands({
     duplicateProductionLook: lookId => mutate(state => looks.duplicateProductionLook(state, lookId)),
     deleteProductionLook: (lookId, options) => mutate(state => looks.deleteProductionLook(state, lookId, options)),
     createDevice: input => mutate(state => devices.createDevice(state, input)),
-    updateDevice: (deviceId, patch) => mutate(state => devices.updateDevice(state, deviceId, patch)),
+    updateDevice: (deviceId, patch) => mutate(state => {
+      const device = devices.getDeviceById(state, deviceId);
+      if (device?.type === "camera") preparedMotionState.clear(deviceId);
+      return devices.updateDevice(state, deviceId, patch);
+    }),
     duplicateDevice: deviceId => mutate(state => devices.duplicateDevice(state, deviceId)),
-    deleteDevice: (deviceId, options) => mutate(state => devices.deleteDevice(state, deviceId, options)),
+    deleteDevice: (deviceId, options) => mutate(state => {
+      preparedMotionState.clear(deviceId);
+      return devices.deleteDevice(state, deviceId, options);
+    }),
     reorderDevice: (from, to) => mutate(state => devices.reorderDevice(state, from, to)),
     testDevice: deviceId => mutate(state => devices.runDeviceDiagnostic(state, deviceId)),
     testAllDevices: () => mutate(state => {
@@ -263,6 +286,15 @@ function createOperatorCommands({
     reorderShot: (from, to) => mutate(state => shots.reorderShot(state, from, to)),
     resetLightingActiveState: reason => lightingActiveState.reset(reason),
     getLightingActiveState: () => lightingActiveState.get(),
+    getPreparedMotion: cameraId => preparedMotionState.get(cameraId),
+    setPreparedMotionStatus: (cameraId, status, label, errorMessage) => enqueue(() => {
+      preparedMotionState.setStatus(cameraId, status, label, errorMessage);
+      return publish(loadState());
+    }),
+    cancelPreparedMotion: cameraId => enqueue(() => {
+      preparedMotionState.clear(cameraId);
+      return publish(loadState());
+    }),
     subscribe: subscriber => {
       subscribers.add(subscriber);
       return () => subscribers.delete(subscriber);

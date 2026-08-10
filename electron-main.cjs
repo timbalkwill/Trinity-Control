@@ -22,6 +22,7 @@ const {
 const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
 const { createAtemService } = require("./atem-service.cjs");
+const { createPreparedMotionTakeLive } = require("./prepared-motion-take-live.cjs");
 const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
 const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
 
@@ -36,6 +37,7 @@ let mainWindow;
 let operatorServer;
 let qlcServiceManager;
 let atemService;
+let preparedMotionTakeLive;
 let selectedBackupImportPath = null;
 let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
@@ -850,6 +852,7 @@ app.whenReady().then(async () => {
     userDataPath: app.getPath("userData")
   });
   atemService = createAtemService({ getState: commands.getState, logger: console });
+  preparedMotionTakeLive = createPreparedMotionTakeLive({ commands, atemService });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1079,7 +1082,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
   ipcMain.handle("atem:status", () => atemService.getStatus());
-  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => atemService.takeLive(cameraDeviceId));
+  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => preparedMotionTakeLive.takeLive(cameraDeviceId));
+  ipcMain.handle("motion:cancel-prepared", (_e, cameraDeviceId) => commands.cancelPreparedMotion(cameraDeviceId));
   ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
   ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
   ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());
@@ -1136,7 +1140,7 @@ app.whenReady().then(async () => {
     assetsDirectory: path.join(__dirname, "public"),
     getAtemStatus: () => atemService?.getStatus(),
     subscribeAtemStatus: subscriber => atemService?.subscribe(subscriber) || (() => {}),
-    takeCameraLive: cameraDeviceId => atemService.takeLive(cameraDeviceId)
+    takeCameraLive: cameraDeviceId => preparedMotionTakeLive.takeLive(cameraDeviceId)
   });
   try {
     operatorServerStatus = await operatorServer.start();

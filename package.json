@@ -35,6 +35,7 @@
       "camera-adapter-registry.cjs",
       "ptzoptics-adapter.cjs",
       "lighting-adapter-registry.cjs",
+      "lighting-execution.cjs",
       "qlcplus-websocket-transport.cjs",
       "qlcplus-service-manager.cjs",
       "lighting-scene-operations.cjs",

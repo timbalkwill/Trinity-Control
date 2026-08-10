@@ -85,3 +85,17 @@
   .diagnostic-table > div { grid-template-columns: 1fr 1fr; }
   .settings-form .wide { grid-column: auto; }
 }
+.lighting-scene-missing {
+  border-color: var(--danger, #ef6b73);
+  opacity: .82;
+}
+
+.scene-classification-badge.missing {
+  color: #ffd1d4;
+  background: rgba(239, 107, 115, .16);
+  border-color: rgba(239, 107, 115, .5);
+}
+
+.lighting-missing-replacement {
+  border-color: rgba(239, 107, 115, .55);
+}

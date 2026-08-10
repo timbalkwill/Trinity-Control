@@ -1052,6 +1052,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("lighting-scene:execute", (_e, sceneId) => commands.executeLightingScene(sceneId));
   ipcMain.handle("lighting-scene:update", (_e, { sceneId, patch }) => commands.updateLightingScene(sceneId, patch));
   ipcMain.handle("lighting-scene:duplicate", (_e, sceneId) => commands.duplicateLightingScene(sceneId));
+  ipcMain.handle("lighting-scene:replace-references", (_e, { missingSceneId, replacementSceneId, selection }) =>
+    commands.replaceLightingReferences(missingSceneId, replacementSceneId, selection));
   ipcMain.handle("device:clearDiagnostic", (_e, deviceId) => commands.clearDeviceDiagnostic(deviceId));
   ipcMain.handle("camera-preset:create", (_e, input) => commands.createCameraPreset(input));
   ipcMain.handle("camera-preset:update", (_e, { presetId, patch }) => commands.updateCameraPreset(presetId, patch));
@@ -1092,9 +1094,8 @@ app.whenReady().then(async () => {
     getContext: serviceContext,
     discover: async device => {
       if (!device) return { ok: false, code: "configurationIncomplete", message: "Lighting device is not configured" };
-      const state = await commands.discoverLightingControls(device.id);
-      const updated = (state.devices || []).find(item => item.id === device.id);
-      return updated?.metadata?.lightingDiagnostic || { ok: false, message: "QLC+ discovery failed" };
+      const outcome = await commands.discoverLightingControlsDetailed(device.id);
+      return outcome.result || { ok: false, message: "QLC+ discovery failed" };
     },
     launch: createQlcLauncher({ logger: console }),
     logger: console,

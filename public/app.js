@@ -60,13 +60,15 @@ const byId = (items, id) => items.find(item => item.id === id);
 function lightingScenePickerOptions(current, emptyLabel) {
   const scenes = state.lightingScenes || [];
   const currentScene = byId(scenes, current);
-  const currentOption = current && currentScene?.productionScene === false
-    ? `<option value="${escapeHtml(currentScene.id)}" selected>${escapeHtml(currentScene.name)} (Utility — referenced)</option>`
+  const currentOption = current && currentScene?.available === false
+    ? `<option value="${escapeHtml(currentScene.id)}" selected>${escapeHtml(currentScene.name)} (Missing QLC+ function)</option>`
+    : current && currentScene?.productionScene === false
+      ? `<option value="${escapeHtml(currentScene.id)}" selected>${escapeHtml(currentScene.name)} (Utility — referenced)</option>`
     : current && !currentScene
       ? `<option value="${escapeHtml(current)}" selected>Missing reference</option>`
       : '';
   return `<option value="">${emptyLabel}</option>${currentOption}${scenes
-    .filter(scene => scene.productionScene !== false)
+    .filter(scene => scene.productionScene !== false && scene.available !== false)
     .map(scene => `<option value="${scene.id}" ${scene.id === current ? 'selected' : ''}>${escapeHtml(scene.name)}</option>`)
     .join('')}`;
 }
@@ -775,6 +777,7 @@ function openCueEditor(index = null) {
 
     if (lookSelect.value && !look) warnings.push('The selected Production Look is unavailable.');
     if (!lighting) warnings.push('No lighting scene will be recalled.');
+    if (lighting?.available === false) warnings.push('Missing QLC+ lighting function. GO will not send a stale lighting command.');
     if (lighting?.productionScene === false) warnings.push('Scene is marked Utility but is still referenced.');
     if (look?.enabled === false) warnings.push('The selected Production Look is disabled.');
 
@@ -1687,7 +1690,7 @@ function looksPage() {
     </aside>
     <section class="panel look-editor">${selected ? `<div class="look-editor-header"><div><span class="eyebrow">PRODUCTION LOOK</span><h1>${escapeHtml(selected.name)}</h1><p>Configure the production settings used by this look.</p></div><div class="row-actions"><button id="look-duplicate">DUPLICATE</button><button id="look-delete" class="danger">DELETE</button></div></div>
       <div class="look-sections production-look-form">
-        <fieldset><legend>PRODUCTION LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select>${selectedLighting?.productionScene === false ? '<small class="look-warning">Scene is marked Utility but is still referenced.</small>' : ''}</label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label></fieldset>
+        <fieldset><legend>PRODUCTION LOOK</legend><label>Look Name<input id="look-name" value="${escapeHtml(selected.name)}" required></label><label>Lighting Scene<select id="look-lighting">${lightingOptions(selected.lightingSceneId)}</select>${selectedLighting?.available === false ? '<small class="look-warning">⚠ Missing QLC+ lighting function</small>' : selectedLighting?.productionScene === false ? '<small class="look-warning">Scene is marked Utility but is still referenced.</small>' : ''}</label><label class="checkbox-label"><input type="checkbox" id="look-enabled" ${selected.enabled !== false ? 'checked' : ''}> Enabled</label></fieldset>
         <section class="production-look-summary" aria-label="Look Summary"><span class="eyebrow">LOOK SUMMARY</span><dl><div><dt>Name</dt><dd>${escapeHtml(selected.name)}</dd></div><div><dt>Lighting Scene</dt><dd>${escapeHtml(selectedLighting?.name || 'Not assigned')}</dd></div><div><dt>Status</dt><dd><em class="${selected.enabled === false ? 'disabled' : 'enabled'}">${selected.enabled === false ? 'Disabled' : 'Enabled'}</em></dd></div></dl></section>
       </div>
       <div class="look-form-actions"><button id="look-cancel">CANCEL</button><button id="look-save" class="live-button">SAVE LOOK</button></div>` : '<div class="empty-state">Create a Production Look to begin.</div>'}</section>
@@ -1737,13 +1740,16 @@ function lightingPage() {
     ? allCompatibleControls.filter(control => control.pageName === productionPage)
     : allCompatibleControls;
   const selectedScene = byId(state.lightingScenes || [], selectedLightingSceneId);
-  const productionScenes = (state.lightingScenes || []).filter(scene => scene.productionScene !== false);
-  const utilityScenes = (state.lightingScenes || []).filter(scene => scene.productionScene === false);
+  const productionScenes = (state.lightingScenes || []).filter(scene => scene.productionScene !== false && scene.available !== false);
+  const utilityScenes = (state.lightingScenes || []).filter(scene => scene.productionScene === false && scene.available !== false);
+  const missingScenes = (state.lightingScenes || []).filter(scene => scene.available === false);
   const filteredScenes = lightingSceneFilter === 'all'
     ? state.lightingScenes
     : lightingSceneFilter === 'utility' ? utilityScenes : productionScenes;
   const selectedLookReferences = selectedScene ? (state.productionLooks || []).filter(look => look.lightingSceneId === selectedScene.id) : [];
   const selectedCueReferences = selectedScene ? (state.runOfService || []).filter(cue => cueLightingId(cue) === selectedScene.id) : [];
+  const selectedDirectCueReferences = selectedScene ? (state.runOfService || []).filter(cue => cue.lightingSceneId === selectedScene.id) : [];
+  const selectedTemplateReferences = selectedScene ? (state.cueTemplates || []).filter(template => template.lightingSceneId === selectedScene.id) : [];
   const selectedUtilityWarning = selectedScene?.productionScene === false && (selectedLookReferences.length || selectedCueReferences.length)
     ? 'Scene is marked Utility but is still referenced.'
     : null;
@@ -1757,10 +1763,23 @@ function lightingPage() {
     : mapping && String(mappedControl.widgetType || '').toLocaleLowerCase() !== 'button' ? 'Mapped control is not a button'
     : mapping ? 'Mapped' : 'Not mapped';
   const visibleControls = showAllLightingControls ? discoveredControls : compatibleControls;
+  const availableReplacements = (state.lightingScenes || []).filter(scene => scene.available !== false && scene.id !== selectedScene?.id);
   const controlOption = control => `${control.name || 'Unnamed'} — ${control.widgetType || 'Unknown'} — ID ${control.widgetId}${control.status !== undefined ? ` — ${control.status}` : ''}`;
+  const missingReplacement = selectedScene?.available === false ? `<section class="wide panel lighting-missing-replacement"><span class="eyebrow">MISSING QLC+ FUNCTION</span>
+        <p class="look-warning">⚠ ${escapeHtml(selectedScene.qlcMirror?.name || selectedScene.name)} (Widget ID ${escapeHtml(selectedScene.qlcMirror?.widgetId || mapping?.widgetId || 'unknown')}) is no longer available.</p>
+        <p>Used by ${selectedLookReferences.length} Production Look${selectedLookReferences.length === 1 ? '' : 's'} and ${selectedCueReferences.length} Service Cue${selectedCueReferences.length === 1 ? '' : 's'}.</p>
+        <div class="lighting-replacement-references">${[
+          ...selectedLookReferences.map(item => ({ type: 'look', id: item.id, label: `Production Look: ${item.name}` })),
+          ...selectedDirectCueReferences.map(item => ({ type: 'cue', id: item.id, label: `Service Cue: ${item.name}` })),
+          ...selectedTemplateReferences.map(item => ({ type: 'template', id: item.id, label: `Quick Add Template: ${item.name}` }))
+        ].map(item => `<label class="checkbox-label"><input type="checkbox" data-lighting-reference="${item.type}" value="${escapeHtml(item.id)}" checked> ${escapeHtml(item.label)}</label>`).join('')}</div>
+        <label>Replace selected references with<select id="lighting-replacement-scene"><option value="">Choose an available QLC+ function</option>${availableReplacements.map(scene => `<option value="${escapeHtml(scene.id)}">${escapeHtml(scene.name)}</option>`).join('')}</select></label>
+        <button type="button" id="lighting-apply-replacement">APPLY REPLACEMENT</button>
+      </section>` : '';
   const editor = selectedScene ? `<div class="settings-editor-backdrop"><section class="settings-editor panel" role="dialog" aria-modal="true">
     <div class="look-editor-header"><div><span class="eyebrow">LIGHTING SCENE</span><h1>${escapeHtml(selectedScene.name)}</h1></div><button id="lighting-editor-close">×</button></div>
     <div class="settings-form">
+      ${missingReplacement}
       <section class="wide panel"><span class="eyebrow">PRODUCTION SCENE</span>
         <label class="checkbox-label"><input type="checkbox" id="lighting-production-scene" ${selectedScene.productionScene !== false ? 'checked' : ''}> Use in Service Planning</label>
         <small>Production scenes are available in Service cues and can be executed during GO. Utility scenes remain available in the Lighting Library for manual recall.</small>
@@ -1806,7 +1825,7 @@ function lightingPage() {
           <span>LIGHTING LIBRARY</span>
 
           <strong>
-            ${productionScenes.length} Production · ${utilityScenes.length} Utility · ${state.productionLooks.length} Looks · ${state.runOfService.length} Cues
+            ${productionScenes.length} Production · ${utilityScenes.length} Utility · ${missingScenes.length} Missing · ${state.productionLooks.length} Looks · ${state.runOfService.length} Cues
           </strong>
         </div>
         <div class="look-toolbar"><select id="lighting-scene-filter"><option value="production" ${lightingSceneFilter === 'production' ? 'selected' : ''}>Production Scenes (${productionScenes.length})</option><option value="utility" ${lightingSceneFilter === 'utility' ? 'selected' : ''}>Utility Scenes (${utilityScenes.length})</option><option value="all" ${lightingSceneFilter === 'all' ? 'selected' : ''}>All Scenes (${state.lightingScenes.length})</option></select></div>
@@ -1826,10 +1845,10 @@ function lightingPage() {
                 ? referenceNames.slice(0, 3).map(escapeHtml).join(' · ') + (referenceNames.length > 3 ? ` · +${referenceNames.length - 3}` : '')
                 : 'Not currently used';
 
-              return `<article class="edit-card lighting-scene-card" data-select-lighting="${scene.id}">
+              return `<article class="edit-card lighting-scene-card ${scene.available === false ? 'lighting-scene-missing' : ''}" ${scene.available === false ? '' : `data-select-lighting="${scene.id}"`}>
                 <header class="lighting-scene-card-header">
                   <div>
-                    <small>${escapeHtml(scene.category || 'Custom')} · <span class="scene-classification-badge ${scene.productionScene === false ? 'utility' : 'production'}">${scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
+                    <small>${escapeHtml(scene.category || 'Custom')} · <span class="scene-classification-badge ${scene.available === false ? 'missing' : scene.productionScene === false ? 'utility' : 'production'}">${scene.available === false ? 'Missing' : scene.productionScene === false ? 'Utility' : 'Production'}</span></small>
                     <h2>${escapeHtml(scene.name)}</h2>
                   </div>
                 </header>
@@ -1910,6 +1929,15 @@ function lightingPage() {
     });
   });
   document.getElementById('lighting-editor-close')?.addEventListener('click', () => { selectedLightingSceneId = null; render(); });
+  document.getElementById('lighting-apply-replacement')?.addEventListener('click', async () => {
+    const replacementSceneId = document.getElementById('lighting-replacement-scene')?.value;
+    const selectedIds = type => [...document.querySelectorAll(`[data-lighting-reference="${type}"]:checked`)].map(input => input.value);
+    const selection = { productionLookIds: selectedIds('look'), serviceCueIds: selectedIds('cue'), cueTemplateIds: selectedIds('template') };
+    const selectedCount = selection.productionLookIds.length + selection.serviceCueIds.length + selection.cueTemplateIds.length;
+    if (!replacementSceneId || !selectedCount || !window.confirm(`Replace ${selectedCount} selected reference${selectedCount === 1 ? '' : 's'} to ${selectedScene.name}? Inherited cue usage will follow its Production Look.`)) return;
+    state = await window.trinity.replaceLightingReferences(selectedScene.id, replacementSceneId, selection);
+    render();
+  });
   document.getElementById('lighting-show-all-controls')?.addEventListener('change', event => { showAllLightingControls = event.target.checked; render(); });
   document.getElementById('lighting-use-suggestion')?.addEventListener('click', () => {
     const select = document.getElementById('lighting-control-mapping');
@@ -2493,7 +2521,10 @@ function systemStatusPage() {
       ['Transport', systemStatus.lighting.transport],
       ['Active lighting scene', systemStatus.lighting.activeScene],
       ['Last successful command', formatDiagnosticDate(systemStatus.lighting.lastSuccessfulCommand)],
-      ['Connection status', systemStatus.lighting.connectionStatus]
+      ['Connection status', systemStatus.lighting.connectionStatus],
+      ['Missing QLC+ functions', systemStatus.lighting.unresolvedFunctionCount || 0],
+      ['Affected Production Looks', systemStatus.lighting.affectedProductionLookCount || 0],
+      ['Affected Service Cues', systemStatus.lighting.affectedServiceCueCount || 0]
     ])],
     ['ATEM Mini Pro', systemStatus.atem.health, diagnosticRows([
       ['Enabled', systemStatus.atem.enabled ? 'Yes' : 'No'],
@@ -3001,6 +3032,18 @@ document.addEventListener('keydown', async event => {
     window.trinity.onStateChanged(nextState => {
       if (!state) pendingState = nextState;
       else {
+        const previousReconciliation = (state.devices || []).find(device => device.type === 'lighting')?.metadata?.lightingReconciliation;
+        const nextReconciliation = (nextState.devices || []).find(device => device.type === 'lighting')?.metadata?.lightingReconciliation;
+        if (JSON.stringify(previousReconciliation) !== JSON.stringify(nextReconciliation)) {
+          const impacted = (nextReconciliation?.removed || []).filter(item =>
+            (item.dependencies?.productionLooks?.length || 0) + (item.dependencies?.serviceCues?.length || 0) + (item.dependencies?.cueTemplates?.length || 0) > 0
+          );
+          if (impacted.length) {
+            const dependencyTotal = impacted.reduce((total, item) => total +
+              (item.dependencies.productionLooks.length + item.dependencies.serviceCues.length + item.dependencies.cueTemplates.length), 0);
+            showNotification(`Lighting configuration changed: ${impacted.length} removed QLC+ function${impacted.length === 1 ? '' : 's'} affect ${dependencyTotal} relationship${dependencyTotal === 1 ? '' : 's'}. Review the Lighting Library.`, { type: 'warning' });
+          }
+        }
         if (window.TrinityRendererLifecycle.equivalentState(state, nextState)) {
           state = nextState;
           updateQlcStatusElements();

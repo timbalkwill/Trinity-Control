@@ -19,6 +19,7 @@ function normalizeLightingScene(input = {}) {
   return {
     ...input,
     productionScene: input.productionScene !== false,
+    available: input.available !== false,
     externalControl: normalizeExternalControl(input.externalControl)
   };
 }
@@ -156,6 +157,14 @@ function resolveLightingExecution(state, lightingSceneId, { resolvedAt = Date.no
     return {
       execution: null,
       validation: lightingValidation("lighting-scene-disabled", scene.id, `Lighting Scene is disabled: ${scene.name || scene.id}`)
+    };
+  }
+  if (scene.available === false || scene.qlcMirror?.available === false) {
+    return {
+      execution: null,
+      validation: lightingValidation("qlc-function-missing", scene.id, `QLC+ lighting function is missing: ${scene.qlcMirror?.name || scene.name || scene.id}`, "error", {
+        widgetId: scene.qlcMirror?.widgetId || scene.externalControl?.widgetId || null
+      })
     };
   }
 

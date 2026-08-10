@@ -14,6 +14,11 @@ const { createLightingAdapterRegistry } = require("./lighting-adapter-registry.c
 const lightingScenes = require("./lighting-scene-operations.cjs");
 const { createLightingExecutor } = require("./lighting-execution.cjs");
 const { createLightingActiveState } = require("./lighting-active-state.cjs");
+const {
+  reconcileLightingScenes,
+  replaceLightingReferences,
+  semanticDiscoveryEqual
+} = require("./lighting-reconciliation.cjs");
 
 function createOperatorCommands({
   loadState,
@@ -49,6 +54,33 @@ function createOperatorCommands({
       await operation(state);
       lightingActiveState.synchronize(state);
       return publish(saveState(state));
+    });
+  }
+
+  function discoverLightingControlsDetailed(deviceId) {
+    return enqueue(async () => {
+      const state = loadState();
+      const device = devices.getDeviceById(state, deviceId);
+      if (!device || device.type !== "lighting") throw new RangeError(`Unknown lighting device: ${deviceId}`);
+      const result = await lightingAdapters.discoverControls(device);
+      if (!result?.ok) return { state, result, changed: false, reconciliation: null };
+      const discoveryChanged = !semanticDiscoveryEqual(device, result.widgets, result.pages);
+      const reconciliation = reconcileLightingScenes(state, result.widgets, { now: Date.now() });
+      if (!discoveryChanged && !reconciliation.changed) {
+        return { state, result, changed: false, reconciliation: reconciliation.summary };
+      }
+      device.metadata = {
+        ...device.metadata,
+        lightingDiagnostic: { ok: true, code: result.code, message: result.message, widgetCount: result.widgetCount },
+        qlcplusWidgets: result.widgets,
+        qlcplusPages: result.pages || [],
+        lightingReconciliation: reconciliation.summary
+      };
+      device.lastCheckedAt = new Date().toISOString();
+      device.lastError = null;
+      lightingActiveState.synchronize(state);
+      const saved = publish(saveState(state));
+      return { state: saved, result, changed: true, reconciliation: reconciliation.summary };
     });
   }
 
@@ -189,19 +221,10 @@ function createOperatorCommands({
       device.lastCheckedAt = new Date().toISOString();
       device.lastError = result.ok ? null : result.message;
     }),
-    discoverLightingControls: deviceId => mutate(async state => {
-      const device = devices.getDeviceById(state, deviceId);
-      if (!device || device.type !== "lighting") throw new RangeError(`Unknown lighting device: ${deviceId}`);
-      const result = await lightingAdapters.discoverControls(device);
-      device.metadata = {
-        ...device.metadata,
-        lightingDiagnostic: result,
-        qlcplusWidgets: result.ok ? result.widgets : device.metadata?.qlcplusWidgets || [],
-        qlcplusPages: result.ok ? result.pages || [] : device.metadata?.qlcplusPages || []
-      };
-      device.lastCheckedAt = new Date().toISOString();
-      device.lastError = result.ok ? null : result.message;
-    }),
+    discoverLightingControls: deviceId => discoverLightingControlsDetailed(deviceId).then(outcome => outcome.state),
+    discoverLightingControlsDetailed,
+    replaceLightingReferences: (missingSceneId, replacementSceneId, selection) =>
+      mutate(state => replaceLightingReferences(state, missingSceneId, replacementSceneId, selection)),
     clearDeviceDiagnostic: deviceId => mutate(state => devices.clearDeviceDiagnostic(state, deviceId)),
     createCameraPreset: input => mutate(state => presets.createCameraPreset(state, input)),
     updateCameraPreset: (presetId, patch) => mutate(state => presets.updateCameraPreset(state, presetId, patch)),

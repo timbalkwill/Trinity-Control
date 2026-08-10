@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { missingLightingDependencies } = require("./lighting-reconciliation.cjs");
 
 function readGitMetadata(projectDirectory, environment = process.env) {
   const suppliedCommit = environment.TRINITY_GIT_COMMIT || environment.GIT_COMMIT || environment.COMMIT_SHA;
@@ -55,6 +56,9 @@ function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorSta
   const cameraErrors = cameras.filter(camera => camera.enabled !== false &&
     ["error", "offline", "disconnected"].includes(String(camera.connectionStatus || "").toLowerCase()));
   const executionWarnings = snapshot?.warnings || [];
+  const unresolvedLighting = missingLightingDependencies(state);
+  const affectedLooks = new Set(unresolvedLighting.flatMap(item => item.dependencies.productionLooks.map(reference => reference.id)));
+  const affectedCues = new Set(unresolvedLighting.flatMap(item => item.dependencies.serviceCues.map(reference => reference.id)));
 
   return {
     generatedAt: now().toISOString(),
@@ -70,10 +74,15 @@ function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorSta
       activeScene: lightingExecution?.sceneName || snapshot?.lighting?.sceneName || "None",
       lastSuccessfulCommand: successfulLighting?.completedAt || successfulLighting?.executedAt || "None recorded",
       connectionStatus: qlcStatus.connectionState || qlcStatus.state || "Unknown",
+      unresolvedFunctionCount: unresolvedLighting.length,
+      affectedProductionLookCount: affectedLooks.size,
+      affectedServiceCueCount: affectedCues.size,
       health: !lightingDevice || !enabledLighting
         ? health("warning", "Lighting is disabled or not configured")
         : connectedLighting
-          ? health("healthy", "QLC+ is connected and available")
+          ? unresolvedLighting.length
+            ? health("warning", `${unresolvedLighting.length} missing QLC+ function${unresolvedLighting.length === 1 ? "" : "s"} affect Trinity relationships`)
+            : health("healthy", "QLC+ is connected and available")
           : health("error", qlcStatus.message || "QLC+ is disconnected")
     },
     cameras: {

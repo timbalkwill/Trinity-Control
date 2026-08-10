@@ -14,7 +14,7 @@ const PORTABLE_SCALAR_KEYS = Object.freeze([
   "shotSchemaVersion", "lightingSceneSchemaVersion"
 ]);
 const RUNTIME_METADATA_KEYS = new Set([
-  "diagnostic", "lightingDiagnostic", "lastDiagnostic", "qlcplusWidgets", "qlcplusPages",
+  "diagnostic", "lightingDiagnostic", "lastDiagnostic", "qlcplusWidgets", "qlcplusPages", "lightingReconciliation",
   "connection", "connectionStatus", "lastCheckedAt", "lastError", "health", "runtime"
 ]);
 const SECRET_KEYS = new Set(["password", "credentialReference", "token", "apiToken", "accessToken"]);

@@ -10,7 +10,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check application-menu.cjs && node --check backup-operations.cjs && node --check atem-service.cjs && node --check qlcplus-service-manager.cjs && node --check lighting-scene-operations.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check camera-shot-execution.cjs && node --check camera-adapter-registry.cjs && node --check ptzoptics-adapter.cjs && node --check lighting-adapter-registry.cjs && node --check qlcplus-websocket-transport.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
+    "check": "node --check electron-main.cjs && node --check application-menu.cjs && node --check backup-operations.cjs && node --check atem-service.cjs && node --check qlcplus-service-manager.cjs && node --check lighting-scene-operations.cjs && node --check lighting-reconciliation.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check camera-shot-execution.cjs && node --check camera-adapter-registry.cjs && node --check ptzoptics-adapter.cjs && node --check lighting-adapter-registry.cjs && node --check qlcplus-websocket-transport.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
     "build:win": "electron-builder --win nsis --x64 --publish never",
@@ -40,6 +40,7 @@
       "qlcplus-websocket-transport.cjs",
       "qlcplus-service-manager.cjs",
       "lighting-scene-operations.cjs",
+      "lighting-reconciliation.cjs",
       "lighting-active-state.cjs",
       "production-look-operations.cjs",
       "device-operations.cjs",

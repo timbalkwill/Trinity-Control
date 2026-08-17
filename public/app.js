@@ -1286,6 +1286,10 @@ function livePage() {
   const presentationSource = (state.videoSources || []).find(source => source.sourceType === 'video' && source.enabled !== false);
   const presentationLive = atemStatus?.connectionState === 'connected' && atemStatus.liveSourceId === presentationSource?.id;
   const presentationMapped = presentationSource?.switcherMappings?.[atemStatus?.backend || 'atem']?.input != null;
+  const readiness = systemStatus?.productionReadiness;
+  const readinessStrip = readiness ? `<div class="production-readiness-strip" aria-label="Production Readiness">${[
+    ['Lighting', readiness.groups.lighting], ['Switcher', readiness.groups.video], ['Cameras', readiness.groups.cameras], ['iPad', readiness.groups.host]
+  ].map(([label, value]) => `<span class="readiness-${escapeHtml(value)}"><i></i><b>${escapeHtml(label)}</b> ${escapeHtml(value === 'ready' ? 'Ready' : value === 'error' ? 'Not Ready' : value === 'optional' ? 'Optional' : 'Review')}</span>`).join('')}</div>` : '';
   shell(`<div class="simple-live-layout">
     <aside class="panel simple-cue-panel">
       <div class="section-title"><span>ORDER OF SERVICE</span><strong>${state.runOfService.length} cues</strong></div>
@@ -1302,6 +1306,7 @@ function livePage() {
     </aside>
     <section class="simple-live-main">
       <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>Video Switcher: ${escapeHtml(atemStatus?.backendName || 'ATEM')} · ${escapeHtml(atemStatus?.connectionState || 'Unknown')} · LIVE ${escapeHtml(atemStatus?.liveSourceName || '—')}</small></div>
+      ${readinessStrip}
       ${presentationSource ? `<div class="presentation-source-control ${presentationLive ? 'live' : ''}"><div><span class="eyebrow">VIDEO SOURCE</span><strong>${escapeHtml(presentationSource.name)}</strong><small>${presentationLive ? 'LIVE' : presentationMapped ? 'Ready' : 'Mapping required'}</small></div><button data-take-video-source="${escapeHtml(presentationSource.id)}" ${atemStatus?.connectionState !== 'connected' || !presentationMapped || presentationLive ? 'disabled' : ''}>${presentationLive ? 'LIVE' : 'TAKE LIVE'}</button></div>` : ''}
       <div class="camera-director-grid">${productionDirectorCameras().map(CameraDirectorCard).join('')}</div>
     </section>
@@ -2579,6 +2584,12 @@ function systemStatusPage() {
     return `<div class="settings-heading"><div><span class="eyebrow">READ-ONLY DIAGNOSTICS</span><h1>System Status</h1><p>Current application and production health. No controls are executed from this page.</p></div><button id="refresh-system-status" ${systemStatusLoading ? 'disabled' : ''}>${systemStatusLoading ? 'REFRESHING…' : 'REFRESH STATUS'}</button></div>
       <section class="panel system-status-empty">${systemStatusLoading ? 'Reading current system status…' : 'Select Refresh Status to load diagnostics.'}</section>`;
   }
+  const readiness = systemStatus.productionReadiness;
+  const readinessPanel = readiness ? `<section class="panel production-readiness-panel readiness-${escapeHtml(readiness.overall)}">
+    <div class="production-readiness-heading"><div><span class="eyebrow">PRODUCTION READINESS</span><h2>${escapeHtml(readiness.label)}</h2></div><span>${readiness.items.filter(item => item.state === 'error').length} blocking · ${readiness.items.filter(item => item.state === 'warning').length} review</span></div>
+    <div class="production-readiness-items">${readiness.items.map(item => `<article class="readiness-${escapeHtml(item.state)}"><i></i><div><strong>${escapeHtml(item.label)}</strong><span>${escapeHtml(item.summary)}</span><small>${escapeHtml(item.detail)}</small></div></article>`).join('')}</div>
+    ${readiness.preparedMotion.length ? `<p class="prepared-readiness-context"><b>Prepared Motion:</b> ${readiness.preparedMotion.map(item => `${escapeHtml(item.cameraId)} — ${escapeHtml(item.shotName || item.shotId)}`).join(' · ')}</p>` : ''}
+  </section>` : '';
   const cards = [
     ['Application', systemStatus.application.health, diagnosticRows([
       ['Version', systemStatus.application.version],
@@ -2664,6 +2675,7 @@ function systemStatusPage() {
     `<p class="system-status-count">${systemStatus.cameras.configuredCount} configured</p>${cameraRows}`]);
   return `<div class="settings-heading"><div><span class="eyebrow">READ-ONLY DIAGNOSTICS</span><h1>System Status</h1><p>Current application and production health. No controls are executed from this page.</p></div><button id="refresh-system-status" ${systemStatusLoading ? 'disabled' : ''}>${systemStatusLoading ? 'REFRESHING…' : 'REFRESH STATUS'}</button></div>
     <p class="system-status-timestamp">Updated ${escapeHtml(formatDiagnosticDate(systemStatus.generatedAt))}</p>
+    ${readinessPanel}
     <div class="system-status-grid">${cards.map(([title, health, content]) => `<section class="panel system-status-card">
       <div class="system-status-card-heading"><div><h2>${escapeHtml(title)}</h2><small>${escapeHtml(health.message)}</small></div>${healthBadge(health)}</div>
       ${content}
@@ -2699,6 +2711,14 @@ async function refreshSystemStatus() {
     systemStatusLoading = false;
     render();
   }
+}
+
+async function refreshLiveReadiness() {
+  if (page !== 'live') return;
+  try {
+    systemStatus = await window.trinity.getSystemStatus();
+    if (state && page === 'live') render({ reason: 'production-readiness-changed' });
+  } catch { /* Existing status remains visible until the next authoritative update. */ }
 }
 
 function settingsPage() {
@@ -3141,6 +3161,7 @@ document.addEventListener('keydown', async event => {
         }
         state = nextState;
         render({ reason: 'operator-state-changed' });
+        void refreshLiveReadiness();
       }
     });
     window.trinity.onQlcServiceStatusChanged(status => {
@@ -3149,23 +3170,27 @@ document.addEventListener('keydown', async event => {
       if (!state) return;
       if (unchanged) updateQlcStatusElements();
       else render({ reason: 'qlc-service-status-changed' });
+      void refreshLiveReadiness();
     });
     window.trinity.onVideoSwitcherStatusChanged(status => {
       atemStatus = status;
       if (state && (page === 'live' || page === 'settings')) render({ reason: 'atem-status-changed' });
+      void refreshLiveReadiness();
     });
-    const [initialState, initialServerStatus, initialQlcServiceStatus, initialAtemStatus, initialAppInfo] = await Promise.all([
+    const [initialState, initialServerStatus, initialQlcServiceStatus, initialAtemStatus, initialAppInfo, initialSystemStatus] = await Promise.all([
       window.trinity.getState(),
       window.trinity.getOperatorServerStatus(),
       window.trinity.getQlcServiceStatus(),
       window.trinity.getVideoSwitcherStatus(),
-      window.trinity.getAppInfo()
+      window.trinity.getAppInfo(),
+      window.trinity.getSystemStatus()
     ]);
     state = pendingState || initialState;
     operatorServerStatus = initialServerStatus;
     qlcServiceStatus = initialQlcServiceStatus;
     atemStatus = initialAtemStatus;
     appInfo = initialAppInfo;
+    systemStatus = initialSystemStatus;
 
     setupWizardOpen = state.setup?.completed !== true;
     setupSkippedSystems = new Set(state.setup?.skippedSystems || []);

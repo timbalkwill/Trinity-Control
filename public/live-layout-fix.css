@@ -7,7 +7,7 @@ html,body,#app,.shell{width:100%;height:100%;overflow:hidden}
 .simple-cue-panel .cue-scroll{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
 .simple-cue-controls{gap:7px;padding-top:8px}
 .simple-cue-controls button{min-height:52px}
-.simple-live-main{display:grid;grid-template-rows:auto minmax(60px,auto) minmax(0,1fr);gap:10px}
+.simple-live-main{display:grid;grid-template-rows:auto auto minmax(60px,auto) minmax(0,1fr);gap:8px}
 .simple-live-main>.presentation-source-control{position:static;z-index:auto;min-width:0;min-height:60px;overflow:hidden;align-self:stretch;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px}
 .simple-live-main>.presentation-source-control>div{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}
 .simple-live-main>.presentation-source-control strong{min-width:0;overflow-wrap:anywhere}

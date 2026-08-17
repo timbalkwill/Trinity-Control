@@ -78,7 +78,7 @@ test("transport is a reserved row outside every independently scrolling workspac
   assert.ok(client.indexOf("CURRENT", transportStart) > transportStart);
   assert.ok(client.indexOf('data-action="back"') > serviceEnd);
   assert.ok(client.indexOf('data-action="go"') > cameraScrollEnd);
-  assert.match(css, /grid-template-rows:\s*58px minmax\(0, 1fr\) minmax\(62px, auto\)/);
+  assert.match(css, /grid-template-rows:\s*58px auto minmax\(0, 1fr\) minmax\(62px, auto\)/);
   assert.match(css, /\.workspace[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.camera-grid[^}]*min-height:\s*0[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
 });

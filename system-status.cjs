@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { missingLightingDependencies } = require("./lighting-reconciliation.cjs");
+const { deriveProductionReadiness } = require("./production-readiness.cjs");
 
 function readGitMetadata(projectDirectory, environment = process.env) {
   const suppliedCommit = environment.TRINITY_GIT_COMMIT || environment.GIT_COMMIT || environment.COMMIT_SHA;
@@ -34,7 +35,7 @@ function health(status, message) {
   return { status, message };
 }
 
-function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorStatus = {}, appInfo, storage, localSettings = {}, now = () => new Date(), processInfo = {} }) {
+function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorStatus = {}, homeAssistant = {}, appInfo, storage, localSettings = {}, now = () => new Date(), processInfo = {} }) {
   const devices = state?.devices || [];
   const cameras = devices.filter(device => device.type === "camera");
   const lightingDevice = devices.find(device => device.type === "lighting");
@@ -62,6 +63,7 @@ function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorSta
 
   return {
     generatedAt: now().toISOString(),
+    productionReadiness: deriveProductionReadiness({ state, qlcStatus, videoStatus: atemStatus, operatorStatus, homeAssistant }),
     application: { ...appInfo, health: health("healthy", "Application is running") },
     lighting: {
       configured: Boolean(lightingDevice),

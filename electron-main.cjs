@@ -28,6 +28,7 @@ const { createVideoRouter } = require("./video-router.cjs");
 const { createVideoTakeLive } = require("./video-take-live.cjs");
 const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
 const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
+const { deriveProductionReadiness } = require("./production-readiness.cjs");
 
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
@@ -888,6 +889,7 @@ app.whenReady().then(async () => {
       qlcStatus: qlcServiceStatus,
       atemStatus: { ...atemService.getStatus(), ...videoRouter.getStatus() },
       operatorStatus: operatorServerStatus,
+      homeAssistant: homeAssistant.getConfiguration(),
       appInfo: {
         name: "Trinity Control",
         version: app.getVersion(),
@@ -1124,6 +1126,7 @@ app.whenReady().then(async () => {
         commands.resetLightingActiveState(`service-${status.state}`);
       }
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qlc-service:status-changed", status);
+      operatorServer?.publishState();
     }
   });
   ipcMain.handle("qlc-service:start", () => qlcServiceManager.start());
@@ -1155,7 +1158,14 @@ app.whenReady().then(async () => {
     assetsDirectory: path.join(__dirname, "public"),
     getVideoRouterStatus: () => videoRouter?.getStatus(),
     subscribeVideoRouterStatus: subscriber => videoRouter?.subscribe(subscriber) || (() => {}),
-    takeVideoSource: videoSourceId => videoTakeLive.takeSource(videoSourceId)
+    takeVideoSource: videoSourceId => videoTakeLive.takeSource(videoSourceId),
+    getProductionReadiness: current => deriveProductionReadiness({
+      state: current,
+      qlcStatus: qlcServiceStatus,
+      videoStatus: videoRouter?.getStatus(),
+      operatorStatus: operatorServerStatus,
+      homeAssistant: homeAssistant.getConfiguration()
+    })
   });
   try {
     operatorServerStatus = await operatorServer.start();

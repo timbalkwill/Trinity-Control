@@ -457,6 +457,12 @@
 /* Live Camera Director: manual positioning with no embedded video previews. */
 .simple-live-layout{grid-template-columns:clamp(260px,21vw,340px) minmax(0,1fr)}
 .simple-live-main{grid-template-rows:auto auto minmax(0,1fr);overflow:hidden}
+.production-readiness-strip{min-width:0;display:flex;align-items:center;gap:8px;overflow:hidden;padding:5px 8px;background:#0b1620;border:1px solid var(--line);border-radius:9px;font-size:11px}
+.production-readiness-strip span{display:flex;align-items:center;gap:4px;white-space:nowrap;color:var(--muted)}.production-readiness-strip i,.production-readiness-items i{width:8px;height:8px;flex:0 0 auto;border-radius:50%;background:var(--green)}
+.readiness-warning i{background:var(--amber)}.readiness-error i{background:var(--red)}.readiness-optional i{background:var(--muted)}
+.production-readiness-panel{margin-bottom:14px;border-left:4px solid var(--green)}.production-readiness-panel.readiness-warning{border-left-color:var(--amber)}.production-readiness-panel.readiness-error{border-left-color:var(--red)}
+.production-readiness-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.production-readiness-heading h2{margin:3px 0 0}.production-readiness-heading>span{color:var(--muted)}
+.production-readiness-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.production-readiness-items article{display:flex;gap:8px;align-items:flex-start;background:#0b1620;border:1px solid var(--line);border-radius:9px;padding:9px}.production-readiness-items article div{min-width:0;display:grid;gap:2px}.production-readiness-items span,.production-readiness-items small{color:var(--muted)}.prepared-readiness-context{margin:10px 0 0;color:var(--muted)}
 .presentation-source-control{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#101c27;border:1px solid var(--line);border-radius:12px;padding:8px 12px}
 .presentation-source-control>div{display:flex;align-items:center;gap:12px}.presentation-source-control small{color:var(--muted)}
 .presentation-source-control button{min-width:150px}.presentation-source-control.live{border-color:var(--green)}

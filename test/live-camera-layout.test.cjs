@@ -28,14 +28,15 @@ test("normal desktop layout keeps three equal camera columns beside a wider serv
 });
 
 test("desktop Presentation owns a reserved row above the three-camera grid", () => {
-  assert.match(styles, /\.simple-live-main\{display:grid;grid-template-rows:auto minmax\(60px,auto\) minmax\(0,1fr\);gap:10px\}/);
+  assert.match(styles, /\.simple-live-main\{display:grid;grid-template-rows:auto auto minmax\(60px,auto\) minmax\(0,1fr\);gap:8px\}/);
   assert.match(styles, /\.simple-live-main>\.presentation-source-control\{[^}]*position:static[^}]*min-height:60px[^}]*overflow:hidden/);
   assert.match(styles, /\.simple-live-main>\.presentation-source-control button\{[^}]*position:static[^}]*min-width:150px[^}]*visibility:visible/);
   assert.doesNotMatch(styles, /\.presentation-source-control\{[^}]*(?:position:absolute|position:fixed)/);
   const heading = livePage.indexOf('class="camera-director-heading"');
+  const readiness = livePage.indexOf('${readinessStrip}', heading);
   const presentation = livePage.indexOf('class="presentation-source-control');
   const cameras = livePage.indexOf('class="camera-director-grid"');
-  assert.ok(heading >= 0 && heading < presentation && presentation < cameras);
+  assert.ok(heading >= 0 && heading < readiness && readiness < presentation && presentation < cameras);
 });
 
 test("desktop viewport containment leaves the remaining height to camera cards", () => {

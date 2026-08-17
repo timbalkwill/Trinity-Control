@@ -27,6 +27,7 @@
     "files": [
       "electron-main.cjs",
       "system-status.cjs",
+      "production-readiness.cjs",
       "onboarding-operations.cjs",
       "application-menu.cjs",
       "cue-execution.cjs",

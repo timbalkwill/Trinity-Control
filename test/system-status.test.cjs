@@ -78,6 +78,7 @@ test("system status summarizes current state without mutating it", () => {
   assert.equal(status.operator.backReady, false);
   assert.equal(status.host.operatorServerRunning, true);
   assert.equal(status.host.operatorNetworkUrls[0], "http://192.168.1.20:4310");
+  assert.ok(status.productionReadiness);
 });
 
 test("health reporting distinguishes warnings and errors", () => {

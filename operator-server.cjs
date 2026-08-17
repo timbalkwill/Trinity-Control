@@ -5,6 +5,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { projectBrowserState } = require("./device-operations.cjs");
+const { safeProductionReadiness } = require("./production-readiness.cjs");
 
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 4310;
@@ -31,6 +32,7 @@ function createOperatorServer({
   getVideoRouterStatus = getAtemStatus,
   subscribeVideoRouterStatus = subscribeAtemStatus,
   takeVideoSource = null,
+  getProductionReadiness = null,
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   logger = console
@@ -66,7 +68,8 @@ function createOperatorServer({
       liveCameraId: router.liveCameraId || null, cameraInputs: { ...(router.cameraInputs || {}) },
       message: router.message || null
     } : null;
-    return { ...projectBrowserState(state), videoSwitcherStatus, atemStatus: videoSwitcherStatus };
+    const readiness = typeof getProductionReadiness === "function" ? getProductionReadiness(state) : null;
+    return { ...projectBrowserState(state), videoSwitcherStatus, atemStatus: videoSwitcherStatus, ...(readiness ? { productionReadiness: safeProductionReadiness(readiness) } : {}) };
   }
 
   function writeEvent(response, state) {
@@ -223,6 +226,12 @@ function createOperatorServer({
   }) : () => {};
 
   return {
+    publishState: () => {
+      for (const [clientId, response] of clients) {
+        try { writeEvent(response, commands.getState()); }
+        catch { clients.delete(clientId); response.destroy(); }
+      }
+    },
     start: () => new Promise((resolve, reject) => {
       const onError = error => reject(error);
       server.once("error", onError);

@@ -69,12 +69,12 @@ test("failed or unavailable manual camera actions do not become Last Commanded",
   assert.deepEqual(persisted.live.cameraPreparations, []);
 });
 
-test("Camera Director exposes accessible controls and authoritative ATEM LIVE state", () => {
+test("Camera Director exposes accessible controls and authoritative Video Source LIVE state", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.match(source, /aria-label="Recall \$\{escapeHtml\(preset\.name\)\} on \$\{escapeHtml\(camera\.name\)\}"/);
   assert.match(source, /\$\{controlsDisabled \? 'disabled' : ''\}/);
   assert.match(source, /data-live-indicator.*\$\{isLive \? '' : 'hidden'\}/);
-  assert.match(source, /const isLive = atemConnected && atemStatus\.liveCameraId === camera\.id/);
+  assert.match(source, /const isLive = switcherConnected && atemStatus\.liveSourceId === videoSource\?\.id/);
   assert.doesNotMatch(source.slice(source.indexOf("function CameraDirectorCard"), source.indexOf("function livePage")), /programCamera|previewCamera|MAKE LIVE/);
 });
 

@@ -22,7 +22,10 @@ const {
 const { createApplicationMenuTemplate } = require("./application-menu.cjs");
 const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
 const { createAtemService } = require("./atem-service.cjs");
-const { createPreparedMotionTakeLive } = require("./prepared-motion-take-live.cjs");
+const { migrateVideoSources } = require("./video-source-operations.cjs");
+const { createSwitcherAdapterRegistry } = require("./switcher-adapter-registry.cjs");
+const { createVideoRouter } = require("./video-router.cjs");
+const { createVideoTakeLive } = require("./video-take-live.cjs");
 const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
 const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
 
@@ -37,7 +40,8 @@ let mainWindow;
 let operatorServer;
 let qlcServiceManager;
 let atemService;
-let preparedMotionTakeLive;
+let videoRouter;
+let videoTakeLive;
 let selectedBackupImportPath = null;
 let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
@@ -752,6 +756,7 @@ function migrate(state) {
     }
   }
   merged.devices = normalizeDeviceCollection(state.devices, { legacyCameras: merged.cameras });
+  migrateVideoSources(merged);
   merged.deviceSchemaVersion = 1;
   merged.cameraPresets = migrateLegacyPresets({ ...merged, cameraPresets: state.cameraPresets });
   merged.shots = migrateShots(state.shots);
@@ -852,7 +857,9 @@ app.whenReady().then(async () => {
     userDataPath: app.getPath("userData")
   });
   atemService = createAtemService({ getState: commands.getState, logger: console });
-  preparedMotionTakeLive = createPreparedMotionTakeLive({ commands, atemService });
+  const switcherAdapters = createSwitcherAdapterRegistry({ atem: atemService });
+  videoRouter = createVideoRouter({ getState: commands.getState, adapters: switcherAdapters });
+  videoTakeLive = createVideoTakeLive({ commands, videoRouter });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -879,7 +886,7 @@ app.whenReady().then(async () => {
     return buildSystemStatus({
       state: commands.getState(),
       qlcStatus: qlcServiceStatus,
-      atemStatus: atemService.getStatus(),
+      atemStatus: { ...atemService.getStatus(), ...videoRouter.getStatus() },
       operatorStatus: operatorServerStatus,
       appInfo: {
         name: "Trinity Control",
@@ -1081,8 +1088,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
-  ipcMain.handle("atem:status", () => atemService.getStatus());
-  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => preparedMotionTakeLive.takeLive(cameraDeviceId));
+  ipcMain.handle("video-switcher:status", () => videoRouter.getStatus());
+  ipcMain.handle("video-switcher:take-source", (_e, videoSourceId) => videoTakeLive.takeSource(videoSourceId));
+  ipcMain.handle("video-source:update", (_e, { sourceId, patch }) => commands.updateVideoSource(sourceId, patch));
+  ipcMain.handle("atem:status", () => videoRouter.getStatus());
+  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => {
+    const source = videoRouter.getSources().find(item => item.cameraDeviceId === cameraDeviceId);
+    return videoTakeLive.takeSource(source?.id);
+  });
   ipcMain.handle("motion:cancel-prepared", (_e, cameraDeviceId) => commands.cancelPreparedMotion(cameraDeviceId));
   ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
   ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
@@ -1130,17 +1143,19 @@ app.whenReady().then(async () => {
 
   createWindow();
   installApplicationMenu();
-  atemService.subscribe(status => {
+  videoRouter.subscribe(status => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("video-switcher:status-changed", status);
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("atem:status-changed", status);
   });
+  videoRouter.bindAdapter("atem");
   void atemService.initialize();
   void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,
     assetsDirectory: path.join(__dirname, "public"),
-    getAtemStatus: () => atemService?.getStatus(),
-    subscribeAtemStatus: subscriber => atemService?.subscribe(subscriber) || (() => {}),
-    takeCameraLive: cameraDeviceId => preparedMotionTakeLive.takeLive(cameraDeviceId)
+    getVideoRouterStatus: () => videoRouter?.getStatus(),
+    subscribeVideoRouterStatus: subscriber => videoRouter?.subscribe(subscriber) || (() => {}),
+    takeVideoSource: videoSourceId => videoTakeLive.takeSource(videoSourceId)
   });
   try {
     operatorServerStatus = await operatorServer.start();

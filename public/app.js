@@ -1224,10 +1224,11 @@ function CameraDirectorCard(camera) {
   const lastMotion = state.live?.manualMotionCommands?.[camera.id] || null;
   const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
   const controlsDisabled = !status.available || preparation.tracking?.active === true;
-  const atemConnected = atemStatus?.connectionState === 'connected';
-  const atemInput = atemStatus?.cameraInputs?.[camera.id];
-  const isLive = atemConnected && atemStatus.liveCameraId === camera.id;
-  const takeDisabled = !atemConnected || atemInput === undefined || (isLive && !preparedMotion);
+  const videoSource = (state.videoSources || []).find(source => source.sourceType === 'camera' && source.cameraDeviceId === camera.id);
+  const switcherConnected = atemStatus?.connectionState === 'connected';
+  const hasMapping = videoSource?.switcherMappings?.[atemStatus?.backend || 'atem']?.input != null;
+  const isLive = switcherConnected && atemStatus.liveSourceId === videoSource?.id;
+  const takeDisabled = !switcherConnected || !hasMapping || (isLive && !preparedMotion);
   return `<article class="camera-director-card ${isLive ? 'atem-live' : ''}" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
     <header>
       <div><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)}</strong></div>
@@ -1277,11 +1278,14 @@ function CameraDirectorCard(camera) {
       <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${preparedMotion ? `${escapeHtml(preparedMotion.statusLabel)} · Start commanded, position not verified` : lastMotion ? `Last Motion: ${escapeHtml(lastMotion.shotName)} · Commanded` : 'NOT PREPARED'}</small>
       ${preparedMotion ? `<button type="button" class="secondary-button cancel-prepared-motion" data-cancel-prepared-motion="${escapeHtml(camera.id)}">CANCEL PREP</button>` : ''}
     </div>
-    <button type="button" class="atem-take-live" data-atem-take-live="${escapeHtml(camera.id)}" ${takeDisabled ? 'disabled' : ''}>${isLive && preparedMotion ? 'RUN PREPARED MOVE' : isLive ? 'LIVE' : preparedMotion ? 'TAKE LIVE + MOVE' : 'TAKE LIVE'}</button>
+    <button type="button" class="atem-take-live" data-take-video-source="${escapeHtml(videoSource?.id || '')}" ${takeDisabled ? 'disabled' : ''}>${isLive && preparedMotion ? 'RUN PREPARED MOVE' : isLive ? 'LIVE' : preparedMotion ? 'TAKE LIVE + MOVE' : 'TAKE LIVE'}</button>
   </article>`;
 }
 
 function livePage() {
+  const presentationSource = (state.videoSources || []).find(source => source.sourceType === 'video' && source.enabled !== false);
+  const presentationLive = atemStatus?.connectionState === 'connected' && atemStatus.liveSourceId === presentationSource?.id;
+  const presentationMapped = presentationSource?.switcherMappings?.[atemStatus?.backend || 'atem']?.input != null;
   shell(`<div class="simple-live-layout">
     <aside class="panel simple-cue-panel">
       <div class="section-title"><span>ORDER OF SERVICE</span><strong>${state.runOfService.length} cues</strong></div>
@@ -1297,7 +1301,8 @@ function livePage() {
       </div>
     </aside>
     <section class="simple-live-main">
-      <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>ATEM: ${escapeHtml(atemStatus?.connectionState || 'Unknown')} · PROGRAM ${escapeHtml(atemStatus?.programInput ?? '—')}</small></div>
+      <div class="camera-director-heading"><div><span class="eyebrow">LIVE WORKSPACE</span><h1>Camera Director</h1></div><small>Video Switcher: ${escapeHtml(atemStatus?.backendName || 'ATEM')} · ${escapeHtml(atemStatus?.connectionState || 'Unknown')} · LIVE ${escapeHtml(atemStatus?.liveSourceName || '—')}</small></div>
+      ${presentationSource ? `<div class="presentation-source-control ${presentationLive ? 'live' : ''}"><div><span class="eyebrow">VIDEO SOURCE</span><strong>${escapeHtml(presentationSource.name)}</strong><small>${presentationLive ? 'LIVE' : presentationMapped ? 'Ready' : 'Mapping required'}</small></div><button data-take-video-source="${escapeHtml(presentationSource.id)}" ${atemStatus?.connectionState !== 'connected' || !presentationMapped || presentationLive ? 'disabled' : ''}>${presentationLive ? 'LIVE' : 'TAKE LIVE'}</button></div>` : ''}
       <div class="camera-director-grid">${productionDirectorCameras().map(CameraDirectorCard).join('')}</div>
     </section>
   </div>`);
@@ -1336,12 +1341,12 @@ function livePage() {
   document.querySelectorAll('[data-cancel-prepared-motion]').forEach(button => {
     button.onclick = async () => { state = await window.trinity.cancelPreparedMotion(button.dataset.cancelPreparedMotion); render(); };
   });
-  document.querySelectorAll('[data-atem-take-live]').forEach(button => {
+  document.querySelectorAll('[data-take-video-source]').forEach(button => {
     button.onclick = async () => {
       button.disabled = true;
-      try { await window.trinity.takeCameraLive(button.dataset.atemTakeLive); }
+      try { await window.trinity.takeVideoSource(button.dataset.takeVideoSource); }
       catch (error) {
-        showNotification(error.message || 'ATEM switch failed', { type: 'error' });
+        showNotification(error.message || 'Video Switcher failed', { type: 'error' });
         button.disabled = false;
       }
     };
@@ -2521,7 +2526,7 @@ function setupWizardPage() {
       ${diagnosticRows([['Executable path', context.qlcplus.applicationPathValid ? 'Valid' : qlc.applicationPath ? 'Needs review' : 'Not selected'], ['Workspace path', context.qlcplus.workspacePathValid ? 'Valid' : qlc.workspacePath ? 'Needs review' : 'Not selected'], ['Connection', context.qlcplus.status?.connectionState || context.qlcplus.status?.state || 'Not tested']])}
       <button class="setup-skip" data-setup-skip="qlcplus">${setupSkippedSystems.has('qlcplus') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></section>`;
   } else if (setupStep === 'atem') {
-    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>ATEM</h1><p>Saving setup fields does not connect or switch PROGRAM.</p>${atemDevice ? `<div class="settings-form"><label>Name<input id="setup-atem-name" value="${escapeHtml(atemDevice.name)}"></label><label>Host / IP<input id="setup-atem-host" value="${escapeHtml(atemDevice.ipAddress || '')}"></label><label class="checkbox-label"><input id="setup-atem-enabled" type="checkbox" ${atemDevice.enabled ? 'checked' : ''}> Enabled</label>${cameras.map(camera => `<label>${escapeHtml(camera.name)} input<input type="number" min="1" data-setup-atem-input="${escapeHtml(camera.id)}" value="${atemDevice.metadata?.atemCameraInputs?.[camera.id] ?? ''}"></label>`).join('')}</div><div class="row-actions"><button id="setup-save-atem">SAVE ATEM SETTINGS</button><button class="setup-skip" data-setup-skip="atem">${setupSkippedSystems.has('atem') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></div>${diagnosticRows([['Connection state', context.atem.connectionState || 'Not tested'], ['PROGRAM input', context.atem.connectionState === 'connected' ? context.atem.programInput ?? 'Unknown' : 'Not read']])}` : '<div class="settings-warning">ATEM device record is unavailable. You can finish setup and configure it later.</div>'}</section>`;
+    content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>ATEM</h1><p>Saving setup fields does not connect or switch PROGRAM.</p>${atemDevice ? `<div class="settings-form"><label>Name<input id="setup-atem-name" value="${escapeHtml(atemDevice.name)}"></label><label>Host / IP<input id="setup-atem-host" value="${escapeHtml(atemDevice.ipAddress || '')}"></label><label class="checkbox-label"><input id="setup-atem-enabled" type="checkbox" ${atemDevice.enabled ? 'checked' : ''}> Enabled</label>${cameras.map(camera => { const source = (state.videoSources || []).find(item => item.sourceType === 'camera' && item.cameraDeviceId === camera.id); return `<label>${escapeHtml(camera.name)} input<input type="number" min="1" data-setup-atem-input="${escapeHtml(camera.id)}" value="${source?.switcherMappings?.atem?.input ?? atemDevice.metadata?.atemCameraInputs?.[camera.id] ?? ''}"></label>`; }).join('')}</div><div class="row-actions"><button id="setup-save-atem">SAVE ATEM SETTINGS</button><button class="setup-skip" data-setup-skip="atem">${setupSkippedSystems.has('atem') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></div>${diagnosticRows([['Connection state', context.atem.connectionState || 'Not tested'], ['PROGRAM input', context.atem.connectionState === 'connected' ? context.atem.programInput ?? 'Unknown' : 'Not read']])}` : '<div class="settings-warning">ATEM device record is unavailable. You can finish setup and configure it later.</div>'}</section>`;
   } else if (setupStep === 'cameras') {
     content = `<section class="panel setup-step"><span class="eyebrow">OPTIONAL</span><h1>Cameras</h1><p>These fields save configuration only. Setup cannot recall presets, run Motion, or send PTZ commands.</p><div class="setup-camera-grid">${cameras.map(camera => `<article class="panel" data-setup-camera="${escapeHtml(camera.id)}"><h2>${escapeHtml(camera.logicalRole || camera.id)}</h2><label>Name<input data-setup-camera-field="name" value="${escapeHtml(camera.name)}"></label><label>Adapter<select data-setup-camera-field="adapterType"><option value="">Not configured</option><option value="visca-udp" ${camera.adapterType === 'visca-udp' ? 'selected' : ''}>VISCA UDP</option><option value="ptzoptics" ${camera.adapterType === 'ptzoptics' ? 'selected' : ''}>PTZOptics HTTP</option></select></label><label>Protocol<input data-setup-camera-field="protocol" value="${escapeHtml(camera.protocol || '')}"></label><label>Host / IP<input data-setup-camera-field="ipAddress" value="${escapeHtml(camera.ipAddress || '')}"></label><label>Port<input type="number" data-setup-camera-field="port" value="${camera.port ?? ''}"></label><label>VISCA address<input type="number" min="1" max="7" data-setup-camera-field="viscaAddress" value="${camera.viscaAddress ?? ''}"></label><label class="checkbox-label"><input type="checkbox" data-setup-camera-field="enabled" ${camera.enabled ? 'checked' : ''}> Enabled</label><small>Presets: ${(state.cameraPresets || []).filter(preset => preset.cameraDeviceId === camera.id).length} · ${escapeHtml(deviceStatusLabel(camera.connectionStatus))}</small><button data-setup-save-camera="${escapeHtml(camera.id)}">SAVE CAMERA</button></article>`).join('')}</div><button class="setup-skip" data-setup-skip="cameras">${setupSkippedSystems.has('cameras') ? 'INCLUDE IN SETUP' : 'SKIP FOR NOW'}</button></section>`;
   } else if (setupStep === 'homeAssistant') {
@@ -2541,7 +2546,7 @@ function setupWizardPage() {
   document.querySelectorAll('[data-setup-skip]').forEach(button => button.onclick = () => { const id = button.dataset.setupSkip; setupSkippedSystems.has(id) ? setupSkippedSystems.delete(id) : setupSkippedSystems.add(id); render(); });
   document.getElementById('setup-browse-qlc')?.addEventListener('click', async () => { const selected = await window.trinity.browseQlcApplication(); if (selected) state = await window.trinity.updateQlcServiceSettings({ applicationPath: selected }); await refreshSetupContext(); });
   document.getElementById('setup-browse-workspace')?.addEventListener('click', async () => { const selected = await window.trinity.browseQlcWorkspace(); if (selected) state = await window.trinity.updateQlcServiceSettings({ workspacePath: selected }); await refreshSetupContext(); });
-  document.getElementById('setup-save-atem')?.addEventListener('click', async () => { const mappings = {}; document.querySelectorAll('[data-setup-atem-input]').forEach(input => { if (input.value) mappings[input.dataset.setupAtemInput] = Number(input.value); }); state = await window.trinity.updateSetupDevice(atemDevice.id, { name: document.getElementById('setup-atem-name').value, ipAddress: document.getElementById('setup-atem-host').value || null, enabled: document.getElementById('setup-atem-enabled').checked, metadata: { ...(atemDevice.metadata || {}), adapter: 'atem', atemCameraInputs: mappings } }); await refreshSetupContext(); showNotification('ATEM settings saved without switching PROGRAM', { type: 'success' }); });
+  document.getElementById('setup-save-atem')?.addEventListener('click', async () => { const mappings = {}; document.querySelectorAll('[data-setup-atem-input]').forEach(input => { if (input.value) mappings[input.dataset.setupAtemInput] = Number(input.value); }); state = await window.trinity.updateSetupDevice(atemDevice.id, { name: document.getElementById('setup-atem-name').value, ipAddress: document.getElementById('setup-atem-host').value || null, enabled: document.getElementById('setup-atem-enabled').checked, metadata: { ...(atemDevice.metadata || {}), adapter: 'atem', atemCameraInputs: mappings } }); for (const source of state.videoSources || []) { if (source.sourceType === 'camera' && mappings[source.cameraDeviceId] !== undefined) state = await window.trinity.updateVideoSource(source.id, { switcherMappings: { ...(source.switcherMappings || {}), atem: { input: mappings[source.cameraDeviceId] } } }); } await refreshSetupContext(); showNotification('ATEM settings saved without switching PROGRAM', { type: 'success' }); });
   document.querySelectorAll('[data-setup-save-camera]').forEach(button => button.onclick = async () => { const card = button.closest('[data-setup-camera]'); const patch = {}; card.querySelectorAll('[data-setup-camera-field]').forEach(input => { patch[input.dataset.setupCameraField] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null; }); state = await window.trinity.updateSetupDevice(button.dataset.setupSaveCamera, patch); await refreshSetupContext(); showNotification('Camera settings saved without sending a PTZ command', { type: 'success' }); });
   document.getElementById('setup-save-ha')?.addEventListener('click', async () => { const token = document.getElementById('setup-ha-token').value; await window.trinity.updateHomeAssistantConfiguration({ baseUrl: document.getElementById('setup-ha-url').value, ...(token ? { token } : {}), entities: document.getElementById('setup-ha-entities').value }); await refreshSetupContext(); showNotification('Home Assistant settings saved without contacting the server', { type: 'success' }); });
   document.getElementById('setup-finish')?.addEventListener('click', async () => { state = await window.trinity.finishSetup({ skippedSystems: [...setupSkippedSystems] }); setupWizardOpen = false; setupStep = 'welcome'; render({ reason: 'setup-finished', preserveScroll: false }); });
@@ -2599,13 +2604,13 @@ function systemStatusPage() {
       ['Affected Production Looks', systemStatus.lighting.affectedProductionLookCount || 0],
       ['Affected Service Cues', systemStatus.lighting.affectedServiceCueCount || 0]
     ])],
-    ['ATEM Mini Pro', systemStatus.atem.health, diagnosticRows([
+    ['Video Switcher · ATEM', systemStatus.atem.health, diagnosticRows([
       ['Enabled', systemStatus.atem.enabled ? 'Yes' : 'No'],
       ['Configured', systemStatus.atem.configured ? 'Yes' : 'No'],
       ['Connection state', systemStatus.atem.connectionState],
       ['Host', systemStatus.atem.host],
       ['Current PROGRAM input', systemStatus.atem.programInput],
-      ['Mapped LIVE camera', systemStatus.atem.liveCameraName || systemStatus.atem.liveCameraId || 'None']
+      ['Live Source', systemStatus.atem.liveSourceName || systemStatus.atem.liveCameraName || systemStatus.atem.liveSourceId || systemStatus.atem.liveCameraId || 'None']
     ])],
     ['Production System', systemStatus.production.health, diagnosticRows([
       ['Loaded service plan', systemStatus.production.servicePlan],
@@ -2789,7 +2794,7 @@ function settingsPage() {
       ${selectedIsAtem ? '' : `<label>Port<input type="number" min="0" max="65535" data-device-field="port" value="${selected.port ?? ''}"></label>`}
       ${selectedIsAtem ? '' : selected.type === 'camera' ? `<label>Protocol<select data-device-field="protocol"><option value="" ${!selected.protocol ? 'selected' : ''}>Not configured</option><option value="visca-udp" ${['visca-udp','visca-over-ip','visca-ip'].includes(normalizedCameraControlIdentity(selected.protocol)) ? 'selected' : ''}>VISCA (UDP)</option><option value="http" ${selected.protocol === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${selected.protocol === 'https' ? 'selected' : ''}>HTTPS</option></select></label>` : `<label>Protocol<input data-device-field="protocol" value="${escapeHtml(selected.protocol || '')}"></label>`}
       ${selected.type === 'camera' ? `<label>VISCA address<input type="number" min="1" max="7" data-device-field="viscaAddress" value="${selected.viscaAddress ?? ''}" placeholder="1"></label>` : ''}
-      ${selectedIsAtem ? productionDirectorCameras().map(camera => `<label>${escapeHtml(camera.name)} ATEM input<input type="number" min="1" data-atem-camera-input="${escapeHtml(camera.id)}" value="${selected.metadata?.atemCameraInputs?.[camera.id] ?? ''}" placeholder="Unmapped"></label>`).join('') : `<label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label><label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>`}
+      ${selectedIsAtem ? `<section class="wide video-source-settings"><span class="eyebrow">VIDEO SWITCHING</span><p>Active Switcher: <strong>ATEM</strong></p>${(state.videoSources || []).map(source => `<div class="video-source-settings-row" data-video-source-row="${escapeHtml(source.id)}"><label>Name<input data-video-source-name value="${escapeHtml(source.name)}"></label><label>Type<select data-video-source-type><option value="camera" ${source.sourceType === 'camera' ? 'selected' : ''}>Camera</option><option value="video" ${source.sourceType === 'video' ? 'selected' : ''}>Video</option></select></label>${source.sourceType === 'camera' ? `<label>Linked Camera<select data-video-source-camera>${productionDirectorCameras().map(camera => `<option value="${escapeHtml(camera.id)}" ${source.cameraDeviceId === camera.id ? 'selected' : ''}>${escapeHtml(camera.name)}</option>`).join('')}</select></label>` : ''}<label>ATEM Input<input type="number" min="1" data-video-source-atem-input value="${source.switcherMappings?.atem?.input ?? ''}" placeholder="Unmapped"></label>${source.needsReview ? '<small class="look-warning">Needs Review: input conflict detected during migration.</small>' : ''}</div>`).join('')}</section>` : `<label>Username<input data-device-field="username" value="${escapeHtml(selected.username || '')}"></label><label>Credential<input type="password" data-device-field="credentialReference" value="${escapeHtml(selected.credentialReference || '')}" autocomplete="new-password"></label>`}
       ${selected.type === 'camera' ? `<label class="checkbox-label"><input type="checkbox" data-device-field="trackingEnabled" ${selected.trackingEnabled ? 'checked' : ''}> Tracking enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="motionEnabled" ${selected.motionEnabled ? 'checked' : ''}> Motion enabled</label><label class="checkbox-label"><input type="checkbox" data-device-field="presetSupport" ${selected.presetSupport ? 'checked' : ''}> Preset support</label>` : ''}
       <label class="checkbox-label"><input type="checkbox" data-device-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label>
       <label class="wide">Notes<textarea data-device-field="notes">${escapeHtml(selected.notes || '')}</textarea></label>
@@ -2968,6 +2973,18 @@ function settingsPage() {
     });
     render();
   });
+  document.querySelectorAll('[data-video-source-row]').forEach(row => row.onchange = async () => {
+    const current = (state.videoSources || []).find(source => source.id === row.dataset.videoSourceRow);
+    const input = row.querySelector('[data-video-source-atem-input]').value;
+    state = await window.trinity.updateVideoSource(current.id, {
+      name: row.querySelector('[data-video-source-name]').value,
+      sourceType: row.querySelector('[data-video-source-type]').value,
+      cameraDeviceId: row.querySelector('[data-video-source-camera]')?.value || null,
+      switcherMappings: { ...(current.switcherMappings || {}), atem: { input: input === '' ? null : Number(input) } },
+      needsReview: false
+    });
+    render();
+  });
   document.querySelectorAll('[data-lighting-device-field]').forEach(input => input.onchange = async () => {
     const value = input.type === 'checkbox' ? input.checked : input.type === 'number' ? (input.value ? Number(input.value) : null) : input.value || null;
     state = input.dataset.lightingDeviceField === 'enabled'
@@ -3133,7 +3150,7 @@ document.addEventListener('keydown', async event => {
       if (unchanged) updateQlcStatusElements();
       else render({ reason: 'qlc-service-status-changed' });
     });
-    window.trinity.onAtemStatusChanged(status => {
+    window.trinity.onVideoSwitcherStatusChanged(status => {
       atemStatus = status;
       if (state && (page === 'live' || page === 'settings')) render({ reason: 'atem-status-changed' });
     });
@@ -3141,7 +3158,7 @@ document.addEventListener('keydown', async event => {
       window.trinity.getState(),
       window.trinity.getOperatorServerStatus(),
       window.trinity.getQlcServiceStatus(),
-      window.trinity.getAtemStatus(),
+      window.trinity.getVideoSwitcherStatus(),
       window.trinity.getAppInfo()
     ]);
     state = pendingState || initialState;

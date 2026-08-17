@@ -42,6 +42,9 @@ button:disabled { opacity: .38; }
 .cue.current { background: #0d3225; border-color: var(--green); }
 
 .camera-grid { min-width: 0; min-height: 0; height: 100%; overflow: hidden; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.source-workspace{min-width:0;min-height:0;overflow:hidden;display:grid;grid-template-rows:auto minmax(0,1fr);gap:7px}
+.presentation-source{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(150px,auto);align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 9px}
+.presentation-source>div{display:flex;align-items:center;gap:10px}.presentation-source span{color:var(--muted);font-size:9px;letter-spacing:.12em}.presentation-source.live{border-color:var(--red)}.presentation-source.live>b{color:var(--red)}
 .camera-column { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; gap: 7px; padding: 9px; }
 .camera-column.live { border-color: var(--red); box-shadow: inset 0 0 0 1px var(--red); }
 .camera-column header { display: flex; gap: 5px; justify-content: space-between; align-items: start; }

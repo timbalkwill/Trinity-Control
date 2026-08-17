@@ -12,7 +12,9 @@
   const cameras = () => roles.map(role => (state?.managedCameras || []).find(camera => camera.productionRole === role) || null);
   const cameraId = camera => camera?.cameraDeviceId || null;
   const cameraReady = camera => Boolean(cameraId(camera) && camera.enabled !== false && camera.configured);
-  const atemConnected = () => state?.atemStatus?.connectionState === "connected";
+  const switcherStatus = () => state?.videoSwitcherStatus || state?.atemStatus || {};
+  const switcherConnected = () => switcherStatus().connectionState === "connected";
+  const videoSourceForCamera = id => (state?.videoSources || []).find(source => source.sourceType === "camera" && source.cameraDeviceId === id);
   const disabled = (key, available = true) => !connected() || !available || pending.has(key);
   const disabledAttribute = (key, available) => disabled(key, available) ? " disabled" : "";
 
@@ -24,8 +26,9 @@
     const preparation = (state.live?.cameraPreparations || []).find(item => item.cameraId === id);
     const preparedMotion = state.live?.preparedMotions?.[id] || null;
     const ready = cameraReady(camera);
-    const live = atemConnected() && state.atemStatus.liveCameraId === id;
-    const takeReady = ready && atemConnected() && state.atemStatus?.cameraInputs?.[id] !== undefined && (!live || preparedMotion);
+    const videoSource = videoSourceForCamera(id);
+    const live = switcherConnected() && switcherStatus().liveSourceId === videoSource?.id;
+    const takeReady = ready && switcherConnected() && videoSource?.switcherMappings?.[switcherStatus().backend || "atem"]?.input != null && (!live || preparedMotion);
     return `<section class="camera-column${live ? " live" : ""}" data-camera-id="${escapeHtml(id || "")}" data-camera-role="${role}">
       <header><div><span class="camera-role">${role}</span><h2>${escapeHtml(name)}</h2></div><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
       <div class="live-badge">${live ? "LIVE" : "STANDBY"}</div>
@@ -41,7 +44,7 @@
         return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
       }).join("") || '<span class="empty">No motion shots</span>'}${preparedMotion ? `<button data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : ""}</div></div></div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
-      <button class="take-live" data-action="take" data-camera-id="${escapeHtml(id || "")}"${disabledAttribute(`take:${id}`, takeReady)}>${live && preparedMotion ? "RUN PREPARED MOVE" : live ? "ON AIR" : preparedMotion ? "TAKE LIVE + MOVE" : "TAKE LIVE"}</button>
+      <button class="take-live" data-action="take-source" data-source-id="${escapeHtml(videoSource?.id || "")}"${disabledAttribute(`take:${videoSource?.id}`, takeReady)}>${live && preparedMotion ? "RUN PREPARED MOVE" : live ? "ON AIR" : preparedMotion ? "TAKE LIVE + MOVE" : "TAKE LIVE"}</button>
     </section>`;
   }
 
@@ -49,10 +52,13 @@
     if (!state) return;
     const cues = state.runOfService || [];
     const cue = cues[currentIndex()];
+    const presentation = (state.videoSources || []).find(source => source.sourceType === "video" && source.enabled !== false);
+    const presentationLive = switcherConnected() && switcherStatus().liveSourceId === presentation?.id;
+    const presentationReady = switcherConnected() && presentation?.switcherMappings?.[switcherStatus().backend || "atem"]?.input != null && !presentationLive;
     root.innerHTML = `<div class="operator-shell">
       <header class="topbar"><div class="brand"><img src="trinity-logo.png" alt=""><div><strong>Trinity Operator</strong><small>Live Service</small></div></div><div class="connection ${connectionStatus}"><i></i>${connectionStatus}</div></header>
       ${errorMessage ? `<div class="error" role="alert">${escapeHtml(errorMessage)}</div>` : ""}
-      <main class="workspace"><aside class="service-panel"><h1>ORDER OF SERVICE</h1><div class="cue-list">${cues.map((item, index) => `<button class="cue${index === currentIndex() ? " current" : ""}" data-action="cue" data-index="${index}"${disabledAttribute(`cue:${index}`, true)}><span>${index + 1}</span><div><strong>${escapeHtml(item.name || "Untitled cue")}</strong><small>${escapeHtml(item.notes || "")}</small></div></button>`).join("")}</div></aside><div class="camera-grid">${cameras().map((camera, index) => cameraColumn(camera, roles[index])).join("")}</div></main>
+      <main class="workspace"><aside class="service-panel"><h1>ORDER OF SERVICE</h1><div class="cue-list">${cues.map((item, index) => `<button class="cue${index === currentIndex() ? " current" : ""}" data-action="cue" data-index="${index}"${disabledAttribute(`cue:${index}`, true)}><span>${index + 1}</span><div><strong>${escapeHtml(item.name || "Untitled cue")}</strong><small>${escapeHtml(item.notes || "")}</small></div></button>`).join("")}</div></aside><div class="source-workspace">${presentation ? `<section class="presentation-source ${presentationLive ? "live" : ""}"><div><span>VIDEO SOURCE</span><strong>${escapeHtml(presentation.name)}</strong></div><b>${presentationLive ? "LIVE" : "STANDBY"}</b><button data-action="take-source" data-source-id="${escapeHtml(presentation.id)}"${disabledAttribute(`take:${presentation.id}`, presentationReady)}>${presentationLive ? "ON AIR" : "TAKE LIVE"}</button></section>` : ""}<div class="camera-grid">${cameras().map((camera, index) => cameraColumn(camera, roles[index])).join("")}</div></div></main>
       <footer class="transport"><button data-action="back"${disabledAttribute("back", currentIndex() > 0)}>BACK</button><div><span>CURRENT</span><strong>${escapeHtml(cue?.name || "End of service")}</strong><small>${currentIndex() + 1} of ${cues.length}</small></div><button class="go" data-action="go"${disabledAttribute("go", currentIndex() < cues.length - 1)}>GO</button></footer>
     </div><div class="rotate-message"><img src="trinity-logo.png" alt=""><strong>Rotate iPad to landscape</strong><span>Trinity Operator is designed for landscape operation.</span></div>`;
     root.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => handleAction(button)));
@@ -82,7 +88,7 @@
         }
       }
       if (action === "cancel-prep") await command(`cancel-prep:${id}`, "/api/live/cancel-prepared-motion", { cameraId: id });
-      if (action === "take") await command(`take:${id}`, "/api/atem/take-live", { cameraId: id });
+      if (action === "take-source") await command(`take:${button.dataset.sourceId}`, "/api/video-sources/take-live", { videoSourceId: button.dataset.sourceId });
       if (action === "cue") await command(`cue:${button.dataset.index}`, "/api/live/go", { index: Number(button.dataset.index), confirmJump: true });
       if (action === "back") await command("back", "/api/live/back");
       if (action === "go") await command("go", "/api/live/next");

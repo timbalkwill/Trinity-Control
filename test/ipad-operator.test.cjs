@@ -19,11 +19,11 @@ test("iPad operator uses the existing host command paths and stable camera IDs",
   assert.match(client, /\/api\/live\/recall-camera-preset/);
   assert.match(client, /\/api\/live\/prepare-motion/);
   assert.match(client, /\/api\/live\/cancel-prepared-motion/);
-  assert.match(client, /\/api\/atem\/take-live/);
+  assert.match(client, /\/api\/video-sources\/take-live/);
   assert.match(server, /commands\.recallCameraPreset\(body\.cameraId, body\.presetId\)/);
   assert.match(server, /commands\.prepareMotionStart\(body\.cameraId, body\.shotId\)/);
   assert.match(server, /commands\.cancelPreparedMotion\(body\.cameraId\)/);
-  assert.match(server, /await takeCameraLive\(body\.cameraId\)/);
+  assert.match(server, /await takeVideoSource\(body\.videoSourceId\)/);
 });
 
 test("iPad operator disables execution without a live connection and never queues commands", () => {
@@ -36,14 +36,14 @@ test("iPad operator disables execution without a live connection and never queue
   assert.doesNotMatch(client, /localStorage|indexedDB|serviceWorker|BackgroundSync|sendBeacon/);
 });
 
-test("resume performs a read-only authoritative refresh and ATEM LIVE remains physical", () => {
+test("resume performs a read-only authoritative refresh and switcher LIVE remains physical", () => {
   const client = source("public/operator/operator.js");
   const server = source("operator-server.cjs");
   assert.match(client, /pageshow", refreshAuthoritativeState/);
   assert.match(client, /visibilityState === "visible"/);
   assert.match(client, /fetch\("\/api\/state", \{ cache: "no-store" \}\)/);
-  assert.match(client, /state\.atemStatus\.liveCameraId === id/);
-  assert.match(server, /subscribeAtemStatus/);
+  assert.match(client, /switcherStatus\(\)\.liveSourceId === videoSource\?\.id/);
+  assert.match(server, /subscribeVideoRouterStatus/);
 });
 
 test("full-screen Home Screen metadata and required responsive layout are present", () => {

@@ -7,7 +7,7 @@ const BACKUP_FORMAT_VERSION = 1;
 const BACKUP_EXTENSION = "trinitybackup";
 const PORTABLE_ARRAY_KEYS = Object.freeze([
   "cameras", "devices", "cameraPresets", "shots", "lightingScenes", "cameraLayouts",
-  "productionLooks", "cueTemplates", "runOfService", "motionStudioReferences"
+  "productionLooks", "cueTemplates", "runOfService", "motionStudioReferences", "videoSources"
 ]);
 const PORTABLE_SCALAR_KEYS = Object.freeze([
   "schemaVersion", "deviceSchemaVersion", "cameraManagerSchemaVersion", "cameraPresetSchemaVersion",
@@ -105,6 +105,7 @@ function validateRelationships(data) {
   const shotIds = requireIds(data.shots || [], "Shots");
   const lookIds = requireIds(data.productionLooks || [], "Production Looks");
   const lightingIds = requireIds(data.lightingScenes || [], "Lighting Scenes");
+  requireIds(data.videoSources || [], "Video Sources");
   requireIds(data.runOfService || [], "Service cues");
   requireIds(data.cueTemplates || [], "Quick Add templates");
   for (const preset of data.cameraPresets || []) {
@@ -130,6 +131,9 @@ function validateRelationships(data) {
     for (const cameraId of Object.keys(device.metadata?.atemCameraInputs || {})) {
       if (!deviceIds.has(cameraId) || !cameraIds.has(cameraId)) throw new TypeError(`ATEM mapping references missing camera ${cameraId}`);
     }
+  }
+  for (const source of data.videoSources || []) {
+    if (source.sourceType === "camera" && source.cameraDeviceId && !cameraIds.has(source.cameraDeviceId)) throw new TypeError(`Video Source ${source.id} references missing camera ${source.cameraDeviceId}`);
   }
   return true;
 }

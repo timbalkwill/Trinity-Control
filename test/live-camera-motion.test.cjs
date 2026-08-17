@@ -96,7 +96,7 @@ test("renderer prepares authoritative Motion shots for the camera with independe
   assert.match(renderer, /PREPARING…/);
   assert.match(renderer, /FAILED:/);
   assert.doesNotMatch(card, /data-stop-motion|STOP MOTION/);
-  assert.ok(card.indexOf("camera-motion-section") < card.indexOf("data-atem-take-live"));
+  assert.ok(card.indexOf("camera-motion-section") < card.indexOf("data-take-video-source"));
 });
 
 test("IPC and preload expose the same manual motion command without changing ATEM transport", () => {

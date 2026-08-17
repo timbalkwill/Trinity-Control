@@ -155,7 +155,7 @@ test("System Status reads authoritative ATEM state without issuing a command", (
   assert.equal(status.atem.liveCameraName, "Left Camera");
 });
 
-test("desktop integration keeps ATEM switching manual and isolated", () => {
+test("desktop integration routes logical Video Sources through the ATEM adapter while execution stays isolated", () => {
   const root = path.join(__dirname, "..");
   const renderer = fs.readFileSync(path.join(root, "public/app.js"), "utf8");
   const preload = fs.readFileSync(path.join(root, "preload.cjs"), "utf8");
@@ -167,13 +167,13 @@ test("desktop integration keeps ATEM switching manual and isolated", () => {
   const atemService = fs.readFileSync(path.join(root, "atem-service.cjs"), "utf8");
   const card = renderer.slice(renderer.indexOf("function CameraDirectorCard"), renderer.indexOf("function openCueDeleteModal"));
 
-  assert.match(card, /data-atem-take-live/);
-  assert.match(card, /atemStatus\.liveCameraId === camera\.id/);
-  assert.match(card, /window\.trinity\.takeCameraLive/);
-  assert.match(preload, /takeCameraLive: cameraId => ipcRenderer\.invoke\("atem:take-live", cameraId\)/);
-  assert.match(main, /ipcMain\.handle\("atem:take-live"/);
-  assert.match(server, /\/api\/atem\/take-live/);
-  assert.match(server, /await takeCameraLive\(body\.cameraId\)/);
+  assert.match(card, /data-take-video-source/);
+  assert.match(card, /atemStatus\.liveSourceId === videoSource\?\.id/);
+  assert.match(card, /window\.trinity\.takeVideoSource/);
+  assert.match(preload, /takeVideoSource: sourceId => ipcRenderer\.invoke\("video-switcher:take-source", sourceId\)/);
+  assert.match(main, /ipcMain\.handle\("video-switcher:take-source"/);
+  assert.match(server, /\/api\/video-sources\/take-live/);
+  assert.match(server, /await takeVideoSource\(body\.videoSourceId\)/);
   assert.doesNotMatch(server, /changeProgramInput/);
   assert.doesNotMatch(cueExecution, /atem|changeProgramInput/i);
   assert.doesNotMatch(looks, /changeProgramInput|takeCameraLive/);

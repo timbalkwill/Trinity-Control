@@ -357,6 +357,11 @@ function projectBrowserState(state) {
   const executionSnapshot = state?.live?.executionSnapshot;
   const projected = {
     ...state,
+    videoSources: (state?.videoSources || []).map(source => ({
+      id: source.id, name: source.name, sourceType: source.sourceType,
+      cameraDeviceId: source.cameraDeviceId || null, enabled: source.enabled !== false,
+      switcherMappings: JSON.parse(JSON.stringify(source.switcherMappings || {})), needsReview: source.needsReview === true
+    })),
     live: {
       ...(state?.live || {}),
       cameraPreparations: cameraPreparationSummaries(state),

@@ -28,6 +28,9 @@ function createOperatorServer({
   getAtemStatus = () => null,
   subscribeAtemStatus = null,
   takeCameraLive = null,
+  getVideoRouterStatus = getAtemStatus,
+  subscribeVideoRouterStatus = subscribeAtemStatus,
+  takeVideoSource = null,
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   logger = console
@@ -54,18 +57,16 @@ function createOperatorServer({
   }
 
   function operatorState(state = commands.getState()) {
-    const atem = getAtemStatus?.();
-    const atemStatus = atem ? {
-      name: atem.name || "ATEM",
-      enabled: atem.enabled === true,
-      configured: atem.configured === true,
-      connectionState: atem.connectionState || "disconnected",
-      programInput: atem.programInput ?? null,
-      liveCameraId: atem.liveCameraId || null,
-      cameraInputs: { ...(atem.cameraInputs || {}) },
-      message: atem.message || null
+    const router = getVideoRouterStatus?.();
+    const videoSwitcherStatus = router ? {
+      backend: router.backend || "atem", backendName: router.backendName || router.name || "ATEM",
+      enabled: router.enabled === true, configured: router.configured === true,
+      connectionState: router.connectionState || "disconnected", programInput: router.programInput ?? null,
+      liveSourceId: router.liveSourceId || null, liveSourceName: router.liveSourceName || null,
+      liveCameraId: router.liveCameraId || null, cameraInputs: { ...(router.cameraInputs || {}) },
+      message: router.message || null
     } : null;
-    return { ...projectBrowserState(state), atemStatus };
+    return { ...projectBrowserState(state), videoSwitcherStatus, atemStatus: videoSwitcherStatus };
   }
 
   function writeEvent(response, state) {
@@ -113,6 +114,11 @@ function createOperatorServer({
     ["/api/atem/take-live", async body => {
       if (typeof takeCameraLive !== "function") throw Object.assign(new Error("ATEM control is unavailable"), { code: "ATEM_UNAVAILABLE" });
       await takeCameraLive(body.cameraId);
+      return commands.getState();
+    }],
+    ["/api/video-sources/take-live", async body => {
+      if (typeof takeVideoSource !== "function") throw Object.assign(new Error("Video Switcher control is unavailable"), { code: "SWITCHER_UNAVAILABLE" });
+      await takeVideoSource(body.videoSourceId);
       return commands.getState();
     }],
     ["/api/live/camera-tracking", body => commands.setCameraTracking(body.cameraId, body.active === true)],
@@ -209,7 +215,7 @@ function createOperatorServer({
       }
     }
   });
-  const unsubscribeAtem = typeof subscribeAtemStatus === "function" ? subscribeAtemStatus(() => {
+  const unsubscribeAtem = typeof subscribeVideoRouterStatus === "function" ? subscribeVideoRouterStatus(() => {
     for (const [clientId, response] of clients) {
       try { writeEvent(response, commands.getState()); }
       catch { clients.delete(clientId); response.destroy(); }

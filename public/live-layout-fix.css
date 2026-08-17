@@ -7,7 +7,12 @@ html,body,#app,.shell{width:100%;height:100%;overflow:hidden}
 .simple-cue-panel .cue-scroll{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
 .simple-cue-controls{gap:7px;padding-top:8px}
 .simple-cue-controls button{min-height:52px}
-.simple-live-main{display:grid;grid-template-rows:auto minmax(0,1fr);gap:10px}
+.simple-live-main{display:grid;grid-template-rows:auto minmax(60px,auto) minmax(0,1fr);gap:10px}
+.simple-live-main>.presentation-source-control{position:static;z-index:auto;min-width:0;min-height:60px;overflow:hidden;align-self:stretch;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px}
+.simple-live-main>.presentation-source-control>div{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}
+.simple-live-main>.presentation-source-control strong{min-width:0;overflow-wrap:anywhere}
+.simple-live-main>.presentation-source-control small{white-space:nowrap}
+.simple-live-main>.presentation-source-control button{position:static;flex:0 0 auto;min-width:150px;max-width:100%;visibility:visible}
 .camera-director-grid{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
 .camera-director-card{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
 .camera-preset-list{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}

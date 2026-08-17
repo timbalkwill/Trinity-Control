@@ -21,10 +21,16 @@ contextBridge.exposeInMainWorld("trinity", {
   getOperatorServerStatus: () => ipcRenderer.invoke("operator-server:status"),
   getQlcServiceStatus: () => ipcRenderer.invoke("qlc-service:status"),
   getAtemStatus: () => ipcRenderer.invoke("atem:status"),
+  getVideoSwitcherStatus: () => ipcRenderer.invoke("video-switcher:status"),
   onAtemStatusChanged: subscriber => {
     const listener = (_event, status) => subscriber(status);
     ipcRenderer.on("atem:status-changed", listener);
     return () => ipcRenderer.removeListener("atem:status-changed", listener);
+  },
+  onVideoSwitcherStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("video-switcher:status-changed", listener);
+    return () => ipcRenderer.removeListener("video-switcher:status-changed", listener);
   },
   onQlcServiceStatusChanged: subscriber => {
     const listener = (_event, status) => subscriber(status);
@@ -101,6 +107,8 @@ contextBridge.exposeInMainWorld("trinity", {
   cancelPreparedMotion: cameraId => ipcRenderer.invoke("motion:cancel-prepared", cameraId),
   getCameraExecutionCapabilities: cameraId => ipcRenderer.invoke("camera:execution-capabilities", cameraId),
   takeCameraLive: cameraId => ipcRenderer.invoke("atem:take-live", cameraId),
+  takeVideoSource: sourceId => ipcRenderer.invoke("video-switcher:take-source", sourceId),
+  updateVideoSource: (sourceId, patch) => ipcRenderer.invoke("video-source:update", { sourceId, patch }),
   setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),

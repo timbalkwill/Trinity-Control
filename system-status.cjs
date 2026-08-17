@@ -111,6 +111,8 @@ function buildSystemStatus({ state, qlcStatus = {}, atemStatus = {}, operatorSta
       programInput: atemStatus.programInput ?? "Unknown",
       liveCameraId: atemStatus.liveCameraId || null,
       liveCameraName: cameras.find(camera => camera.id === atemStatus.liveCameraId)?.name || null,
+      liveSourceId: atemStatus.liveSourceId || null,
+      liveSourceName: atemStatus.liveSourceName || null,
       health: atemStatus.connectionState === "connected"
         ? health("healthy", "ATEM is connected")
         : atemStatus.enabled === false

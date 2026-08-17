@@ -141,12 +141,12 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     return status;
   }
 
-  async function takeLive(cameraDeviceId) {
+  async function takeInput(input) {
     if (!configuration.enabled) throw Object.assign(new Error("ATEM is disabled"), { code: "ATEM_DISABLED" });
     if (!configuration.configured) throw Object.assign(new Error("ATEM is not configured"), { code: "ATEM_NOT_CONFIGURED" });
     if (status.connectionState !== "connected" || !client) throw Object.assign(new Error("ATEM is disconnected"), { code: "ATEM_DISCONNECTED" });
-    const input = configuration.cameraInputs[cameraDeviceId];
-    if (input === undefined) throw Object.assign(new Error("Camera has no ATEM input mapping"), { code: "ATEM_MAPPING_MISSING" });
+    input = integerInput(input);
+    if (input === null) throw Object.assign(new Error("Video Source has no ATEM input mapping"), { code: "ATEM_MAPPING_MISSING" });
     if (status.programInput === input) return status;
     let cancelConfirmation = () => {};
     const confirmation = new Promise((resolve, reject) => {
@@ -175,8 +175,12 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     return confirmation;
   }
 
+  const takeSource = mapping => takeInput(mapping?.input);
+  const takeLive = cameraDeviceId => takeInput(configuration.cameraInputs[cameraDeviceId]);
+
   return Object.freeze({
     getStatus: () => status,
+    takeSource,
     initialize,
     reconfigure,
     takeLive,

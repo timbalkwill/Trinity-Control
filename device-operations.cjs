@@ -393,7 +393,7 @@ function projectBrowserState(state) {
       name: look.name,
       enabled: look.enabled !== false
     })),
-    shotSummaries: (state?.shots || []).map(shot => ({
+    shotSummaries: (state?.shots || []).map((shot, index) => ({
       id: shot.id,
       name: shot.name,
       enabled: shot.enabled !== false,
@@ -406,15 +406,18 @@ function projectBrowserState(state) {
       motionEndPresetId: shot.motionEndPresetId || null,
       motionStyle: shot.motionStyle || "presetTransition",
       motionSpeedSetting: shot.motionSpeedSetting || "medium",
-      motionTargetDurationMs: Number(shot.motionTargetDurationMs) || 0
+      motionTargetDurationMs: Number(shot.motionTargetDurationMs) || 0,
+      favorite: shot.favorite === true,
+      favoriteOrder: Number.isFinite(Number(shot.favoriteOrder)) ? Number(shot.favoriteOrder) : (Number.isFinite(Number(shot.order)) ? Number(shot.order) : index)
     })),
-    cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
+    cameraPresetSummaries: (state?.cameraPresets || []).map((preset, index) => ({
       id: preset.id,
       name: preset.name,
       cameraDeviceId: preset.cameraDeviceId,
       logicalRole: preset.logicalRole,
       enabled: preset.enabled !== false,
       favorite: preset.favorite === true,
+      favoriteOrder: Number.isFinite(Number(preset.favoriteOrder)) ? Number(preset.favoriteOrder) : index,
       category: preset.category || null
     }))
   };

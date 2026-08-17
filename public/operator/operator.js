@@ -23,6 +23,9 @@
     const name = camera?.displayName || `${role[0].toUpperCase()}${role.slice(1)} Camera`;
     const presets = (state.cameraPresetSummaries || []).filter(preset => preset.enabled && preset.cameraDeviceId === id);
     const motions = (state.shotSummaries || []).filter(shot => shot.enabled && shot.cameraDeviceId === id && (shot.motionEnabled || shot.shotType === "motion"));
+    const orderedFavorites = items => items.filter(item => item.favorite === true).sort((left, right) => left.favoriteOrder - right.favoriteOrder);
+    const favoritePresets = orderedFavorites(presets);
+    const favoriteMotions = orderedFavorites(motions);
     const preparation = (state.live?.cameraPreparations || []).find(item => item.cameraId === id);
     const preparedMotion = state.live?.preparedMotions?.[id] || null;
     const ready = cameraReady(camera);
@@ -32,17 +35,26 @@
     return `<section class="camera-column${live ? " live" : ""}" data-camera-id="${escapeHtml(id || "")}" data-camera-role="${role}">
       <header><div><span class="camera-role">${role}</span><h2>${escapeHtml(name)}</h2></div><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
       <div class="live-badge">${live ? "LIVE" : "STANDBY"}</div>
-      <div class="camera-content-scroll"><div class="control-group"><h3>PRESETS</h3><div class="button-stack">${presets.map(preset => {
+      <div class="camera-content-scroll">${favoritePresets.length ? `<div class="control-group favorite-group favorite-static"><h3>FAVORITE STATIC</h3><div class="button-stack">${favoritePresets.map(preset => {
         const key = `preset:${id}:${preset.id}`;
         return `<button data-action="preset" data-camera-id="${escapeHtml(id)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(key, ready)}>${escapeHtml(preset.name)}</button>`;
-      }).join("") || '<span class="empty">No presets</span>'}</div></div>
-      <div class="control-group motion-group"><h3>MOTION</h3><div class="button-stack">${motions.map(shot => {
+      }).join("")}</div></div>` : ""}${favoriteMotions.length ? `<div class="control-group favorite-group favorite-motion motion-group"><h3>FAVORITE MOTION</h3><div class="button-stack">${favoriteMotions.map(shot => {
         const key = `motion:${id}:${shot.id}`;
         const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
         const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
         const isPrepared = preparedMotion?.shotId === shot.id;
         return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
-      }).join("") || '<span class="empty">No motion shots</span>'}${preparedMotion ? `<button data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : ""}</div></div></div>
+      }).join("")}</div></div>` : ""}<details class="control-library all-static" ${favoritePresets.length ? "" : "open"}><summary>ALL STATIC <span>${presets.length}</span></summary><div class="button-stack">${presets.map(preset => {
+        const key = `preset:${id}:${preset.id}`;
+        return `<button data-action="preset" data-camera-id="${escapeHtml(id)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(key, ready)}>${escapeHtml(preset.name)}</button>`;
+      }).join("") || '<span class="empty">No presets</span>'}</div></details>
+      <details class="control-library all-motion motion-group" ${favoriteMotions.length ? "" : "open"}><summary>ALL MOTION <span>${motions.length}</span></summary><div class="button-stack">${motions.map(shot => {
+        const key = `motion:${id}:${shot.id}`;
+        const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
+        const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
+        const isPrepared = preparedMotion?.shotId === shot.id;
+        return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
+      }).join("") || '<span class="empty">No motion shots</span>'}</div></details>${preparedMotion ? `<button data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : ""}</div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
       <button class="take-live" data-action="take-source" data-source-id="${escapeHtml(videoSource?.id || "")}"${disabledAttribute(`take:${videoSource?.id}`, takeReady)}>${live && preparedMotion ? "RUN PREPARED MOVE" : live ? "ON AIR" : preparedMotion ? "TAKE LIVE + MOVE" : "TAKE LIVE"}</button>
     </section>`;

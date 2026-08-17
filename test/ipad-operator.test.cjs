@@ -88,8 +88,10 @@ test("service and all three camera columns have bounded independent scrolling", 
   const css = source("public/operator/operator.css");
   assert.match(client, /<div class="cue-list">/);
   assert.match(client, /<div class="camera-content-scroll">/);
-  assert.match(client, /PRESETS/);
-  assert.match(client, /MOTION/);
+  assert.match(client, /FAVORITE STATIC/);
+  assert.match(client, /FAVORITE MOTION/);
+  assert.match(client, /ALL STATIC/);
+  assert.match(client, /ALL MOTION/);
   assert.match(client, /class="take-live"/);
   assert.match(css, /\.cue-list, \.camera-content-scroll[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.camera-column[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\) auto auto/s);

@@ -25,8 +25,21 @@ function createViscaPresetRecallPacket({ presetNumber, address = 1, sequenceNumb
   return packet;
 }
 
-function createViscaUdpTransport({ socketFactory = () => dgram.createSocket("udp4"), now = Date.now } = {}) {
-  return function recallViscaPreset(configuration) {
+function createViscaPresetStorePacket({ presetNumber, address = 1, sequenceNumber } = {}) {
+  if (!Number.isInteger(presetNumber) || presetNumber < 0 || presetNumber > 254) {
+    throw new RangeError("VISCA preset number must be between 0 and 254");
+  }
+  const payload = Buffer.from([0x80 + viscaAddress(address), 0x01, 0x04, 0x3f, 0x01, presetNumber, 0xff]);
+  const packet = Buffer.alloc(8 + payload.length);
+  packet.writeUInt16BE(0x0100, 0);
+  packet.writeUInt16BE(payload.length, 2);
+  packet.writeUInt32BE((sequenceNumber ?? viscaSequence++) >>> 0, 4);
+  payload.copy(packet, 8);
+  return packet;
+}
+
+function createViscaUdpCommandTransport({ socketFactory = () => dgram.createSocket("udp4"), now = Date.now, packetFactory, action }) {
+  return function sendViscaPresetCommand(configuration) {
     const startedAt = now();
     const port = Number(configuration.port);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -34,7 +47,7 @@ function createViscaUdpTransport({ socketFactory = () => dgram.createSocket("udp
     }
     let packet;
     try {
-      packet = createViscaPresetRecallPacket({
+      packet = packetFactory({
         presetNumber: configuration.presetNumber,
         address: configuration.viscaAddress,
         sequenceNumber: configuration.sequenceNumber
@@ -54,10 +67,18 @@ function createViscaUdpTransport({ socketFactory = () => dgram.createSocket("udp
       socket.once("error", error => finish(normalizedFailure(error)));
       socket.send(packet, port, configuration.host, error => {
         if (error) finish(normalizedFailure(error));
-        else finish({ ok: true, message: "VISCA UDP preset recall command sent" });
+        else finish({ ok: true, message: `VISCA UDP preset ${action} command sent` });
       });
     });
   };
+}
+
+function createViscaUdpTransport(options = {}) {
+  return createViscaUdpCommandTransport({ ...options, packetFactory: createViscaPresetRecallPacket, action: "recall" });
+}
+
+function createViscaUdpStoreTransport(options = {}) {
+  return createViscaUdpCommandTransport({ ...options, packetFactory: createViscaPresetStorePacket, action: "store" });
 }
 
 function digestChallenge(header = "") {
@@ -152,10 +173,39 @@ function createPtzOpticsTransport({ requestImpl, timeoutMs = 3000, now = Date.no
   };
 }
 
+function createPtzOpticsStoreTransport({ requestImpl, timeoutMs = 3000, now = Date.now } = {}) {
+  return async function storePtzOpticsPreset(configuration) {
+    const startedAt = now();
+    const protocol = configuration.protocol === "https" || configuration.protocol === "https:" ? "https:" : "http:";
+    const path = `/cgi-bin/ptzctrl.cgi?ptzcmd&POSSET&${encodeURIComponent(configuration.presetNumber)}`;
+    const requestOptions = { protocol, host: configuration.host, port: configuration.port || (protocol === "https:" ? 443 : 80), path, timeoutMs: configuration.timeoutMs || timeoutMs };
+    try {
+      let response = await requestOnce(requestOptions, requestImpl);
+      if (response.statusCode === 401 && configuration.username && configuration.password) {
+        const challenge = digestChallenge(response.authenticate);
+        const authorization = challenge
+          ? digestAuthorization({ challenge, method: "GET", path, username: configuration.username, password: configuration.password })
+          : `Basic ${Buffer.from(`${configuration.username}:${configuration.password}`).toString("base64")}`;
+        if (authorization) response = await requestOnce({ ...requestOptions, authorization }, requestImpl);
+      }
+      const elapsedMs = Math.max(0, now() - startedAt);
+      if (response.statusCode === 401 || response.statusCode === 403) return { ok: false, code: "authenticationFailure", message: "Camera authentication failed", elapsedMs };
+      if (response.statusCode < 200 || response.statusCode >= 300) return { ok: false, code: "cameraRejected", message: `Camera rejected preset store (${response.statusCode || "no status"})`, elapsedMs };
+      return { ok: true, message: "Camera accepted the preset store command", elapsedMs };
+    } catch (error) {
+      const failure = normalizedFailure(error);
+      return { ...failure, message: failure.code === "timeout" ? "Camera preset store timed out" : failure.message, elapsedMs: Math.max(0, now() - startedAt) };
+    }
+  };
+}
+
 module.exports = {
   createPtzOpticsTransport,
+  createPtzOpticsStoreTransport,
   createViscaPresetRecallPacket,
+  createViscaPresetStorePacket,
   createViscaUdpTransport,
+  createViscaUdpStoreTransport,
   digestAuthorization,
   digestChallenge
 };

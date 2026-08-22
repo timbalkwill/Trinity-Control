@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const { EventEmitter } = require("node:events");
 const { executeCue } = require("../cue-execution.cjs");
 const { createCameraExecutor, resolveCameraAdapter } = require("../camera-adapter-registry.cjs");
-const { createPtzOpticsTransport, createViscaPresetRecallPacket, createViscaUdpTransport } = require("../ptzoptics-adapter.cjs");
+const { createPtzOpticsTransport, createPtzOpticsStoreTransport, createViscaPresetRecallPacket, createViscaUdpTransport } = require("../ptzoptics-adapter.cjs");
 const { normalizeShot } = require("../shot-operations.cjs");
 
 function state(references = [{ role: "main", shotId: "main-shot" }]) {
@@ -183,6 +183,15 @@ test("HTTP-CGI transport sends POSCALL and sanitizes authentication failure", as
   assert.match(calls[1].headers.Authorization, /^Digest /);
   assert.equal(result.code, "authenticationFailure");
   assert.doesNotMatch(JSON.stringify(result), /private|Authorization/);
+});
+
+test("PTZOptics preset STORE sends POSSET exactly once", async () => {
+  const calls = [];
+  const transport = createPtzOpticsStoreTransport({ requestImpl: mockRequest([{ statusCode: 200 }], calls) });
+  const result = await transport({ host: "camera.local", port: 80, protocol: "http", presetNumber: 21 });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/cgi-bin/ptzctrl.cgi?ptzcmd&POSSET&21");
 });
 
 test("HTTP-CGI transport normalizes timeout and connection errors", async () => {

@@ -14,8 +14,9 @@ test("iPad operator uses the existing host command paths and stable camera IDs",
   assert.match(client, /const roles = \["main", "left", "right"\]/);
   assert.match(client, /camera\.productionRole === role/);
   assert.match(client, /camera\?\.cameraDeviceId/);
-  assert.match(client, /preset\.cameraDeviceId === id/);
-  assert.match(client, /shot\.cameraDeviceId === id/);
+  assert.match(client, /item\.cameraDeviceId === openCameraSelectorId/);
+  assert.match(client, /openCameraSelectorId/);
+  assert.match(client, /data-selector-camera-id/);
   assert.match(client, /\/api\/live\/recall-camera-preset/);
   assert.match(client, /\/api\/live\/prepare-motion/);
   assert.match(client, /\/api\/live\/cancel-prepared-motion/);
@@ -24,6 +25,39 @@ test("iPad operator uses the existing host command paths and stable camera IDs",
   assert.match(server, /commands\.prepareMotionStart\(body\.cameraId, body\.shotId\)/);
   assert.match(server, /commands\.cancelPreparedMotion\(body\.cameraId\)/);
   assert.match(server, /await takeVideoSource\(body\.videoSourceId\)/);
+});
+
+test("camera names open stable-ID selectors with separate favorite-first Static and Motion sections", () => {
+  const client = source("public/operator/operator.js");
+  assert.match(client, /data-action="open-camera-selector"/);
+  assert.match(client, /aria-label="Open shots for/);
+  assert.match(client, /openCameraSelectorId = id/);
+  assert.match(client, /cameraDeviceId === openCameraSelectorId/g);
+  assert.match(client, /class="selector-section static-selector"><h3>STATIC/);
+  assert.match(client, /class="selector-section motion-selector"><h3>MOTION/);
+  assert.match(client, /Number\(right\.favorite === true\) - Number\(left\.favorite === true\)/);
+  assert.doesNotMatch(client, /SHOTS|OPEN SHOTS|data-action="open-shots"/);
+  assert.doesNotMatch(client, /FAVORITE STATIC|FAVORITE MOTION|ALL STATIC|ALL MOTION/);
+});
+
+test("successful selector actions close while failures and Cancel remain safe", () => {
+  const client = source("public/operator/operator.js");
+  assert.match(client, /if \(action === "preset"\).*openCameraSelectorId = null/s);
+  assert.match(client, /if \(action === "prepare-motion"\).*openCameraSelectorId = null/s);
+  assert.match(client, /action === "close-camera-selector"\) \{ openCameraSelectorId = null/);
+  assert.match(client, /catch \(error\) \{ errorMessage = error\.message; render\(\); \}/);
+  assert.doesNotMatch(client, /localStorage|sessionStorage|indexedDB/);
+  assert.doesNotMatch(client, /window\.confirm/);
+});
+
+test("minimal camera cards preserve prepared Motion, authoritative LIVE, and Take Live", () => {
+  const client = source("public/operator/operator.js");
+  assert.match(client, /PREPARED MOTION/);
+  assert.match(client, /READY FOR TAKE LIVE/);
+  assert.match(client, /data-action="cancel-prep"/);
+  assert.match(client, /switcherStatus\(\)\.liveSourceId === videoSource\?\.id/);
+  assert.match(client, /class="take-live"/);
+  assert.doesNotMatch(client.slice(client.indexOf("function cameraColumn"), client.indexOf("function cameraSelector")), /data-action="preset"|data-action="prepare-motion"/);
 });
 
 test("iPad operator disables execution without a live connection and never queues commands", () => {
@@ -68,8 +102,6 @@ test("transport is a reserved row outside every independently scrolling workspac
   const transportStart = client.indexOf('<footer class="transport">');
   const serviceStart = client.indexOf('<aside class="service-panel">');
   const serviceEnd = client.indexOf("</aside>", serviceStart);
-  const cameraScrollStart = client.indexOf('<div class="camera-content-scroll">');
-  const cameraScrollEnd = client.indexOf("</div></div></div>", cameraScrollStart);
 
   assert.ok(workspaceStart >= 0 && workspaceEnd > workspaceStart);
   assert.ok(transportStart > workspaceEnd);
@@ -77,24 +109,22 @@ test("transport is a reserved row outside every independently scrolling workspac
   assert.ok(client.indexOf('data-action="go"') > transportStart);
   assert.ok(client.indexOf("CURRENT", transportStart) > transportStart);
   assert.ok(client.indexOf('data-action="back"') > serviceEnd);
-  assert.ok(client.indexOf('data-action="go"') > cameraScrollEnd);
+  assert.match(client, /<div class="camera-selector-scroll">/);
   assert.match(css, /grid-template-rows:\s*58px auto minmax\(0, 1fr\) minmax\(62px, auto\)/);
   assert.match(css, /\.workspace[^}]*min-height:\s*0[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.camera-grid[^}]*min-height:\s*0[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
 });
 
-test("service and all three camera columns have bounded independent scrolling", () => {
+test("service and selector have bounded independent scrolling while camera columns stay minimal", () => {
   const client = source("public/operator/operator.js");
   const css = source("public/operator/operator.css");
   assert.match(client, /<div class="cue-list">/);
-  assert.match(client, /<div class="camera-content-scroll">/);
-  assert.match(client, /FAVORITE STATIC/);
-  assert.match(client, /FAVORITE MOTION/);
-  assert.match(client, /ALL STATIC/);
-  assert.match(client, /ALL MOTION/);
+  assert.match(client, /<div class="camera-selector-scroll">/);
+  assert.doesNotMatch(client, /<div class="camera-content-scroll">/);
   assert.match(client, /class="take-live"/);
-  assert.match(css, /\.cue-list, \.camera-content-scroll[^}]*overflow-y:\s*auto/s);
-  assert.match(css, /\.camera-column[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\) auto auto/s);
+  assert.match(css, /\.cue-list[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.camera-selector-scroll[^}]*overflow-y:\s*auto/s);
+  assert.match(css, /\.camera-column[^}]*grid-template-rows:\s*auto auto minmax\(0, 1fr\) auto minmax\(64px, auto\)/s);
   assert.match(css, /\.camera-grid[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/s);
   assert.match(css, /grid-template-columns:\s*clamp\(220px, 24%, 280px\)/);
 });

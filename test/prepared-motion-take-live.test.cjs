@@ -206,7 +206,7 @@ test("desktop and iPad expose synchronized Prepare → Take Live workflow withou
   const desktop = source("public/app.js");
   const ipad = source("public/operator/operator.js");
   const server = source("operator-server.cjs");
-  assert.match(desktop, /data-prepare-motion-camera/);
+  assert.match(desktop, /data-desktop-prepare-camera/);
   assert.match(desktop, /TAKE LIVE \+ MOVE/);
   assert.match(desktop, /RUN PREPARED MOVE/);
   assert.match(ipad, /prepare-motion/);

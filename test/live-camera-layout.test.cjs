@@ -44,7 +44,7 @@ test("desktop viewport containment leaves the remaining height to camera cards",
   assert.match(styles, /\.content\{min-height:0;overflow:hidden/);
   assert.match(styles, /\.simple-live-layout\{[^}]*height:100%[^}]*overflow:hidden/);
   assert.match(styles, /\.camera-director-grid\{[^}]*height:100%[^}]*min-height:0[^}]*overflow:hidden/);
-  assert.match(styles, /\.camera-preset-list\{[^}]*overflow-y:auto/);
+  assert.match(fs.readFileSync(path.join(root, "public", "styles.css"), "utf8"), /\.desktop-camera-selector-scroll\{[^}]*overflow-y:auto/);
 });
 
 test("Presentation and camera LIVE indicators remain source-authoritative", () => {
@@ -59,8 +59,11 @@ test("narrow layout reflows camera columns without horizontal scrolling", () => 
   assert.match(styles, /overflow:hidden/);
 });
 
-test("each camera owns an independently scrollable accessible preset list", () => {
-  assert.match(renderer, /data-camera-list=/);
-  assert.match(renderer, /tabindex="0" aria-label="Available positions for/);
-  assert.match(styles, /\.camera-preset-list\{[^}]*overflow-y:auto/);
+test("focused selector owns the only scrollable Static and Motion libraries", () => {
+  const appStyles = fs.readFileSync(path.join(root, "public", "styles.css"), "utf8");
+  assert.match(renderer, /class="desktop-camera-selector-scroll"/);
+  assert.match(renderer, /<h3>STATIC<\/h3>[\s\S]*<h3>MOTION<\/h3>/);
+  assert.match(appStyles, /\.desktop-camera-selector-scroll\{[^}]*overflow-y:auto/);
+  const card = renderer.slice(renderer.indexOf("function CameraDirectorCard"), renderer.indexOf("function DesktopCameraSelector"));
+  assert.doesNotMatch(card, /camera-preset-list|camera-motion-list|PRESETS|MOTION<\/strong>/);
 });

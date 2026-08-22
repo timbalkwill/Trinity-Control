@@ -5,6 +5,7 @@
   let state = null;
   let connectionStatus = navigator.onLine ? "reconnecting" : "offline";
   let errorMessage = "";
+  let openCameraSelectorId = null;
 
   const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
   const currentIndex = () => Number(state?.live?.cueIndex) || 0;
@@ -17,15 +18,15 @@
   const videoSourceForCamera = id => (state?.videoSources || []).find(source => source.sourceType === "camera" && source.cameraDeviceId === id);
   const disabled = (key, available = true) => !connected() || !available || pending.has(key);
   const disabledAttribute = (key, available) => disabled(key, available) ? " disabled" : "";
+  const favoritesFirst = items => [...items].sort((left, right) =>
+    Number(right.favorite === true) - Number(left.favorite === true) ||
+    (Number(left.favoriteOrder) || 0) - (Number(right.favoriteOrder) || 0) ||
+    String(left.name || "").localeCompare(String(right.name || ""))
+  );
 
   function cameraColumn(camera, role) {
     const id = cameraId(camera);
     const name = camera?.displayName || `${role[0].toUpperCase()}${role.slice(1)} Camera`;
-    const presets = (state.cameraPresetSummaries || []).filter(preset => preset.enabled && preset.cameraDeviceId === id);
-    const motions = (state.shotSummaries || []).filter(shot => shot.enabled && shot.cameraDeviceId === id && (shot.motionEnabled || shot.shotType === "motion"));
-    const orderedFavorites = items => items.filter(item => item.favorite === true).sort((left, right) => left.favoriteOrder - right.favoriteOrder);
-    const favoritePresets = orderedFavorites(presets);
-    const favoriteMotions = orderedFavorites(motions);
     const preparation = (state.live?.cameraPreparations || []).find(item => item.cameraId === id);
     const preparedMotion = state.live?.preparedMotions?.[id] || null;
     const ready = cameraReady(camera);
@@ -33,31 +34,27 @@
     const live = switcherConnected() && switcherStatus().liveSourceId === videoSource?.id;
     const takeReady = ready && switcherConnected() && videoSource?.switcherMappings?.[switcherStatus().backend || "atem"]?.input != null && (!live || preparedMotion);
     return `<section class="camera-column${live ? " live" : ""}" data-camera-id="${escapeHtml(id || "")}" data-camera-role="${role}">
-      <header><div><span class="camera-role">${role}</span><h2>${escapeHtml(name)}</h2></div><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
+      <header><button class="camera-selector-trigger" data-action="open-camera-selector" data-camera-id="${escapeHtml(id || "")}" aria-label="Open shots for ${escapeHtml(name)}"${disabledAttribute(`selector:${id}`, Boolean(id))}><span class="camera-role">${role}</span><strong>${escapeHtml(name)}</strong><i aria-hidden="true">›</i></button><span class="readiness ${ready ? "ready" : "not-ready"}">${escapeHtml(ready ? "Ready" : camera?.readiness || "Unavailable")}</span></header>
       <div class="live-badge">${live ? "LIVE" : "STANDBY"}</div>
-      <div class="camera-content-scroll">${favoritePresets.length ? `<div class="control-group favorite-group favorite-static"><h3>FAVORITE STATIC</h3><div class="button-stack">${favoritePresets.map(preset => {
-        const key = `preset:${id}:${preset.id}`;
-        return `<button data-action="preset" data-camera-id="${escapeHtml(id)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(key, ready)}>${escapeHtml(preset.name)}</button>`;
-      }).join("")}</div></div>` : ""}${favoriteMotions.length ? `<div class="control-group favorite-group favorite-motion motion-group"><h3>FAVORITE MOTION</h3><div class="button-stack">${favoriteMotions.map(shot => {
-        const key = `motion:${id}:${shot.id}`;
-        const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
-        const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
-        const isPrepared = preparedMotion?.shotId === shot.id;
-        return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
-      }).join("")}</div></div>` : ""}<details class="control-library all-static" ${favoritePresets.length ? "" : "open"}><summary>ALL STATIC <span>${presets.length}</span></summary><div class="button-stack">${presets.map(preset => {
-        const key = `preset:${id}:${preset.id}`;
-        return `<button data-action="preset" data-camera-id="${escapeHtml(id)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(key, ready)}>${escapeHtml(preset.name)}</button>`;
-      }).join("") || '<span class="empty">No presets</span>'}</div></details>
-      <details class="control-library all-motion motion-group" ${favoriteMotions.length ? "" : "open"}><summary>ALL MOTION <span>${motions.length}</span></summary><div class="button-stack">${motions.map(shot => {
-        const key = `motion:${id}:${shot.id}`;
-        const style = ({ presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left", panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift", reveal: "Reveal", custom: "Custom" })[shot.motionStyle] || "Preset Transition";
-        const speed = ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[shot.motionSpeedSetting] || "Medium";
-        const isPrepared = preparedMotion?.shotId === shot.id;
-        return `<button class="${isPrepared ? "prepared" : ""}" data-action="prepare-motion" data-camera-id="${escapeHtml(id)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(key, ready)}><strong>${isPrepared ? "✓ " : ""}${escapeHtml(shot.name)}</strong><small>${escapeHtml(style)} · ${escapeHtml(speed)} · ${isPrepared ? escapeHtml(preparedMotion.statusLabel) : "PREPARE"}</small></button>`;
-      }).join("") || '<span class="empty">No motion shots</span>'}</div></details>${preparedMotion ? `<button data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : ""}</div>
+      <div class="camera-summary">${preparedMotion ? `<div class="prepared-summary"><span>PREPARED MOTION</span><strong>${escapeHtml(preparedMotion.shotName || "Motion prepared")}</strong><b>${escapeHtml(preparedMotion.statusLabel || "READY FOR TAKE LIVE")}</b></div><button class="cancel-prep" data-action="cancel-prep" data-camera-id="${escapeHtml(id)}">CANCEL PREP</button>` : `<div class="camera-ready-summary"><span>SELECT A SHOT USING THE CAMERA NAME</span><strong>${ready ? "Configured / Ready" : escapeHtml(camera?.readiness || "Unavailable")}</strong></div>`}</div>
       <div class="last-commanded"><span>LAST COMMANDED</span><strong>${escapeHtml(preparation?.motionName || preparation?.presetName || "None")}</strong></div>
       <button class="take-live" data-action="take-source" data-source-id="${escapeHtml(videoSource?.id || "")}"${disabledAttribute(`take:${videoSource?.id}`, takeReady)}>${live && preparedMotion ? "RUN PREPARED MOVE" : live ? "ON AIR" : preparedMotion ? "TAKE LIVE + MOVE" : "TAKE LIVE"}</button>
     </section>`;
+  }
+
+  function cameraSelector() {
+    if (!openCameraSelectorId) return "";
+    const camera = (state.managedCameras || []).find(item => item.cameraDeviceId === openCameraSelectorId);
+    if (!camera) { openCameraSelectorId = null; return ""; }
+    const presets = favoritesFirst((state.cameraPresetSummaries || []).filter(item => item.enabled && item.cameraDeviceId === openCameraSelectorId));
+    const motions = favoritesFirst((state.shotSummaries || []).filter(item => item.enabled && item.cameraDeviceId === openCameraSelectorId && (item.motionEnabled || item.shotType === "motion")));
+    const itemName = item => `${item.favorite ? '<span aria-hidden="true">★</span>' : ""}<strong>${escapeHtml(item.name)}</strong>`;
+    return `<div class="camera-selector-backdrop"><section class="camera-selector" role="dialog" aria-modal="true" aria-labelledby="camera-selector-title" data-selector-camera-id="${escapeHtml(openCameraSelectorId)}">
+      <header><div><span>CAMERA SHOT SELECTOR</span><h2 id="camera-selector-title">${escapeHtml(camera.displayName || "Camera")}</h2></div><button data-action="close-camera-selector" aria-label="Cancel and close camera selector">CANCEL</button></header>
+      ${errorMessage ? `<div class="selector-error" role="alert">${escapeHtml(errorMessage)}</div>` : ""}
+      <div class="camera-selector-scroll"><section class="selector-section static-selector"><h3>STATIC</h3><div class="selector-buttons">${presets.map(preset => `<button data-action="preset" data-camera-id="${escapeHtml(openCameraSelectorId)}" data-preset-id="${escapeHtml(preset.id)}"${disabledAttribute(`preset:${openCameraSelectorId}:${preset.id}`, cameraReady(camera))}>${itemName(preset)}</button>`).join("") || '<span class="empty">No Static presets</span>'}</div></section>
+      <section class="selector-section motion-selector"><h3>MOTION</h3><div class="selector-buttons">${motions.map(shot => `<button data-action="prepare-motion" data-camera-id="${escapeHtml(openCameraSelectorId)}" data-shot-id="${escapeHtml(shot.id)}"${disabledAttribute(`motion:${openCameraSelectorId}:${shot.id}`, cameraReady(camera))}>${itemName(shot)}<small>Prepare Start</small></button>`).join("") || '<span class="empty">No Motion Shots</span>'}</div></section></div>
+    </section></div>`;
   }
 
   function render() {
@@ -75,7 +72,7 @@
       ${errorMessage ? `<div class="error" role="alert">${escapeHtml(errorMessage)}</div>` : ""}
       <main class="workspace"><aside class="service-panel"><h1>ORDER OF SERVICE</h1><div class="cue-list">${cues.map((item, index) => `<button class="cue${index === currentIndex() ? " current" : ""}" data-action="cue" data-index="${index}"${disabledAttribute(`cue:${index}`, true)}><span>${index + 1}</span><div><strong>${escapeHtml(item.name || "Untitled cue")}</strong><small>${escapeHtml(item.notes || "")}</small></div></button>`).join("")}</div></aside><div class="source-workspace">${presentation ? `<section class="presentation-source ${presentationLive ? "live" : ""}"><div><span>VIDEO SOURCE</span><strong>${escapeHtml(presentation.name)}</strong></div><b>${presentationLive ? "LIVE" : "STANDBY"}</b><button data-action="take-source" data-source-id="${escapeHtml(presentation.id)}"${disabledAttribute(`take:${presentation.id}`, presentationReady)}>${presentationLive ? "ON AIR" : "TAKE LIVE"}</button></section>` : ""}<div class="camera-grid">${cameras().map((camera, index) => cameraColumn(camera, roles[index])).join("")}</div></div></main>
       <footer class="transport"><button data-action="back"${disabledAttribute("back", currentIndex() > 0)}>BACK</button><div><span>CURRENT</span><strong>${escapeHtml(cue?.name || "End of service")}</strong><small>${currentIndex() + 1} of ${cues.length}</small></div><button class="go" data-action="go"${disabledAttribute("go", currentIndex() < cues.length - 1)}>GO</button></footer>
-    </div><div class="rotate-message"><img src="trinity-logo.png" alt=""><strong>Rotate iPad to landscape</strong><span>Trinity Operator is designed for landscape operation.</span></div>`;
+    </div>${cameraSelector()}<div class="rotate-message"><img src="trinity-logo.png" alt=""><strong>Rotate iPad to landscape</strong><span>Trinity Operator is designed for landscape operation.</span></div>`;
     root.querySelectorAll("[data-action]").forEach(button => button.addEventListener("click", () => handleAction(button)));
   }
 
@@ -95,12 +92,12 @@
     const action = button.dataset.action;
     const id = button.dataset.cameraId;
     try {
-      if (action === "preset") await command(`preset:${id}:${button.dataset.presetId}`, "/api/live/recall-camera-preset", { cameraId: id, presetId: button.dataset.presetId });
+      if (action === "open-camera-selector") { openCameraSelectorId = id; errorMessage = ""; render(); return; }
+      if (action === "close-camera-selector") { openCameraSelectorId = null; errorMessage = ""; render(); return; }
+      if (action === "preset") { await command(`preset:${id}:${button.dataset.presetId}`, "/api/live/recall-camera-preset", { cameraId: id, presetId: button.dataset.presetId }); openCameraSelectorId = null; render(); }
       if (action === "prepare-motion") {
-        const existing = state.live?.preparedMotions?.[id];
-        if (!existing || existing.shotId === button.dataset.shotId || window.confirm(`Replace prepared Motion ${existing.shotName}?`)) {
-          await command(`motion:${id}:${button.dataset.shotId}`, "/api/live/prepare-motion", { cameraId: id, shotId: button.dataset.shotId });
-        }
+        await command(`motion:${id}:${button.dataset.shotId}`, "/api/live/prepare-motion", { cameraId: id, shotId: button.dataset.shotId });
+        openCameraSelectorId = null; render();
       }
       if (action === "cancel-prep") await command(`cancel-prep:${id}`, "/api/live/cancel-prepared-motion", { cameraId: id });
       if (action === "take-source") await command(`take:${button.dataset.sourceId}`, "/api/video-sources/take-live", { videoSourceId: button.dataset.sourceId });

@@ -172,7 +172,7 @@ test("Motion Studio and Live present intent truthfully without fake controls", (
   const studio = renderer.slice(renderer.indexOf("function shotsPage()"), renderer.indexOf("function deviceConfigured"));
   const live = renderer.slice(renderer.indexOf("function CameraDirectorCard"), renderer.indexOf("function livePage"));
   assert.match(studio, /MOTION STUDIO/);
-  assert.match(studio, /Motion Shots use two saved camera presets/);
+  assert.match(studio, /Motion Shots use two normal Camera Presets/);
   assert.match(studio, /Hardware Preset/);
   assert.match(studio, /Needs Setup/);
   assert.match(studio, /OPEN CAMERA LIBRARY/);
@@ -183,7 +183,8 @@ test("Motion Studio and Live present intent truthfully without fake controls", (
   assert.match(studio, /Stop Motion not available/);
   assert.match(studio, /prepareMotionStart/);
   assert.match(studio, /runCameraMotion/);
-  assert.match(live, /styleLabel.*speedLabel/s);
+  assert.match(live, /<h3>MOTION<\/h3>/);
+  assert.doesNotMatch(live, /Target Duration|data-motion-stop|stopMotion\(/);
   assert.doesNotMatch(studio, /data-motion-stop|stopMotion\(/);
 });
 

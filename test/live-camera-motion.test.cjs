@@ -83,20 +83,15 @@ test("failed adapter outcome is surfaced and never recorded as Last Commanded Mo
   assert.equal(state().live.manualMotionCommands, undefined);
 });
 
-test("renderer prepares authoritative Motion shots for the camera with independent scrolling and truthful feedback", () => {
+test("renderer prepares camera-scoped Motion through the focused selector", () => {
   const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
-  const card = renderer.slice(renderer.indexOf("function CameraDirectorCard"), renderer.indexOf("function livePage"));
-  assert.match(card, /shot\.shotType === 'motion' && shot\.cameraDeviceId === camera\.id/);
-  assert.match(card, /data-scroll-key="camera-presets-/);
-  assert.match(card, /data-scroll-key="camera-motion-/);
-  assert.match(card, /data-prepare-motion-camera=.*camera\.id/);
-  assert.match(card, /data-prepare-motion-shot=.*shot\.id/);
-  assert.match(card, /Last Motion:/);
+  const selector = renderer.slice(renderer.indexOf("function DesktopCameraSelector"), renderer.indexOf("function livePage"));
+  assert.match(selector, /shot\.shotType === 'motion' && shot\.cameraDeviceId === camera\.id/);
+  assert.match(selector, /data-desktop-prepare-camera=.*camera\.id/);
+  assert.match(selector, /data-desktop-prepare-motion=.*shot\.id/);
   assert.match(renderer, /window\.trinity\.prepareMotionStart/);
-  assert.match(renderer, /PREPARING…/);
-  assert.match(renderer, /FAILED:/);
-  assert.doesNotMatch(card, /data-stop-motion|STOP MOTION/);
-  assert.ok(card.indexOf("camera-motion-section") < card.indexOf("data-take-video-source"));
+  assert.match(renderer, /desktopCameraSelectorError = error\.message/);
+  assert.doesNotMatch(selector, /data-stop-motion|STOP MOTION/);
 });
 
 test("IPC and preload expose the same manual motion command without changing ATEM transport", () => {

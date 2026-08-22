@@ -171,7 +171,7 @@ test("Camera Director uses a narrow manual recall command and disables movement 
   assert.match(preload, /recallCameraPreset: \(cameraId, presetId\) => ipcRenderer\.invoke\("live:recallCameraPreset"/);
   assert.match(renderer, /window\.trinity\.recallCameraPreset/);
   assert.match(renderer, /preparation\.tracking\?\.active === true/);
-  assert.match(renderer, /data-recall-camera/);
+  assert.match(renderer, /data-desktop-recall-camera/);
 });
 
 test("desktop Live layout uses three manual camera columns without previews or PC Media", () => {

@@ -1086,6 +1086,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:recallCameraPreset", (_e, { cameraId, presetId }) => commands.recallCameraPreset(cameraId, presetId));
   ipcMain.handle("live:runCameraMotion", (_e, { cameraId, shotId }) => commands.runCameraMotion(cameraId, shotId));
   ipcMain.handle("motion-studio:prepare-start", (_e, { cameraId, shotId }) => commands.prepareMotionStart(cameraId, shotId));
+  ipcMain.handle("motion-studio:store-preset", (_e, { cameraId, shotId, endpoint, input }) => commands.storeMotionPreset(cameraId, shotId, endpoint, input));
   ipcMain.handle("camera:execution-capabilities", (_e, cameraId) => commands.getCameraExecutionCapabilities(cameraId));
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));

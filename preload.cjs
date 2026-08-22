@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld("trinity", {
   recallCameraPreset: (cameraId, presetId) => ipcRenderer.invoke("live:recallCameraPreset", { cameraId, presetId }),
   runCameraMotion: (cameraId, shotId) => ipcRenderer.invoke("live:runCameraMotion", { cameraId, shotId }),
   prepareMotionStart: (cameraId, shotId) => ipcRenderer.invoke("motion-studio:prepare-start", { cameraId, shotId }),
+  storeMotionPreset: (cameraId, shotId, endpoint, input) => ipcRenderer.invoke("motion-studio:store-preset", { cameraId, shotId, endpoint, input }),
   cancelPreparedMotion: cameraId => ipcRenderer.invoke("motion:cancel-prepared", cameraId),
   getCameraExecutionCapabilities: cameraId => ipcRenderer.invoke("camera:execution-capabilities", cameraId),
   takeCameraLive: cameraId => ipcRenderer.invoke("atem:take-live", cameraId),

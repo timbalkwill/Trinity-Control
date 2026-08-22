@@ -1,6 +1,6 @@
 "use strict";
 
-const { createPtzOpticsTransport, createViscaUdpTransport } = require("./ptzoptics-adapter.cjs");
+const { createPtzOpticsTransport, createPtzOpticsStoreTransport, createViscaUdpTransport, createViscaUdpStoreTransport } = require("./ptzoptics-adapter.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -29,6 +29,7 @@ function cameraExecutionCapabilities(camera) {
   return Object.freeze({
     adapterType: adapterType || camera?.adapterType || null,
     presetRecall,
+    presetStore: presetRecall,
     presetTransition: presetRecall,
     presetSpeedControl: false,
     panTiltVelocity: false,
@@ -45,39 +46,54 @@ function createCameraExecutor(state, { transports = {}, timeoutMs } = {}) {
   const presets = clone(Array.isArray(state?.cameraPresets) ? state.cameraPresets : []);
   const ptzoptics = transports.ptzoptics || createPtzOpticsTransport({ timeoutMs });
   const viscaUdp = transports.viscaUdp || createViscaUdpTransport();
+  const ptzopticsStore = transports.ptzopticsStore || createPtzOpticsStoreTransport({ timeoutMs });
+  const viscaUdpStore = transports.viscaUdpStore || createViscaUdpStoreTransport();
+
+  function commandContext(cameraDeviceId, presetNumber) {
+    const camera = devices.find(item => item?.id === cameraDeviceId && item?.type === "camera");
+    const configuredAdapterType = camera?.adapterType || null;
+    const adapterType = resolveCameraAdapter(camera);
+    const configuredPort = camera?.port ?? camera?.connection?.port;
+    const diagnostic = { adapterType: adapterType || configuredAdapterType, safeHost: safeHost(camera?.ipAddress || camera?.connection?.host), port: configuredPort ?? null, presetNumber };
+    if (!camera || !adapterType) return { error: { ok: false, code: "adapterUnavailable", message: configuredAdapterType ? `Camera adapter is not supported: ${configuredAdapterType}` : "Camera adapter is not configured", ...diagnostic } };
+    if (!diagnostic.safeHost) return { error: { ok: false, code: "configurationIncomplete", message: "Camera host is not configured", ...diagnostic } };
+    if (adapterType === "visca-udp" && (!Number.isInteger(Number(configuredPort)) || Number(configuredPort) < 1 || Number(configuredPort) > 65535)) return { error: { ok: false, code: "configurationIncomplete", message: "Camera UDP port is not configured", ...diagnostic } };
+    const configuredMaximum = camera?.metadata?.cameraManager?.capabilities?.maxPresetNumber;
+    const maximum = Number.isInteger(configuredMaximum) ? Math.min(254, configuredMaximum) : 254;
+    if (!Number.isInteger(presetNumber) || presetNumber < 0 || presetNumber > maximum) return { error: { ok: false, code: "presetMappingMissing", message: `Camera preset number must be between 0 and ${maximum}`, ...diagnostic } };
+    return { camera, adapterType, configuredPort, diagnostic };
+  }
+
+  function configuration(context) {
+    const { camera, configuredPort, diagnostic } = context;
+    return {
+      host: diagnostic.safeHost, port: configuredPort, protocol: camera.protocol ?? camera.connection?.protocol,
+      viscaAddress: camera.viscaAddress ?? camera.connection?.viscaAddress,
+      username: camera.username ?? camera.connection?.username,
+      password: camera.password ?? camera.connection?.password ?? camera.credentialReference ?? camera.connection?.credentialReference,
+      presetNumber: diagnostic.presetNumber
+    };
+  }
 
   return Object.freeze({
     recallPreset({ cameraDeviceId, presetId }) {
       const camera = devices.find(item => item?.id === cameraDeviceId && item?.type === "camera");
       const preset = presets.find(item => item?.id === presetId && item?.cameraDeviceId === cameraDeviceId);
-      const configuredAdapterType = camera?.adapterType || null;
-      const adapterType = resolveCameraAdapter(camera);
-      const configuredPort = camera?.port ?? camera?.connection?.port;
-      const diagnostic = { adapterType: adapterType || configuredAdapterType, safeHost: safeHost(camera?.ipAddress || camera?.connection?.host), port: configuredPort ?? null, presetNumber: preset?.presetNumber ?? null };
-      if (!camera || !adapterType) {
-        return { ok: false, code: "adapterUnavailable", message: configuredAdapterType ? `Camera adapter is not supported: ${configuredAdapterType}` : "Camera adapter is not configured", ...diagnostic };
-      }
-      if (!diagnostic.safeHost) {
-        return { ok: false, code: "configurationIncomplete", message: "Camera host is not configured", ...diagnostic };
-      }
-      if (adapterType === "visca-udp" && (!Number.isInteger(Number(configuredPort)) || Number(configuredPort) < 1 || Number(configuredPort) > 65535)) {
-        return { ok: false, code: "configurationIncomplete", message: "Camera UDP port is not configured", ...diagnostic };
-      }
-      if (!preset || !Number.isInteger(preset.presetNumber) || preset.presetNumber < 0 || preset.presetNumber > 254) {
-        return { ok: false, code: "presetMappingMissing", message: "Camera preset hardware mapping is missing or invalid", ...diagnostic };
-      }
-      const transport = adapterType === "visca-udp" ? viscaUdp : ptzoptics;
-      return Promise.resolve(transport({
-        host: diagnostic.safeHost,
-        port: configuredPort,
-        protocol: camera.protocol ?? camera.connection?.protocol,
-        viscaAddress: camera.viscaAddress ?? camera.connection?.viscaAddress,
-        username: camera.username ?? camera.connection?.username,
-        password: camera.password ?? camera.connection?.password ?? camera.credentialReference ?? camera.connection?.credentialReference,
-        presetNumber: preset.presetNumber
-      })).then(
-        outcome => ({ ...outcome, ...diagnostic }),
-        () => ({ ok: false, code: "unexpectedAdapterError", message: "Unexpected camera adapter error", ...diagnostic })
+      const context = commandContext(cameraDeviceId, preset?.presetNumber ?? null);
+      if (context.error) return { ...context.error, ...(preset ? {} : { message: "Camera preset hardware mapping is missing or invalid" }) };
+      const transport = context.adapterType === "visca-udp" ? viscaUdp : ptzoptics;
+      return Promise.resolve(transport(configuration(context))).then(
+        outcome => ({ ...outcome, ...context.diagnostic }),
+        () => ({ ok: false, code: "unexpectedAdapterError", message: "Unexpected camera adapter error", ...context.diagnostic })
+      );
+    },
+    storePreset({ cameraDeviceId, presetNumber }) {
+      const context = commandContext(cameraDeviceId, presetNumber);
+      if (context.error) return context.error;
+      const transport = context.adapterType === "visca-udp" ? viscaUdpStore : ptzopticsStore;
+      return Promise.resolve(transport(configuration(context))).then(
+        outcome => ({ ...outcome, ...context.diagnostic }),
+        () => ({ ok: false, code: "unexpectedAdapterError", message: "Unexpected camera adapter error", ...context.diagnostic })
       );
     }
   });

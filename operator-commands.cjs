@@ -97,6 +97,12 @@ function createOperatorCommands({
     });
   }
 
+  function cameraIsAuthoritativelyLive(state, cameraId) {
+    if (state?.live?.programCamera === cameraId) return true;
+    const liveSourceId = state?.videoSwitcherStatus?.liveSourceId;
+    return Boolean(liveSourceId && (state?.videoSources || []).some(source => source.id === liveSourceId && source.cameraDeviceId === cameraId));
+  }
+
   return {
     getState: () => {
       const state = loadState();
@@ -147,6 +153,45 @@ function createOperatorCommands({
       if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
       return cameraExecutionCapabilities(camera);
     },
+    storeMotionPreset: (cameraId, shotId, endpoint, input = {}) => mutate(async state => {
+      const camera = (state.devices || []).find(item => item?.type === "camera" && item.id === cameraId && item.enabled !== false);
+      if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
+      const shot = (state.shots || []).find(item => item?.id === shotId);
+      if (!shot || shot.shotType !== "motion" || shot.cameraDeviceId !== cameraId) throw new RangeError(`Unknown Motion Shot for camera ${cameraId}: ${shotId}`);
+      if (!['start', 'end'].includes(endpoint)) throw new RangeError(`Unknown Motion endpoint: ${endpoint}`);
+      const presetNumber = Number(input.presetNumber);
+      if (!Number.isInteger(presetNumber) || presetNumber < 0 || presetNumber > 254) throw new RangeError("Hardware preset number must be between 0 and 254");
+      const capability = cameraExecutionCapabilities(camera);
+      if (!capability.presetStore) throw Object.assign(new Error("This camera adapter does not support preset STORE"), { code: "PRESET_STORE_UNSUPPORTED", statusCode: 409 });
+      const conflict = presets.findPresetNumberConflict(state, cameraId, presetNumber);
+      if (conflict && input.reuseExisting === true) {
+        shots.updateShot(state, shotId, { [endpoint === "start" ? "cameraPresetId" : "motionEndPresetId"]: conflict.id });
+        return;
+      }
+      if (conflict && input.confirmOverwrite !== true) {
+        const error = new Error(`Hardware Preset ${presetNumber} is currently ${conflict.name}. Choose reuse or explicitly overwrite its camera position.`);
+        error.code = "CONFIRM_PRESET_OVERWRITE";
+        error.statusCode = 409;
+        error.existingPreset = { id: conflict.id, name: conflict.name, presetNumber: conflict.presetNumber };
+        throw error;
+      }
+      if (cameraIsAuthoritativelyLive(state, cameraId) && input.confirmLive !== true) {
+        throw Object.assign(new Error(`${camera.name} is currently LIVE. Storing will modify its preset memory without moving it.`), { code: "CONFIRM_LIVE_PRESET_STORE", statusCode: 409 });
+      }
+      const name = String(input.name || "").trim();
+      if (!name) throw new TypeError("Preset name is required");
+      const outcome = await cameraExecutorFactory(state).storePreset({ cameraDeviceId: cameraId, presetNumber });
+      if (outcome?.ok !== true) throw Object.assign(new Error(outcome?.message || "Camera preset store failed"), { code: outcome?.code || "CAMERA_PRESET_STORE_FAILED", statusCode: 409 });
+      const preset = conflict
+        ? presets.updateCameraPreset(state, conflict.id, { name, presetNumber })
+        : presets.createCameraPreset(state, { cameraDeviceId: cameraId, name, presetNumber, category: "Utility", enabled: true });
+      shots.updateShot(state, shotId, { [endpoint === "start" ? "cameraPresetId" : "motionEndPresetId"]: preset.id });
+      state.live = state.live && typeof state.live === "object" ? state.live : {};
+      state.live.activityLog = [
+        { at: Date.now(), message: `Camera preset stored: ${camera.name} — ${preset.name} (Hardware Preset ${presetNumber})` },
+        ...(Array.isArray(state.live.activityLog) ? state.live.activityLog : [])
+      ].slice(0, 8);
+    }),
     prepareMotionStart: (cameraId, shotId) => mutate(async state => {
       const shot = (state.shots || []).find(item => item?.id === shotId && item.enabled !== false);
       if (!shot || shot.shotType !== "motion" || shot.cameraDeviceId !== cameraId) throw new RangeError(`Unknown Motion Shot for camera ${cameraId}: ${shotId}`);

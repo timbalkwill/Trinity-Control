@@ -262,6 +262,14 @@ function reorderCameraPreset(state, cameraDeviceId, from, to) {
 
 const listPresetsByCamera = (state, cameraDeviceId) => (state?.cameraPresets || []).filter(preset => preset.cameraDeviceId === cameraDeviceId);
 const listPresetsByCategory = (state, category) => (state?.cameraPresets || []).filter(preset => categoryKey(preset.category) === categoryKey(category));
+const findPresetNumberConflict = (state, cameraDeviceId, presetNumber) => listPresetsByCamera(state, cameraDeviceId)
+  .find(preset => preset.presetNumber === presetNumber) || null;
+
+function nextAvailablePresetNumber(state, cameraDeviceId, { minimum = 1, maximum = 254 } = {}) {
+  const used = new Set(listPresetsByCamera(state, cameraDeviceId).map(preset => preset.presetNumber).filter(Number.isInteger));
+  for (let number = minimum; number <= maximum; number += 1) if (!used.has(number)) return number;
+  return null;
+}
 
 module.exports = {
   CAMERA_PRESET_SCHEMA_VERSION,
@@ -270,6 +278,7 @@ module.exports = {
   createCameraPreset,
   deleteCameraPreset,
   duplicateCameraPreset,
+  findPresetNumberConflict,
   listPresetsByCamera,
   listPresetsByCategory,
   listCameraPresetCategories,
@@ -278,6 +287,7 @@ module.exports = {
   duplicateCameraPresetIds,
   hasDuplicateCameraPresetIds,
   normalizeCameraPreset,
+  nextAvailablePresetNumber,
   reorderCameraPreset,
   updateCameraPreset,
   validateCameraPreset

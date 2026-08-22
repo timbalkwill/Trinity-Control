@@ -63,18 +63,14 @@ test("portable backup round-trip preserves preset and Motion favorites", () => {
   assert.equal(restored.shots.find(item => item.id === "motion-one").favorite, true);
 });
 
-test("iPad keeps Favorite Static and Favorite Motion separate and before collapsible full libraries", () => {
+test("iPad selector separates Static and Motion while sorting favorites first without duplicate libraries", () => {
   const client = source("public/operator/operator.js");
-  const favoriteStatic = client.indexOf("FAVORITE STATIC");
-  const favoriteMotion = client.indexOf("FAVORITE MOTION");
-  const allStatic = client.indexOf("ALL STATIC");
-  const allMotion = client.indexOf("ALL MOTION");
-  assert.ok(favoriteStatic >= 0 && favoriteStatic < favoriteMotion && favoriteMotion < allStatic && allStatic < allMotion);
-  assert.match(client, /favoritePresets\.length \? `<div class="control-group favorite-group favorite-static"/);
-  assert.match(client, /favoriteMotions\.length \? `<div class="control-group favorite-group favorite-motion motion-group"/);
-  assert.match(client, /favoritePresets\.length \? "" : "open"/);
-  assert.match(client, /favoriteMotions\.length \? "" : "open"/);
-  assert.doesNotMatch(client, /FAVORITE SHOTS/);
+  assert.match(client, /const favoritesFirst = items =>/);
+  assert.match(client, /<h3>STATIC<\/h3>[\s\S]*<h3>MOTION<\/h3>/);
+  assert.match(client, /const presets = favoritesFirst\(/);
+  assert.match(client, /const motions = favoritesFirst\(/);
+  assert.doesNotMatch(client, /FAVORITE STATIC|FAVORITE MOTION|ALL STATIC|ALL MOTION/);
+  assert.doesNotMatch(client, /favoritePresets|favoriteMotions/);
 });
 
 test("favorite buttons retain the existing Static recall and prepared-Motion command paths", () => {

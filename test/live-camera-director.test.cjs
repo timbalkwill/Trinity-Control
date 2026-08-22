@@ -71,15 +71,18 @@ test("failed or unavailable manual camera actions do not become Last Commanded",
 
 test("Camera Director exposes accessible controls and authoritative Video Source LIVE state", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
-  assert.match(source, /aria-label="Recall \$\{escapeHtml\(preset\.name\)\} on \$\{escapeHtml\(camera\.name\)\}"/);
-  assert.match(source, /\$\{controlsDisabled \? 'disabled' : ''\}/);
+  assert.match(source, /aria-label="Open shots for \$\{escapeHtml\(camera\.name\)\}"/);
+  assert.match(source, /data-open-desktop-camera-selector="\$\{escapeHtml\(camera\.id\)\}"/);
   assert.match(source, /data-live-indicator.*\$\{isLive \? '' : 'hidden'\}/);
   assert.match(source, /const isLive = switcherConnected && atemStatus\.liveSourceId === videoSource\?\.id/);
   assert.doesNotMatch(source.slice(source.indexOf("function CameraDirectorCard"), source.indexOf("function livePage")), /programCamera|previewCamera|MAKE LIVE/);
 });
 
-test("health/status rendering keeps camera-list scroll identity stable without renderer resize state", () => {
+test("desktop selector state is ephemeral and only its long library scrolls", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
-  assert.match(source, /data-scroll-key="camera-presets-\$\{escapeHtml\(camera\.id\)\}"/);
+  const styles = fs.readFileSync(path.join(__dirname, "..", "public", "styles.css"), "utf8");
+  assert.match(source, /let openDesktopCameraSelectorId = null/);
+  assert.doesNotMatch(source, /localStorage.*openDesktopCameraSelector|sessionStorage.*openDesktopCameraSelector/);
+  assert.match(styles, /\.desktop-camera-selector-scroll\{[^}]*overflow-y:auto/);
   assert.doesNotMatch(source, /window\.innerWidth|resize.*camera-director|cameraDirector.*scrollTop/i);
 });

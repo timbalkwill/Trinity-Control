@@ -135,5 +135,5 @@ test("compact strips preserve bounded desktop and iPad workspace rows", () => {
   const ipadCss = source("public/operator/operator.css");
   assert.match(desktopCss, /grid-template-rows:auto auto minmax\(60px,auto\) minmax\(0,1fr\)/);
   assert.match(ipadCss, /grid-template-rows: 58px auto minmax\(0, 1fr\) minmax\(62px, auto\)/);
-  assert.match(ipadCss, /\.camera-content-scroll[^}]*overflow-y: auto/);
+  assert.match(ipadCss, /\.camera-selector-scroll[^}]*overflow-y: auto/);
 });

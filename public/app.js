@@ -41,6 +41,8 @@ let shotCamera = '';
 let shotFavorite = '';
 let shotEnabled = '';
 let shotTypeFilter = '';
+let openDesktopCameraSelectorId = null;
+let desktopCameraSelectorError = '';
 const motionCapabilitiesByCamera = new Map();
 let renderSequence = 0;
 let renderInProgress = false;
@@ -145,6 +147,7 @@ function showNotification(message, { type = 'information', persistent = false } 
 function navigateToPage(nextPage) {
   if (!nav.some(([id]) => id === nextPage)) return;
   if (page === nextPage) return;
+  if (nextPage !== 'live') { openDesktopCameraSelectorId = null; desktopCameraSelectorError = ''; }
   page = nextPage;
   const label = nav.find(([id]) => id === page)?.[1] || 'Trinity Control';
   document.title = `Trinity Control — ${label}`;
@@ -187,6 +190,23 @@ async function openApplicationDialog(kind, trigger = document.activeElement) {
     }
   };
   closeButton.focus();
+}
+
+function choosePresetStoreAction({ cameraName, presetNumber, conflict, live }, trigger = document.activeElement) {
+  return new Promise(resolve => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'application-dialog-backdrop';
+    const conflictText = conflict ? `<p><strong>Hardware Preset ${presetNumber} is currently ${escapeHtml(conflict.name)}.</strong><br>Overwriting replaces that physical camera position. Reuse keeps the saved position and assigns the existing Camera Preset.</p>` : '';
+    const liveText = live ? `<p><strong>${escapeHtml(cameraName)} is currently LIVE.</strong><br>STORE will not move it, but will modify its preset memory.</p>` : '';
+    backdrop.innerHTML = `<section class="application-dialog panel" role="dialog" aria-modal="true" aria-labelledby="preset-store-dialog-title"><span class="eyebrow">CAMERA PRESET MEMORY</span><h2 id="preset-store-dialog-title">Confirm Hardware Preset ${presetNumber}</h2>${conflictText}${liveText}<div class="row-actions"><button data-store-choice="cancel">CANCEL</button>${conflict ? '<button data-store-choice="reuse">REUSE EXISTING PRESET</button>' : ''}<button class="primary-button" data-store-choice="store">${conflict ? `OVERWRITE PRESET ${presetNumber}` : `STORE PRESET ${presetNumber}`}</button></div></section>`;
+    document.body.appendChild(backdrop);
+    document.body.classList.add('modal-open');
+    const finish = choice => { backdrop.remove(); document.body.classList.remove('modal-open'); trigger?.focus?.({ preventScroll: true }); resolve(choice); };
+    backdrop.querySelectorAll('[data-store-choice]').forEach(button => button.onclick = () => finish(button.dataset.storeChoice));
+    backdrop.onclick = event => { if (event.target === backdrop) finish('cancel'); };
+    backdrop.onkeydown = event => { if (event.key === 'Escape') finish('cancel'); };
+    backdrop.querySelector('[data-store-choice="cancel"]')?.focus();
+  });
 }
 
 const currentCue = () =>
@@ -1214,16 +1234,17 @@ function directorCameraStatus(camera) {
   return { label: 'Ready', available: true, className: 'ready' };
 }
 
+const desktopFavoritesFirst = items => [...items].sort((left, right) =>
+  Number(right.favorite === true) - Number(left.favorite === true) ||
+  Number(left.favoriteOrder ?? left.order ?? 0) - Number(right.favoriteOrder ?? right.order ?? 0) ||
+  String(left.name || '').localeCompare(String(right.name || ''))
+);
+
 function CameraDirectorCard(camera) {
   const preparation = cameraPreparation(camera.id);
   const status = directorCameraStatus(camera);
-  const presets = (state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id);
-  const cameraPresetById = new Map(presets.map(preset => [preset.id, preset]));
-  const motionShots = (state.shots || []).filter(shot => shot.enabled !== false && shot.shotType === 'motion' && shot.cameraDeviceId === camera.id);
   const preparedMotion = state.live?.preparedMotions?.[camera.id] || null;
-  const lastMotion = state.live?.manualMotionCommands?.[camera.id] || null;
   const lastCommandedId = preparation.preparedAssignment?.mode === 'static' ? preparation.preparedAssignment.presetId : null;
-  const controlsDisabled = !status.available || preparation.tracking?.active === true;
   const videoSource = (state.videoSources || []).find(source => source.sourceType === 'camera' && source.cameraDeviceId === camera.id);
   const switcherConnected = atemStatus?.connectionState === 'connected';
   const hasMapping = videoSource?.switcherMappings?.[atemStatus?.backend || 'atem']?.input != null;
@@ -1231,55 +1252,30 @@ function CameraDirectorCard(camera) {
   const takeDisabled = !switcherConnected || !hasMapping || (isLive && !preparedMotion);
   return `<article class="camera-director-card ${isLive ? 'atem-live' : ''}" data-camera-card="${escapeHtml(camera.id)}" data-camera-role="${escapeHtml(camera.logicalRole || camera.role || camera.id)}">
     <header>
-      <div><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)}</strong></div>
+      <button class="desktop-camera-selector-trigger" data-open-desktop-camera-selector="${escapeHtml(camera.id)}" aria-label="Open shots for ${escapeHtml(camera.name)}" ${camera.missing ? 'disabled' : ''}><span class="eyebrow">${escapeHtml(String(camera.logicalRole || camera.role || camera.id).toUpperCase())} CAMERA</span><strong>${escapeHtml(camera.name)} <i aria-hidden="true">›</i></strong></button>
       <span class="camera-live-indicator" data-live-indicator ${isLive ? '' : 'hidden'}>● LIVE</span>
     </header>
     <div class="camera-director-status">
       <span class="preparation-status ${status.className}">${escapeHtml(status.label)}</span>
       <small>${preparation.tracking?.active ? 'Tracking active — position controls disabled' : lastCommandedId ? `Last Commanded: ${escapeHtml(preparation.preparedAssignment.presetName || '')}` : 'No position commanded'}</small>
     </div>
-    <div class="camera-action-section">
-      <div class="camera-action-heading"><strong>PRESETS</strong><span>${presets.length}</span></div>
-      <div class="camera-preset-list" data-camera-list="${escapeHtml(camera.id)}" data-scroll-key="camera-presets-${escapeHtml(camera.id)}" tabindex="0" aria-label="Available positions for ${escapeHtml(camera.name)}">
-        ${presets.length ? presets.map(preset => `<button
-          class="camera-preset-action ${preset.id === lastCommandedId ? 'last-commanded' : ''}"
-          data-recall-camera="${escapeHtml(camera.id)}"
-          data-recall-preset="${escapeHtml(preset.id)}"
-          aria-label="Recall ${escapeHtml(preset.name)} on ${escapeHtml(camera.name)}"
-          ${controlsDisabled ? 'disabled' : ''}
-        ><span>${escapeHtml(preset.name)}</span>${preset.id === lastCommandedId ? '<small>✓ Last Commanded</small>' : ''}</button>`).join('') : '<div class="camera-empty-state">No saved presets for this camera.</div>'}
-      </div>
-    </div>
-    <div class="camera-action-section camera-motion-section">
-      <div class="camera-action-heading"><strong>MOTION</strong><span>${motionShots.length}</span></div>
-      <div class="camera-preset-list camera-motion-list" data-scroll-key="camera-motion-${escapeHtml(camera.id)}" tabindex="0" aria-label="Motion shots for ${escapeHtml(camera.name)}">
-        ${motionShots.length ? motionShots.map(shot => {
-          const startPreset = cameraPresetById.get(shot.cameraPresetId);
-          const endPreset = cameraPresetById.get(shot.motionEndPresetId);
-          const unavailableReason = !status.available ? status.label
-            : preparation.tracking?.active === true ? 'Tracking active'
-            : !startPreset ? 'Start preset is missing, disabled, or belongs to another camera'
-            : !endPreset ? 'End preset is missing, disabled, or belongs to another camera'
-            : null;
-          const isLastMotion = lastMotion?.shotId === shot.id;
-          const isPrepared = preparedMotion?.shotId === shot.id;
-          const speedLabel = motionSpeedLabels[shot.motionSpeedSetting] || 'Medium';
-          const styleLabel = motionStyleLabels[shot.motionStyle] || 'Preset Transition';
-          return `<button
-            class="camera-preset-action camera-motion-action ${isLastMotion ? 'last-commanded' : ''} ${isPrepared ? 'prepared' : ''}"
-            data-prepare-motion-camera="${escapeHtml(camera.id)}"
-            data-prepare-motion-shot="${escapeHtml(shot.id)}"
-            aria-label="Prepare motion ${escapeHtml(shot.name)} on ${escapeHtml(camera.name)}"
-            title="${escapeHtml(unavailableReason || `${startPreset.name} to ${endPreset.name} at ${speedLabel}`)}"
-            ${unavailableReason ? 'disabled' : ''}
-          ><span><strong>${isPrepared ? '✓ ' : ''}${escapeHtml(shot.name)}</strong><small>${escapeHtml(startPreset?.name || 'Missing start')} → ${escapeHtml(endPreset?.name || 'Missing end')}</small><small>${escapeHtml(styleLabel)} · ${escapeHtml(speedLabel)}</small></span><small>${isPrepared ? escapeHtml(preparedMotion.statusLabel || 'READY / START COMMANDED') : 'PREPARE'}</small></button>`;
-        }).join('') : '<div class="camera-empty-state">No saved Motion Shots for this camera.</div>'}
-      </div>
-      <small class="camera-motion-feedback" data-motion-feedback="${escapeHtml(camera.id)}">${preparedMotion ? `${escapeHtml(preparedMotion.statusLabel)} · Start commanded, position not verified` : lastMotion ? `Last Motion: ${escapeHtml(lastMotion.shotName)} · Commanded` : 'NOT PREPARED'}</small>
-      ${preparedMotion ? `<button type="button" class="secondary-button cancel-prepared-motion" data-cancel-prepared-motion="${escapeHtml(camera.id)}">CANCEL PREP</button>` : ''}
-    </div>
+    <div class="desktop-camera-preparation ${preparedMotion ? 'prepared' : ''}">${preparedMotion ? `<span>PREPARED MOTION</span><strong>${escapeHtml(preparedMotion.shotName || 'Motion prepared')}</strong><b>${escapeHtml(preparedMotion.statusLabel || 'READY FOR TAKE LIVE')}</b><button type="button" class="secondary-button cancel-prepared-motion" data-cancel-prepared-motion="${escapeHtml(camera.id)}">CANCEL PREP</button>` : `<span>CAMERA SHOT</span><strong>Select using the camera name</strong><small>Static moves now · Motion prepares Start</small>`}</div>
     <button type="button" class="atem-take-live" data-take-video-source="${escapeHtml(videoSource?.id || '')}" ${takeDisabled ? 'disabled' : ''}>${isLive && preparedMotion ? 'RUN PREPARED MOVE' : isLive ? 'LIVE' : preparedMotion ? 'TAKE LIVE + MOVE' : 'TAKE LIVE'}</button>
   </article>`;
+}
+
+function DesktopCameraSelector() {
+  if (!openDesktopCameraSelectorId) return '';
+  const camera = productionDirectorCameras().find(item => item.id === openDesktopCameraSelectorId);
+  if (!camera) return '';
+  const status = directorCameraStatus(camera);
+  const preparation = cameraPreparation(camera.id);
+  const presets = desktopFavoritesFirst((state.cameraPresets || []).filter(preset => preset.enabled !== false && preset.cameraDeviceId === camera.id));
+  const presetById = new Map(presets.map(preset => [preset.id, preset]));
+  const motions = desktopFavoritesFirst((state.shots || []).filter(shot => shot.enabled !== false && shot.shotType === 'motion' && shot.cameraDeviceId === camera.id));
+  const disabled = !status.available || preparation.tracking?.active === true;
+  const itemName = item => `${item.favorite ? '<i aria-hidden="true">★</i>' : ''}<strong>${escapeHtml(item.name)}</strong>`;
+  return `<div class="desktop-camera-selector-backdrop"><section class="desktop-camera-selector" role="dialog" aria-modal="true" aria-labelledby="desktop-camera-selector-title"><header><div><span class="eyebrow">CAMERA SHOTS</span><h2 id="desktop-camera-selector-title">${escapeHtml(camera.name)}</h2></div><button data-close-desktop-camera-selector>CANCEL</button></header>${desktopCameraSelectorError ? `<p class="desktop-camera-selector-error" role="alert">${escapeHtml(desktopCameraSelectorError)}</p>` : ''}<div class="desktop-camera-selector-scroll"><section><h3>STATIC</h3><div class="desktop-camera-selector-items">${presets.map(preset => `<button data-desktop-recall-camera="${escapeHtml(camera.id)}" data-desktop-recall-preset="${escapeHtml(preset.id)}" ${disabled ? 'disabled' : ''}>${itemName(preset)}</button>`).join('') || '<p>No Static presets for this camera.</p>'}</div></section><section><h3>MOTION</h3><div class="desktop-camera-selector-items">${motions.map(shot => { const start = presetById.get(shot.cameraPresetId); const end = presetById.get(shot.motionEndPresetId); const unavailable = disabled || !start || !end; return `<button data-desktop-prepare-camera="${escapeHtml(camera.id)}" data-desktop-prepare-motion="${escapeHtml(shot.id)}" ${unavailable ? 'disabled' : ''}>${itemName(shot)}<small>${escapeHtml(start?.name || 'Missing Start')} → ${escapeHtml(end?.name || 'Missing End')}</small></button>`; }).join('') || '<p>No Motion Shots for this camera.</p>'}</div></section></div></section></div>`;
 }
 
 function livePage() {
@@ -1310,36 +1306,47 @@ function livePage() {
       ${presentationSource ? `<div class="presentation-source-control ${presentationLive ? 'live' : ''}"><div><span class="eyebrow">VIDEO SOURCE</span><strong>${escapeHtml(presentationSource.name)}</strong><small>${presentationLive ? 'LIVE' : presentationMapped ? 'Ready' : 'Mapping required'}</small></div><button data-take-video-source="${escapeHtml(presentationSource.id)}" ${atemStatus?.connectionState !== 'connected' || !presentationMapped || presentationLive ? 'disabled' : ''}>${presentationLive ? 'LIVE' : 'TAKE LIVE'}</button></div>` : ''}
       <div class="camera-director-grid">${productionDirectorCameras().map(CameraDirectorCard).join('')}</div>
     </section>
-  </div>`);
+  </div>${DesktopCameraSelector()}`);
 
   document.querySelectorAll('[data-go-cue]').forEach(button => {
     button.onclick = async () => { state = await activateCue(Number(button.dataset.goCue)); render(); };
   });
   document.querySelector('[data-live-go]').onclick = async () => { state = await window.trinity.nextCue(); render(); };
   document.querySelector('[data-live-back]').onclick = async () => { state = await window.trinity.previousCue(); render(); };
-  document.querySelectorAll('[data-recall-camera]').forEach(button => {
-    button.onclick = async () => {
-      button.disabled = true;
-      try { state = await window.trinity.recallCameraPreset(button.dataset.recallCamera, button.dataset.recallPreset); render(); }
-      catch (error) { button.disabled = false; window.alert(error.message); }
-    };
+  document.querySelectorAll('[data-open-desktop-camera-selector]').forEach(button => {
+    button.onclick = () => { openDesktopCameraSelectorId = button.dataset.openDesktopCameraSelector; desktopCameraSelectorError = ''; render(); };
   });
-  document.querySelectorAll('[data-prepare-motion-camera]').forEach(button => {
+  document.querySelector('[data-close-desktop-camera-selector]')?.addEventListener('click', () => {
+    openDesktopCameraSelectorId = null;
+    desktopCameraSelectorError = '';
+    render();
+  });
+  document.querySelectorAll('[data-desktop-recall-camera]').forEach(button => {
     button.onclick = async () => {
-      const feedback = document.querySelector(`[data-motion-feedback="${button.dataset.prepareMotionCamera}"]`);
-      const existing = state.live?.preparedMotions?.[button.dataset.prepareMotionCamera];
-      if (existing && existing.shotId !== button.dataset.prepareMotionShot && !window.confirm(`Replace prepared Motion ${existing.shotName} with this Motion Shot?`)) return;
       button.disabled = true;
-      button.classList.add('executing');
-      if (feedback) feedback.textContent = 'PREPARING…';
       try {
-        state = await window.trinity.prepareMotionStart(button.dataset.prepareMotionCamera, button.dataset.prepareMotionShot);
+        state = await window.trinity.recallCameraPreset(button.dataset.desktopRecallCamera, button.dataset.desktopRecallPreset);
+        openDesktopCameraSelectorId = null;
+        desktopCameraSelectorError = '';
         render();
       } catch (error) {
-        button.disabled = false;
-        button.classList.remove('executing');
-        if (feedback) feedback.textContent = `FAILED: ${error.message || 'Preparation failed'}`;
-        showNotification(error.message || 'Motion preparation failed', { type: 'error' });
+        desktopCameraSelectorError = error.message || 'Static preset recall failed.';
+        render();
+      }
+    };
+  });
+  document.querySelectorAll('[data-desktop-prepare-camera]').forEach(button => {
+    button.onclick = async () => {
+      button.disabled = true;
+      button.classList.add('executing');
+      try {
+        state = await window.trinity.prepareMotionStart(button.dataset.desktopPrepareCamera, button.dataset.desktopPrepareMotion);
+        openDesktopCameraSelectorId = null;
+        desktopCameraSelectorError = '';
+        render();
+      } catch (error) {
+        desktopCameraSelectorError = error.message || 'Motion preparation failed.';
+        render();
       }
     };
   });
@@ -2271,16 +2278,23 @@ function shotsPage() {
   const motionBlockingErrors = motionErrors.filter(error => error !== 'Motion style needs review');
   const motionStatus = !resolved?.camera || resolved.camera.enabled === false || !cameraAdapterSupported(resolved.camera) ? 'UNAVAILABLE' : motionErrors.length ? 'NEEDS ATTENTION' : 'READY';
   const capabilities = motionCapabilitiesByCamera.get(selectedCameraId) || null;
+  const usedPresetNumbers = new Set(scopedPresets.map(preset => preset.presetNumber).filter(Number.isInteger));
+  const nextPresetNumber = reserved => { for (let number = 1; number <= 254; number += 1) if (!usedPresetNumbers.has(number) && number !== reserved) return number; return null; };
+  const startSetupNumber = Number.isInteger(resolved?.preset?.presetNumber) ? resolved.preset.presetNumber : nextPresetNumber(null);
+  const endSetupNumber = Number.isInteger(selectedEndPreset?.presetNumber) ? selectedEndPreset.presetNumber : nextPresetNumber(startSetupNumber);
+  const selectedVideoSource = (state.videoSources || []).find(source => source.cameraDeviceId === selectedCameraId);
+  const selectedCameraLive = Boolean(selectedVideoSource && atemStatus?.connectionState === 'connected' && atemStatus.liveSourceId === selectedVideoSource.id);
+  const setupPosition = (endpoint, preset, suggestedNumber) => `<article class="motion-position-setup"><span class="eyebrow">${endpoint.toUpperCase()} POSITION</span><label>Preset Name<input data-motion-store-name="${endpoint}" value="${escapeHtml(preset?.name || `${selected.name} ${endpoint === 'start' ? 'Start' : 'End'}`)}"></label><label>Hardware Preset<input type="number" min="0" max="254" data-motion-store-number="${endpoint}" value="${suggestedNumber ?? ''}"><small>${preset ? `Currently ${escapeHtml(preset.name)} · Hardware Preset ${preset.presetNumber}` : `Next Available Preset: ${suggestedNumber ?? 'None'}`}</small></label><p>Move the camera with the joystick or another controller, then save the current camera position.</p><div class="row-actions"><button data-motion-store="${endpoint}" ${!capabilities?.presetStore ? 'disabled' : ''}>SET ${endpoint.toUpperCase()}</button>${preset ? `<button data-motion-verify="${endpoint}" ${!capabilities?.presetRecall ? 'disabled' : ''}>VERIFY ${endpoint.toUpperCase()}</button>` : ''}</div></article>`;
   const preparedStudioMotion = selectedCameraId ? state.live?.preparedMotions?.[selectedCameraId] || null : null;
   const lastCommandedStart = preparedStudioMotion?.shotId === selected?.id;
   const editor = selected ? `<div class="shot-editor ${selectedType === 'motion' ? 'motion-studio-editor' : ''}">
     <div class="shot-editor-heading"><div><span class="eyebrow">${selectedType === 'motion' ? 'MOTION STUDIO' : 'SHOT DETAILS'}</span><h1>${escapeHtml(selected.name)}</h1><p>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</p></div><div class="row-actions"><button id="shot-save" class="live-button">SAVE</button><button id="shot-duplicate">DUPLICATE</button><button id="shot-toggle">${selected.enabled ? 'DISABLE' : 'ENABLE'}</button><button class="danger" id="shot-delete">DELETE</button></div></div>
     <div class="shot-section-grid">
       <fieldset><legend>OVERVIEW</legend>${textField('Name','name',selected.name)}${textField('Description','description',selected.description)}<label>Shot Type<select data-shot-field="shotType"><option value="static" ${(selected.shotType || 'static') === 'static' ? 'selected' : ''}>Static</option><option value="motion" ${selected.shotType === 'motion' ? 'selected' : ''}>Motion</option><option value="tracking" ${selected.shotType === 'tracking' ? 'selected' : ''}>Tracking</option></select></label><label>Category<input data-shot-field="category" list="shot-categories" value="${escapeHtml(selected.category || '')}"><datalist id="shot-categories">${[...categories.values()].map(category => `<option value="${escapeHtml(category)}">`).join('')}</datalist></label>${textField('Tags','tags',(selected.tags || []).join(', '))}<label class="checkbox-label"><input type="checkbox" data-shot-field="favorite" ${selected.favorite ? 'checked' : ''}> ★ Favorite — shown first on the iPad</label><label class="checkbox-label"><input type="checkbox" data-shot-field="enabled" ${selected.enabled ? 'checked' : ''}> Enabled</label></fieldset>
-      <fieldset><legend>CAMERA TARGET</legend>${selectedType === 'motion' ? '<p class="wide field-help">Motion Shots use two saved camera presets. Create and verify the Start and End presets first. Descriptive names such as Pastor Wide and Pastor Tight make setup easier.</p>' : ''}<label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'START' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<div class="motion-transition-arrow" aria-hidden="true">↓</div><label>END<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select><small>${escapeHtml(selectedEndPreset?.name || (selected.motionEndPresetId ? 'Selected End preset is missing or does not match the camera' : 'No End preset selected'))}</small></label><div class="wide motion-preset-status-grid">${motionPresetSummary('START', resolved.preset)}${motionPresetSummary('END', selectedEndPreset)}</div><button type="button" class="wide" id="motion-manage-presets">OPEN CAMERA LIBRARY</button><label>Motion Style<select data-shot-field="motionStyle">${selected.motionStyle && !motionStyleLabels[selected.motionStyle] ? `<option value="${escapeHtml(selected.motionStyle)}" selected>Needs Review: ${escapeHtml(selected.motionStyle)}</option>` : ''}${motionStyleOptions}</select></label><label>Intended Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select><small>Creative intent only; current adapters do not apply speed.</small></label><label>Target Duration<input type="number" min="0" step="0.5" data-shot-duration-seconds value="${selected.motionTargetDurationMs ? selected.motionTargetDurationMs / 1000 : ''}" placeholder="Optional seconds"><small>Target only; actual duration is not guaranteed.</small></label><label class="wide">Motion Intent Notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</em>${motionErrors.map(error => `<small>⚠ ${escapeHtml(error)}</small>`).join('')}</div></fieldset>
+      <fieldset><legend>CAMERA TARGET</legend>${selectedType === 'motion' ? '<p class="wide field-help">Motion Shots use two normal Camera Presets. Use the joystick to frame the camera, then save the current camera position.</p>' : ''}<label>Camera<select data-shot-field="cameraDeviceId">${options(cameras, selected.cameraDeviceId, 'Resolve by role')}</select><small>${escapeHtml(resolved.camera?.name || (selected.cameraDeviceId ? 'Selected camera is missing' : 'No specific camera selected'))}</small></label><label>${selectedType === 'static' ? 'Preset' : selectedType === 'motion' ? 'START' : 'Starting Preset'}<select data-shot-field="cameraPresetId">${presetOptions(selected.cameraPresetId, 'No preset')}</select><small>${escapeHtml(resolved.preset?.name || (selected.cameraPresetId ? 'Selected preset is missing or does not match the camera' : 'No preset selected'))}</small></label>${selectedType === 'motion' ? `<div class="motion-transition-arrow" aria-hidden="true">↓</div><label>END<select data-shot-field="motionEndPresetId">${presetOptions(selected.motionEndPresetId, 'No end preset')}</select><small>${escapeHtml(selectedEndPreset?.name || (selected.motionEndPresetId ? 'Selected End preset is missing or does not match the camera' : 'No End preset selected'))}</small></label><div class="wide motion-preset-status-grid">${motionPresetSummary('START', resolved.preset)}${motionPresetSummary('END', selectedEndPreset)}</div><section class="wide motion-assisted-setup"><div><span class="eyebrow">ASSISTED SETUP</span><h2>Save Current Camera Position</h2><p>Trinity sends preset STORE only. It does not read or capture joystick commands.</p>${selectedCameraLive ? `<p class="settings-warning">${escapeHtml(resolved.camera?.name || 'Selected camera')} is currently LIVE. STORE does not move it, but modifies live camera preset memory.</p>` : ''}</div><div class="motion-position-grid">${setupPosition('start', resolved.preset, startSetupNumber)}${setupPosition('end', selectedEndPreset, endSetupNumber)}</div></section><button type="button" class="wide" id="motion-manage-presets">OPEN CAMERA LIBRARY</button><label>Motion Style<select data-shot-field="motionStyle">${selected.motionStyle && !motionStyleLabels[selected.motionStyle] ? `<option value="${escapeHtml(selected.motionStyle)}" selected>Needs Review: ${escapeHtml(selected.motionStyle)}</option>` : ''}${motionStyleOptions}</select></label><label>Intended Speed<select data-shot-field="motionSpeedSetting">${motionSpeedOptions}</select><small>Creative intent only; current adapters do not apply speed.</small></label><label>Target Duration<input type="number" min="0" step="0.5" data-shot-duration-seconds value="${selected.motionTargetDurationMs ? selected.motionTargetDurationMs / 1000 : ''}" placeholder="Optional seconds"><small>Target only; actual duration is not guaranteed.</small></label><label class="wide">Motion Intent Notes<textarea data-shot-field="motionNotes">${escapeHtml(selected.motionNotes || '')}</textarea></label>` : ''}${selectedType === 'tracking' ? `<label class="checkbox-label"><input type="checkbox" data-shot-field="trackingPreferred" ${selected.trackingPreferred ? 'checked' : ''}> Enable Tracking</label>` : ''}<div class="resolved-shot"><em>${escapeHtml(selectedType === 'motion' ? motionStatus : resolved.readiness)}</em>${motionErrors.map(error => `<small>⚠ ${escapeHtml(error)}</small>`).join('')}</div></fieldset>
     </div>
     ${selectedType === 'motion' ? `<section class="motion-studio-summary panel"><span class="eyebrow">MOTION SUMMARY</span><h2>${escapeHtml(selected.name)}</h2><strong>${escapeHtml(resolved.camera?.name || 'Camera missing')}</strong><p>${escapeHtml(resolved.preset?.name || 'Missing Start')} → ${escapeHtml(selectedEndPreset?.name || 'Missing End')}</p><p>${escapeHtml(motionStyleLabels[selected.motionStyle] || `Needs Review: ${selected.motionStyle}`)} · ${escapeHtml(motionSpeedLabels[selected.motionSpeedSetting] || 'Medium')}${selected.motionTargetDurationMs ? ` · ~${selected.motionTargetDurationMs / 1000} sec target` : ''}</p><small>Execution today: camera preset transition to End. Start position and physical duration are not verified.</small></section>
-    <section class="motion-capability-panel panel"><span class="eyebrow">EXECUTION CAPABILITY</span><h2>${escapeHtml(capabilities?.adapterType || 'Adapter not configured')}</h2><ul><li class="${capabilities?.presetTransition ? 'supported' : 'unsupported'}">${capabilities?.presetTransition ? '✓' : '○'} Camera preset transition</li><li class="unsupported">○ Trinity speed control not available</li><li class="unsupported">○ Trinity duration control not available</li><li class="unsupported">○ Stop Motion not available</li><li class="unsupported">○ Physical position feedback not available</li></ul><p>Required Start: <strong>${escapeHtml(resolved.preset?.name || 'Missing Start')}</strong></p><p>Status: ${lastCommandedStart ? `${escapeHtml(preparedStudioMotion.statusLabel)}; physical position remains unverified.` : 'NOT PREPARED · Start position not verified.'}</p><span class="eyebrow">TEST TOOLS</span><div class="row-actions"><button id="motion-prepare-start" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>PREPARE START</button><button id="motion-run" class="live-button" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>RUN MOTION TEST</button>${lastCommandedStart ? '<button id="motion-cancel-prep">CANCEL PREP</button>' : ''}</div><small>Production workflow: Prepare in Live, then Take Live. Run Motion Test does not switch ATEM.</small></section>` : ''}
+    <section class="motion-capability-panel panel"><span class="eyebrow">EXECUTION CAPABILITY</span><h2>${escapeHtml(capabilities?.adapterType || 'Adapter not configured')}</h2><ul><li class="${capabilities?.presetStore ? 'supported' : 'unsupported'}">${capabilities?.presetStore ? '✓' : '○'} Store current position</li><li class="${capabilities?.presetTransition ? 'supported' : 'unsupported'}">${capabilities?.presetTransition ? '✓' : '○'} Camera preset transition</li><li class="unsupported">○ Trinity speed control not available</li><li class="unsupported">○ Trinity duration control not available</li><li class="unsupported">○ Stop Motion not available</li><li class="unsupported">○ Physical position feedback not available</li></ul><p>Required Start: <strong>${escapeHtml(resolved.preset?.name || 'Missing Start')}</strong></p><p>Status: ${lastCommandedStart ? `${escapeHtml(preparedStudioMotion.statusLabel)}; physical position remains unverified.` : 'NOT PREPARED · Start position not verified.'}</p><span class="eyebrow">TEST TOOLS</span><div class="row-actions"><button id="motion-prepare-start" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>PREPARE START</button><button id="motion-run" class="live-button" ${motionBlockingErrors.length || !capabilities?.presetRecall ? 'disabled' : ''}>RUN MOTION TEST</button>${lastCommandedStart ? '<button id="motion-cancel-prep">CANCEL PREP</button>' : ''}</div><small>Production workflow: Prepare in Live, then Take Live. Run Motion Test does not switch ATEM.</small></section>` : ''}
     <details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES</summary><div class="advanced-camera-notes-grid">
       ${textField('Logical camera role','logicalCameraRole',selected.logicalCameraRole)}
       ${textField('Subject','subject',selected.subject)}
@@ -2346,6 +2360,34 @@ function shotsPage() {
     selectedManagedCameraId = selectedCameraId;
     navigateToPage('cameras');
   });
+  document.querySelectorAll('[data-motion-store]').forEach(button => button.addEventListener('click', async () => {
+    const endpoint = button.dataset.motionStore;
+    const name = document.querySelector(`[data-motion-store-name="${endpoint}"]`)?.value?.trim();
+    const presetNumber = Number(document.querySelector(`[data-motion-store-number="${endpoint}"]`)?.value);
+    if (!name || !Number.isInteger(presetNumber) || presetNumber < 0 || presetNumber > 254) {
+      showNotification('Enter a preset name and a hardware preset number from 0 to 254.', { type: 'error' });
+      return;
+    }
+    const conflict = scopedPresets.find(preset => preset.presetNumber === presetNumber) || null;
+    let choice = 'store';
+    if (conflict || selectedCameraLive) choice = await choosePresetStoreAction({ cameraName: resolved.camera?.name || 'Selected camera', presetNumber, conflict, live: selectedCameraLive }, button);
+    if (choice === 'cancel') return;
+    try {
+      state = await window.trinity.storeMotionPreset(selectedCameraId, selected.id, endpoint, {
+        name, presetNumber, reuseExisting: choice === 'reuse', confirmOverwrite: choice === 'store' && Boolean(conflict), confirmLive: choice === 'store' && selectedCameraLive
+      });
+      showNotification(choice === 'reuse' ? `${conflict.name} assigned as Motion ${endpoint}.` : `${endpoint === 'start' ? 'Start' : 'End'} position stored as Hardware Preset ${presetNumber}.`, { type: 'success' });
+      render();
+    } catch (error) { showNotification(error.message || 'Camera preset could not be stored.', { type: 'error' }); }
+  }));
+  document.querySelectorAll('[data-motion-verify]').forEach(button => button.addEventListener('click', async () => {
+    const presetId = button.dataset.motionVerify === 'start' ? selected.cameraPresetId : selected.motionEndPresetId;
+    try {
+      state = await window.trinity.recallCameraPreset(selectedCameraId, presetId);
+      showNotification(`${button.dataset.motionVerify === 'start' ? 'Start' : 'End'} preset recalled once.`, { type: 'success' });
+      render();
+    } catch (error) { showNotification(error.message || 'Preset verification failed.', { type: 'error' }); }
+  }));
   document.getElementById('motion-prepare-start')?.addEventListener('click', async () => {
     try {
       state = await window.trinity.prepareMotionStart(selectedCameraId, selected.id);

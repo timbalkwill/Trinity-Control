@@ -1,5 +1,6 @@
 {
   "name": "trinity-control-refresh",
+  "productName": "Trinity Control",
   "version": "1.0.2-alpha.5.2",
   "description": "Production control system for Trinity Baptist Church",
   "author": "Tim Balkwill",
@@ -23,6 +24,7 @@
   "build": {
     "appId": "org.trinitybaptist.trinitycontrol",
     "productName": "Trinity Control",
+    "copyright": "Copyright © Trinity Baptist Church",
     "asar": true,
     "files": [
       "electron-main.cjs",
@@ -62,6 +64,7 @@
       "operator-commands.cjs",
       "operator-server.cjs",
       "preload.cjs",
+      "build/icons/trinity-control.png",
       "public/**/*",
       "package.json"
     ],
@@ -69,6 +72,7 @@
       "output": "dist"
     },
     "mac": {
+      "icon": "build/icons/trinity-control.icns",
       "category": "public.app-category.utilities",
       "identity": null,
       "hardenedRuntime": false,
@@ -84,6 +88,8 @@
       ]
     },
     "win": {
+      "icon": "build/icons/trinity-control.ico",
+      "executableName": "Trinity Control",
       "target": [
         {
           "target": "nsis",
@@ -95,6 +101,11 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": "always",
+      "installerIcon": "build/icons/trinity-control.ico",
+      "uninstallerIcon": "build/icons/trinity-control.ico",
+      "installerHeaderIcon": "build/icons/trinity-control.ico",
+      "shortcutName": "Trinity Control",
+      "uninstallDisplayName": "Trinity Control",
       "artifactName": "Trinity-Control-Setup-${version}-${arch}.${ext}"
     },
     "dmg": {

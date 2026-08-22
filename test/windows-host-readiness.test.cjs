@@ -16,6 +16,14 @@ test("electron-builder provides an unsigned x64 NSIS Windows production target",
   assert.deepEqual(pkg.build.win.target, [{ target: "nsis", arch: ["x64"] }]);
   assert.equal(pkg.build.nsis.oneClick, false);
   assert.equal(pkg.build.nsis.artifactName, "Trinity-Control-Setup-${version}-${arch}.${ext}");
+  assert.equal(pkg.productName, "Trinity Control");
+  assert.equal(pkg.build.win.executableName, "Trinity Control");
+  assert.equal(pkg.build.win.icon, "build/icons/trinity-control.ico");
+  assert.equal(pkg.build.nsis.installerIcon, "build/icons/trinity-control.ico");
+  assert.equal(pkg.build.nsis.uninstallerIcon, "build/icons/trinity-control.ico");
+  assert.equal(pkg.build.nsis.installerHeaderIcon, "build/icons/trinity-control.ico");
+  assert.equal(pkg.build.nsis.shortcutName, "Trinity Control");
+  assert.equal(pkg.build.nsis.uninstallDisplayName, "Trinity Control");
   assert.equal(pkg.build.win.certificateFile, undefined);
   const workflow = source(".github/workflows/build.yml");
   assert.match(workflow, /runs-on: windows-latest/);

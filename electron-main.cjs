@@ -30,8 +30,10 @@ const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./b
 const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
 const { deriveProductionReadiness } = require("./production-readiness.cjs");
 
+const APPLICATION_ID = "org.trinitybaptist.trinitycontrol";
 const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
 app.setName("Trinity Control");
+app.setAppUserModelId(APPLICATION_ID);
 app.setPath("userData", existingUserDataPath);
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -825,6 +827,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,
     backgroundColor: "#081018", title: "Trinity Control",
+    icon: path.join(__dirname, "build", "icons", "trinity-control.png"),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
   });
   mainWindow.on("closed", () => { mainWindow = null; });

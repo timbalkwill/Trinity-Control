@@ -17,13 +17,35 @@ function flatten(items) {
 }
 
 test("application metadata consistently identifies Trinity Control", () => {
+  assert.equal(packageJson.productName, "Trinity Control");
   assert.equal(packageJson.build.productName, "Trinity Control");
   assert.equal(packageJson.build.appId, "org.trinitybaptist.trinitycontrol");
   assert.match(packageJson.description, /Production control system for Trinity Baptist Church/);
   assert.match(main, /app\.setName\("Trinity Control"\)/);
+  assert.match(main, /const APPLICATION_ID = "org\.trinitybaptist\.trinitycontrol"/);
+  assert.match(main, /app\.setAppUserModelId\(APPLICATION_ID\)/);
   assert.match(main, /title: "Trinity Control"/);
   assert.match(html, /<title>Trinity Control<\/title>/);
   assert.match(main, /minWidth: 1024, minHeight: 700/);
+});
+
+test("Windows product, executable, installer, shortcut, and upgrade identity are deterministic", () => {
+  assert.equal(packageJson.build.appId, "org.trinitybaptist.trinitycontrol");
+  assert.equal(packageJson.build.win.executableName, "Trinity Control");
+  assert.equal(packageJson.build.nsis.shortcutName, "Trinity Control");
+  assert.equal(packageJson.build.nsis.uninstallDisplayName, "Trinity Control");
+  assert.equal(packageJson.build.nsis.artifactName, "Trinity-Control-Setup-${version}-${arch}.${ext}");
+  const workflow = fs.readFileSync(path.join(root, ".github", "workflows", "build.yml"), "utf8");
+  assert.match(workflow, /dist\/Trinity-Control-Setup-\*-x64\.exe/);
+  assert.doesNotMatch(JSON.stringify({ productName: packageJson.productName, build: packageJson.build, workflow }), /"(?:productName|executableName|shortcutName|uninstallDisplayName)":"Electron"/);
+});
+
+test("macOS and Browser Operator retain their purposeful Trinity identities", () => {
+  assert.equal(packageJson.build.mac.category, "public.app-category.utilities");
+  assert.equal(packageJson.build.dmg.title, "Trinity Control ${version}");
+  const operatorHtml = fs.readFileSync(path.join(root, "public", "operator", "index.html"), "utf8");
+  assert.match(operatorHtml, /<title>Trinity Browser Operator<\/title>/);
+  assert.match(operatorHtml, /apple-mobile-web-app-title" content="Trinity Operator"/);
 });
 
 test("production menu omits development commands and development menu includes them", () => {
@@ -54,11 +76,13 @@ test("About dialog shows safe package and runtime information", () => {
   assert.doesNotMatch(about, /credential|password|workspacePath|userData|homeDir/);
 });
 
-test("official wordmark remains untouched and square icon requirements are documented", () => {
+test("official wordmark remains untouched and the approved square icon is documented", () => {
   assert.equal(fs.existsSync(path.join(root, "public", "assets", "trinity-logo.png")), true);
   const instructions = fs.readFileSync(path.join(root, "build", "icons", "README.md"), "utf8");
   assert.match(instructions, /officially approved Trinity emblem/);
   assert.match(instructions, /not cropped, redrawn, or stretched/);
   assert.match(instructions, /trinity-control\.icns/);
   assert.match(instructions, /trinity-control\.ico/);
+  assert.match(instructions, /canonical square source/);
+  assert.equal(fs.existsSync(path.join(root, "build", "icons", "trinity-control.png")), true);
 });

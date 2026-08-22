@@ -134,8 +134,9 @@ test("type-specific Shot fields normalize, persist, and duplicate", () => {
 
 test("Shot execution resolution creates immutable type-specific objects", () => {
   const current = state();
+  current.cameraPresets.find(preset => preset.id === "pastor-tight").presetNumber = 3;
   current.cameraPresets.push(
-    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true })
+    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true, presetNumber: 5 })
   );
   const executions = [
     resolveShotExecution(current, normalizeShot({

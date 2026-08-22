@@ -56,7 +56,15 @@ function migrateVideoSources(state) {
       switcherMappings: { atem: { input: presentationConflict ? null : 4 } }, needsReview: presentationConflict
     })];
   }
-  state.settings = { ...(state.settings || {}), activeSwitcherBackend: text(state.settings?.activeSwitcherBackend) || "atem" };
+  const configuredTransition = String(state.settings?.videoSwitching?.defaultTransition || "").toLocaleLowerCase();
+  state.settings = {
+    ...(state.settings || {}),
+    activeSwitcherBackend: text(state.settings?.activeSwitcherBackend) || "atem",
+    videoSwitching: {
+      ...(state.settings?.videoSwitching || {}),
+      defaultTransition: configuredTransition === "cut" ? "cut" : "mix"
+    }
+  };
   return state.videoSources;
 }
 
@@ -67,4 +75,12 @@ function updateVideoSource(state, sourceId, patch = {}) {
   return state.videoSources[index];
 }
 
-module.exports = { migrateVideoSources, normalizeVideoSource, updateVideoSource };
+function updateVideoSwitchingSettings(state, patch = {}) {
+  state.settings = state.settings && typeof state.settings === "object" ? state.settings : {};
+  const requested = String(patch.defaultTransition || "").toLocaleLowerCase();
+  if (!new Set(["mix", "cut"]).has(requested)) throw new TypeError("Default transition must be Mix or Cut");
+  state.settings.videoSwitching = { ...(state.settings.videoSwitching || {}), defaultTransition: requested };
+  return state.settings.videoSwitching;
+}
+
+module.exports = { migrateVideoSources, normalizeVideoSource, updateVideoSource, updateVideoSwitchingSettings };

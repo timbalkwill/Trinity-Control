@@ -12,7 +12,9 @@ function createVideoTakeLive({ commands, videoRouter } = {}) {
     if (!alreadyLive) {
       try { await videoRouter.takeSource(videoSourceId); }
       catch (error) {
-        if (prepared) await commands.setPreparedMotionStatus(cameraId, "ready", "READY / START COMMANDED", `Switcher failed: ${error.message}`);
+        const ambiguous = new Set(["ATEM_CONFIRMATION_FAILED", "ATEM_TRANSITION_TIMEOUT", "SWITCHER_CONFIRMATION_MISSING"]).has(error?.code);
+        if (prepared && ambiguous && typeof commands.cancelPreparedMotion === "function") await commands.cancelPreparedMotion(cameraId);
+        else if (prepared) await commands.setPreparedMotionStatus(cameraId, "ready", "READY / START COMMANDED", `Switcher failed: ${error.message}`);
         throw error;
       }
     }

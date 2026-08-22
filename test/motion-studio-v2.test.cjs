@@ -52,6 +52,25 @@ test("missing Start and End presets remain stored but resolve Needs Attention", 
   assert.equal(current.shots.length, 1);
 });
 
+test("hardware preset mappings are required for Motion readiness and exposed in the execution plan", () => {
+  const current = state();
+  const shot = normalizeShot(motion());
+  let execution = resolveShotExecution(current, shot);
+  assert.equal(execution.valid, true);
+  assert.equal(execution.motion.startPreset.presetNumber, 1);
+  assert.equal(execution.motion.endPreset.presetNumber, 2);
+
+  current.cameraPresets.find(preset => preset.id === "main-tight").presetNumber = null;
+  execution = resolveShotExecution(current, shot);
+  assert.equal(execution.valid, false);
+  assert.match(execution.errors.join(" "), /end preset.*needs a hardware preset number/i);
+  assert.equal(execution.motion.endPreset.presetNumber, null);
+
+  current.cameraPresets.find(preset => preset.id === "main-tight").presetNumber = 2;
+  assert.equal(resolveShotExecution(current, shot).valid, true);
+  assert.equal(current.shots.length, 0, "validation reuses preset records and creates no Motion-only preset");
+});
+
 test("legacy speed metadata migrates idempotently and new intent metadata persists", () => {
   const legacy = { id: "legacy", name: "Legacy", shotType: "motion", motionSpeedSetting: "verySlow", motionDurationMs: 6000, custom: "keep" };
   const once = migrateShots([legacy])[0];
@@ -153,6 +172,10 @@ test("Motion Studio and Live present intent truthfully without fake controls", (
   const studio = renderer.slice(renderer.indexOf("function shotsPage()"), renderer.indexOf("function deviceConfigured"));
   const live = renderer.slice(renderer.indexOf("function CameraDirectorCard"), renderer.indexOf("function livePage"));
   assert.match(studio, /MOTION STUDIO/);
+  assert.match(studio, /Motion Shots use two saved camera presets/);
+  assert.match(studio, /Hardware Preset/);
+  assert.match(studio, /Needs Setup/);
+  assert.match(studio, /OPEN CAMERA LIBRARY/);
   assert.match(studio, /\+ NEW MOTION SHOT/);
   assert.match(studio, /motionStyle/);
   assert.match(studio, /Target Duration/);

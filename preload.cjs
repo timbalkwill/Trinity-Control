@@ -109,6 +109,7 @@ contextBridge.exposeInMainWorld("trinity", {
   takeCameraLive: cameraId => ipcRenderer.invoke("atem:take-live", cameraId),
   takeVideoSource: sourceId => ipcRenderer.invoke("video-switcher:take-source", sourceId),
   updateVideoSource: (sourceId, patch) => ipcRenderer.invoke("video-source:update", { sourceId, patch }),
+  updateVideoSwitchingSettings: patch => ipcRenderer.invoke("video-switcher:update-settings", patch),
   setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),

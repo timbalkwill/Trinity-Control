@@ -1093,6 +1093,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("video-switcher:status", () => videoRouter.getStatus());
   ipcMain.handle("video-switcher:take-source", (_e, videoSourceId) => videoTakeLive.takeSource(videoSourceId));
   ipcMain.handle("video-source:update", (_e, { sourceId, patch }) => commands.updateVideoSource(sourceId, patch));
+  ipcMain.handle("video-switcher:update-settings", (_e, patch) => commands.updateVideoSwitchingSettings(patch));
   ipcMain.handle("atem:status", () => videoRouter.getStatus());
   ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => {
     const source = videoRouter.getSources().find(item => item.cameraDeviceId === cameraDeviceId);

@@ -41,12 +41,22 @@ function programInputFromState(state) {
   return integerInput(state?.video?.mixEffects?.[0]?.programInput);
 }
 
+function mixEffectFromState(state) {
+  const mixEffect = state?.video?.mixEffects?.[0];
+  return {
+    programInput: integerInput(mixEffect?.programInput),
+    previewInput: integerInput(mixEffect?.previewInput),
+    transitioning: mixEffect?.transitionPosition?.inTransition === true,
+    remainingFrames: Number.isInteger(mixEffect?.transitionPosition?.remainingFrames) ? mixEffect.transitionPosition.remainingFrames : null
+  };
+}
+
 function createDefaultClient() {
   const { Atem } = require("atem-connection");
   return new Atem();
 }
 
-function createAtemService({ getState, clientFactory = createDefaultClient, logger = console, confirmationTimeoutMs = 2000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
+function createAtemService({ getState, clientFactory = createDefaultClient, logger = console, confirmationTimeoutMs = 2000, transitionConfirmationTimeoutMs = 30000, setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   if (typeof getState !== "function") throw new TypeError("getState is required");
   const subscribers = new Set();
   let client = null;
@@ -63,6 +73,9 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
       host: configuration.host,
       connectionState,
       programInput,
+      previewInput: connectionState === "connected" ? (patch.previewInput ?? status?.previewInput ?? null) : null,
+      transitioning: connectionState === "connected" && (patch.transitioning ?? status?.transitioning) === true,
+      remainingFrames: connectionState === "connected" ? (patch.remainingFrames ?? status?.remainingFrames ?? null) : null,
       liveCameraId: connectionState === "connected" ? cameraForProgramInput(configuration, programInput) : null,
       cameraInputs: { ...configuration.cameraInputs },
       message: patch.message || null
@@ -89,13 +102,12 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
 
   function bind(current) {
     current.on("connected", () => {
-      const programInput = programInputFromState(current.state);
-      publish(snapshot("connected", { programInput }));
+      publish(snapshot("connected", mixEffectFromState(current.state)));
     });
     current.on("disconnected", () => publish(snapshot("disconnected", { message: "ATEM disconnected" })));
     current.on("stateChanged", state => {
-      const programInput = programInputFromState(state);
-      if (programInput !== null) publish(snapshot("connected", { programInput }));
+      const mixEffect = mixEffectFromState(state);
+      if (mixEffect.programInput !== null) publish(snapshot("connected", mixEffect));
     });
     current.on("error", message => {
       logger.error?.(`[Trinity ATEM] ${String(message || "ATEM connection error")}`);
@@ -141,15 +153,9 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     return status;
   }
 
-  async function takeInput(input) {
-    if (!configuration.enabled) throw Object.assign(new Error("ATEM is disabled"), { code: "ATEM_DISABLED" });
-    if (!configuration.configured) throw Object.assign(new Error("ATEM is not configured"), { code: "ATEM_NOT_CONFIGURED" });
-    if (status.connectionState !== "connected" || !client) throw Object.assign(new Error("ATEM is disconnected"), { code: "ATEM_DISCONNECTED" });
-    input = integerInput(input);
-    if (input === null) throw Object.assign(new Error("Video Source has no ATEM input mapping"), { code: "ATEM_MAPPING_MISSING" });
-    if (status.programInput === input) return status;
-    let cancelConfirmation = () => {};
-    const confirmation = new Promise((resolve, reject) => {
+  function waitForStatus(predicate, timeoutMs, timeoutMessage, timeoutCode) {
+    let cancel = () => {};
+    const pending = new Promise((resolve, reject) => {
       let settled = false;
       const finish = (error, value) => {
         if (settled) return;
@@ -159,24 +165,53 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
         error ? reject(error) : resolve(value);
       };
       const listener = next => {
-        if (next.connectionState !== "connected") finish(Object.assign(new Error("ATEM disconnected before PROGRAM confirmation"), { code: "ATEM_CONFIRMATION_FAILED" }));
-        else if (next.programInput === input) finish(null, next);
+        if (next.connectionState !== "connected") finish(Object.assign(new Error("ATEM disconnected during transition"), { code: "ATEM_CONFIRMATION_FAILED" }));
+        else if (predicate(next)) finish(null, next);
       };
-      const timer = setTimer(() => finish(Object.assign(new Error("ATEM PROGRAM confirmation timed out"), { code: "ATEM_CONFIRMATION_TIMEOUT" })), confirmationTimeoutMs);
+      const timer = setTimer(() => finish(Object.assign(new Error(timeoutMessage), { code: timeoutCode })), timeoutMs);
+      cancel = () => finish(Object.assign(new Error("ATEM transition confirmation cancelled"), { code: "ATEM_CONFIRMATION_CANCELLED" }));
       subscribers.add(listener);
-      cancelConfirmation = () => finish(Object.assign(new Error("ATEM PROGRAM confirmation cancelled"), { code: "ATEM_CONFIRMATION_CANCELLED" }));
+      listener(status);
     });
-    try { await client.changeProgramInput(input); }
-    catch {
-      cancelConfirmation();
-      confirmation.catch(() => {});
-      throw Object.assign(new Error("ATEM rejected the PROGRAM switch"), { code: "ATEM_SWITCH_FAILED" });
-    }
-    return confirmation;
+    pending.cancel = cancel;
+    return pending;
   }
 
-  const takeSource = mapping => takeInput(mapping?.input);
-  const takeLive = cameraDeviceId => takeInput(configuration.cameraInputs[cameraDeviceId]);
+  async function takeInput(input, { transition = "mix" } = {}) {
+    if (!configuration.enabled) throw Object.assign(new Error("ATEM is disabled"), { code: "ATEM_DISABLED" });
+    if (!configuration.configured) throw Object.assign(new Error("ATEM is not configured"), { code: "ATEM_NOT_CONFIGURED" });
+    if (status.connectionState !== "connected" || !client) throw Object.assign(new Error("ATEM is disconnected"), { code: "ATEM_DISCONNECTED" });
+    input = integerInput(input);
+    if (input === null) throw Object.assign(new Error("Video Source has no ATEM input mapping"), { code: "ATEM_MAPPING_MISSING" });
+    if (status.programInput === input) return status;
+    transition = String(transition || "mix").toLocaleLowerCase();
+    if (!new Set(["mix", "cut"]).has(transition)) throw Object.assign(new Error("Unsupported video transition"), { code: "ATEM_TRANSITION_UNSUPPORTED" });
+    try { await client.changePreviewInput(input); }
+    catch { throw Object.assign(new Error("ATEM rejected the PREVIEW selection"), { code: "ATEM_PREVIEW_FAILED" }); }
+    await waitForStatus(next => next.previewInput === input, confirmationTimeoutMs, "ATEM PREVIEW confirmation timed out", "ATEM_PREVIEW_TIMEOUT");
+    if (transition === "mix") {
+      const { Enums } = require("atem-connection");
+      try { await client.setTransitionStyle({ nextStyle: Enums.TransitionStyle.MIX }); }
+      catch { throw Object.assign(new Error("ATEM rejected the Mix transition style"), { code: "ATEM_MIX_STYLE_FAILED" }); }
+    }
+    let transitionStarted = false;
+    const completion = waitForStatus(next => {
+      if (next.transitioning) transitionStarted = true;
+      return (transition === "cut" || transitionStarted) && !next.transitioning && next.programInput === input;
+    }, transitionConfirmationTimeoutMs, "ATEM transition confirmation timed out", "ATEM_TRANSITION_TIMEOUT");
+    try {
+      if (transition === "mix") await client.autoTransition();
+      else await client.cut();
+    } catch {
+      completion.cancel();
+      completion.catch(() => {});
+      throw Object.assign(new Error(transition === "mix" ? "ATEM rejected the Auto transition" : "ATEM rejected the Cut"), { code: transition === "mix" ? "ATEM_AUTO_FAILED" : "ATEM_CUT_FAILED" });
+    }
+    return completion;
+  }
+
+  const takeSource = (mapping, options) => takeInput(mapping?.input, options);
+  const takeLive = (cameraDeviceId, options) => takeInput(configuration.cameraInputs[cameraDeviceId], options);
 
   return Object.freeze({
     getStatus: () => status,
@@ -189,4 +224,4 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
   });
 }
 
-module.exports = { atemConfiguration, cameraForProgramInput, createAtemService, programInputFromState };
+module.exports = { atemConfiguration, cameraForProgramInput, createAtemService, mixEffectFromState, programInputFromState };

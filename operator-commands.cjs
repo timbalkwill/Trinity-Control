@@ -15,7 +15,7 @@ const lightingScenes = require("./lighting-scene-operations.cjs");
 const { createLightingExecutor } = require("./lighting-execution.cjs");
 const { createLightingActiveState } = require("./lighting-active-state.cjs");
 const { createPreparedMotionState } = require("./prepared-motion-state.cjs");
-const { updateVideoSource } = require("./video-source-operations.cjs");
+const { updateVideoSource, updateVideoSwitchingSettings } = require("./video-source-operations.cjs");
 const {
   reconcileLightingScenes,
   replaceLightingReferences,
@@ -289,6 +289,7 @@ function createOperatorCommands({
     getLightingActiveState: () => lightingActiveState.get(),
     getPreparedMotion: cameraId => preparedMotionState.get(cameraId),
     updateVideoSource: (sourceId, patch) => mutate(state => updateVideoSource(state, sourceId, patch)),
+    updateVideoSwitchingSettings: patch => mutate(state => updateVideoSwitchingSettings(state, patch)),
     setPreparedMotionStatus: (cameraId, status, label, errorMessage) => enqueue(() => {
       preparedMotionState.setStatus(cameraId, status, label, errorMessage);
       return publish(loadState());

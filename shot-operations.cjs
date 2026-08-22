@@ -302,7 +302,7 @@ function resolveShotExecution(state, shotOrId, { referenceRole = null, reference
   if (!camera) errors.push(`Missing camera for Shot "${shot.name}"`);
   else if (camera.enabled === false) errors.push(`Invalid camera reference for Shot "${shot.name}": ${camera.name || camera.id} is disabled`);
 
-  const resolvePreset = (presetId, label) => {
+  const resolvePreset = (presetId, label, { requireHardwareNumber = false } = {}) => {
     if (!presetId) {
       errors.push(`Missing ${label} for Shot "${shot.name}"`);
       return null;
@@ -321,7 +321,10 @@ function resolveShotExecution(state, shotOrId, { referenceRole = null, reference
       errors.push(`Invalid ${label} reference for Shot "${shot.name}": ${scoped.name || scoped.id} is disabled`);
       return null;
     }
-    return { id: scoped.id, name: scoped.name || null, cameraDeviceId: scoped.cameraDeviceId };
+    if (requireHardwareNumber && (!Number.isInteger(scoped.presetNumber) || scoped.presetNumber < 0)) {
+      errors.push(`Invalid ${label} reference for Shot "${shot.name}": ${scoped.name || scoped.id} needs a hardware preset number`);
+    }
+    return { id: scoped.id, name: scoped.name || null, cameraDeviceId: scoped.cameraDeviceId, presetNumber: scoped.presetNumber ?? null };
   };
 
   const cameraExecution = camera ? {
@@ -336,8 +339,8 @@ function resolveShotExecution(state, shotOrId, { referenceRole = null, reference
     staticExecution = { preset: resolvePreset(shot.cameraPresetId, "preset") };
   } else if (type === "motion") {
     motionExecution = {
-      startPreset: resolvePreset(shot.cameraPresetId, "start preset"),
-      endPreset: resolvePreset(shot.motionEndPresetId, "end preset"),
+      startPreset: resolvePreset(shot.cameraPresetId, "start preset", { requireHardwareNumber: true }),
+      endPreset: resolvePreset(shot.motionEndPresetId, "end preset", { requireHardwareNumber: true }),
       speed: { value: shot.motionSpeedSetting, label: speedLabel(shot.motionSpeedSetting) },
       style: { value: shot.motionStyle, label: styleLabel(shot.motionStyle), recognized: MOTION_STYLES.includes(shot.motionStyle) },
       targetDurationMs: shot.motionTargetDurationMs

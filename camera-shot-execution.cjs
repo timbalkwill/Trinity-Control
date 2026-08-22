@@ -34,20 +34,22 @@ function resultFor(execution, status, details = {}) {
 }
 
 function executeOne(execution, cameraExecutor) {
-    if (execution?.valid !== true || (Array.isArray(execution?.errors) && execution.errors.length)) {
-      return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
-        message: execution?.errors?.join("; ") || "Shot execution validation failed",
-        errors: Array.isArray(execution?.errors) ? [...execution.errors] : []
-      });
-    }
-    if (execution.type === "motion") {
+    // GO/BACK and Production Looks intentionally never execute Motion or Tracking,
+    // even when their authoring records currently need attention.
+    if (execution?.type === "motion") {
       return resultFor(execution, SHOT_EXECUTION_STATUS.MOTION_UNSUPPORTED, {
         message: "Motion Shot execution is not implemented"
       });
     }
-    if (execution.type === "tracking") {
+    if (execution?.type === "tracking") {
       return resultFor(execution, SHOT_EXECUTION_STATUS.TRACKING_UNSUPPORTED, {
         message: "Tracking Shot execution is not implemented"
+      });
+    }
+    if (execution?.valid !== true || (Array.isArray(execution?.errors) && execution.errors.length)) {
+      return resultFor(execution, SHOT_EXECUTION_STATUS.VALIDATION_SKIPPED, {
+        message: execution?.errors?.join("; ") || "Shot execution validation failed",
+        errors: Array.isArray(execution?.errors) ? [...execution.errors] : []
       });
     }
     if (execution.type !== "static") {

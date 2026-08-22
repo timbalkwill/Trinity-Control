@@ -9,6 +9,9 @@ const test = require("node:test");
 const { atemConfiguration, cameraForProgramInput, createAtemService } = require("../atem-service.cjs");
 const { normalizeDevice } = require("../device-operations.cjs");
 const { buildSystemStatus } = require("../system-status.cjs");
+const { createSwitcherAdapterRegistry } = require("../switcher-adapter-registry.cjs");
+const { createVideoRouter } = require("../video-router.cjs");
+const { createVideoTakeLive } = require("../video-take-live.cjs");
 
 function stateFixture(patch = {}) {
   return {
@@ -32,9 +35,13 @@ class MockAtem extends EventEmitter {
   constructor({ failConnect = false } = {}) {
     super();
     this.failConnect = failConnect;
-    this.state = { video: { mixEffects: [{ programInput: 4 }] } };
+    this.state = { video: { mixEffects: [{ programInput: 4, previewInput: 2, transitionPosition: { inTransition: false, remainingFrames: 0 } }] } };
     this.connectCalls = [];
     this.programCalls = [];
+    this.previewCalls = [];
+    this.transitionStyleCalls = [];
+    this.autoCalls = 0;
+    this.cutCalls = 0;
     this.disconnectCalls = 0;
   }
   async connect(host) {
@@ -43,10 +50,27 @@ class MockAtem extends EventEmitter {
     this.emit("connected");
   }
   async changeProgramInput(input) { this.programCalls.push(input); }
+  async changePreviewInput(input) { this.previewCalls.push(input); this.setState({ previewInput: input }); }
+  async setTransitionStyle(properties) { this.transitionStyleCalls.push(properties); }
+  async autoTransition() { this.autoCalls += 1; this.setState({ inTransition: true, remainingFrames: 12 }); }
+  async cut() { this.cutCalls += 1; this.setState({ inTransition: false, remainingFrames: 0, programInput: this.state.video.mixEffects[0].previewInput }); }
   async disconnect() { this.disconnectCalls += 1; }
   async destroy() {}
   setProgram(input) {
-    this.state = { video: { mixEffects: [{ programInput: input }] } };
+    this.setState({ programInput: input });
+  }
+  setState(patch) {
+    const current = this.state.video.mixEffects[0];
+    this.state = { video: { mixEffects: [{
+      ...current,
+      ...(patch.programInput === undefined ? {} : { programInput: patch.programInput }),
+      ...(patch.previewInput === undefined ? {} : { previewInput: patch.previewInput }),
+      transitionPosition: {
+        ...current.transitionPosition,
+        ...(patch.inTransition === undefined ? {} : { inTransition: patch.inTransition }),
+        ...(patch.remainingFrames === undefined ? {} : { remainingFrames: patch.remainingFrames })
+      }
+    }] } };
     this.emit("stateChanged", this.state, ["video.mixEffects.0.programInput"]);
   }
 }
@@ -93,31 +117,87 @@ test("physical PROGRAM changes and disconnects drive authoritative LIVE state", 
   assert.equal(service.getStatus().connectionState, "disconnected");
   assert.equal(service.getStatus().programInput, null);
   assert.equal(service.getStatus().liveCameraId, null);
-  client.state = { video: { mixEffects: [{ programInput: 4 }] } };
+  client.state = { video: { mixEffects: [{ programInput: 4, previewInput: 2, transitionPosition: { inTransition: false, remainingFrames: 0 } }] } };
   client.emit("connected");
   assert.equal(service.getStatus().liveCameraId, "main");
   assert.ok(statuses.length >= 6);
 });
 
-test("TAKE LIVE sends exactly one mapped PROGRAM command and waits for ATEM confirmation", async () => {
+test("TAKE LIVE uses native Preview, Mix, and Auto and waits for authoritative transition completion", async () => {
   const current = stateFixture();
   const client = new MockAtem();
   const service = createAtemService({ getState: () => current, clientFactory: () => client, logger: { error() {} } });
   await service.initialize();
 
-  for (const [cameraId, input] of [["main", 4], ["left", 2], ["right", 1]]) {
-    const beforeLive = service.getStatus().liveCameraId;
-    const beforeCalls = client.programCalls.length;
-    const taking = service.takeLive(cameraId);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(client.programCalls.length, beforeCalls + (beforeLive === cameraId ? 0 : 1));
-    if (beforeLive !== cameraId) assert.equal(client.programCalls.at(-1), input);
-    assert.equal(service.getStatus().liveCameraId, beforeLive);
-    if (beforeLive !== cameraId) client.setProgram(input);
-    await taking;
-    assert.equal(service.getStatus().liveCameraId, cameraId);
-  }
+  const taking = service.takeLive("left");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(client.previewCalls, [2]);
+  assert.deepEqual(client.transitionStyleCalls, [{ nextStyle: 0 }]);
+  assert.equal(client.autoCalls, 1);
+  assert.equal(client.programCalls.length, 0);
+  assert.equal(service.getStatus().liveCameraId, "main");
+  assert.equal(service.getStatus().transitioning, true);
+  client.setState({ programInput: 2, inTransition: false, remainingFrames: 0 });
+  await taking;
+  assert.equal(service.getStatus().liveCameraId, "left");
   assert.deepEqual(current.live, { cueIndex: 0 });
+});
+
+test("explicit Cut uses native Preview and Cut without Auto or direct PROGRAM", async () => {
+  const client = new MockAtem();
+  const service = createAtemService({ getState: () => stateFixture(), clientFactory: () => client, logger: { error() {} } });
+  await service.initialize();
+  await service.takeLive("right", { transition: "cut" });
+  assert.deepEqual(client.previewCalls, [1]);
+  assert.equal(client.cutCalls, 1);
+  assert.equal(client.autoCalls, 0);
+  assert.equal(client.programCalls.length, 0);
+  assert.equal(service.getStatus().liveCameraId, "right");
+});
+
+test("failed Preview or Auto never falls back to Cut or direct PROGRAM", async () => {
+  for (const failure of ["preview", "auto"]) {
+    const client = new MockAtem();
+    if (failure === "preview") client.changePreviewInput = async () => { throw new Error("preview failed"); };
+    if (failure === "auto") client.autoTransition = async () => { throw new Error("auto failed"); };
+    const service = createAtemService({ getState: () => stateFixture(), clientFactory: () => client, logger: { error() {} } });
+    await service.initialize();
+    await assert.rejects(service.takeLive("left"), error => error.code === (failure === "preview" ? "ATEM_PREVIEW_FAILED" : "ATEM_AUTO_FAILED"));
+    assert.equal(client.cutCalls, 0);
+    assert.equal(client.programCalls.length, 0);
+    assert.equal(service.getStatus().liveCameraId, "main");
+  }
+});
+
+test("prepared Motion waits until Mix completes authoritatively and then runs End exactly once", async () => {
+  const current = stateFixture();
+  current.settings = { activeSwitcherBackend: "atem", videoSwitching: { defaultTransition: "mix" } };
+  current.videoSources = [
+    { id: "source-main", name: "Main", sourceType: "camera", cameraDeviceId: "main", enabled: true, switcherMappings: { atem: { input: 4 } } },
+    { id: "source-left", name: "Left", sourceType: "camera", cameraDeviceId: "left", enabled: true, switcherMappings: { atem: { input: 2 } } }
+  ];
+  const client = new MockAtem();
+  const service = createAtemService({ getState: () => current, clientFactory: () => client, logger: { error() {} } });
+  await service.initialize();
+  const router = createVideoRouter({ getState: () => current, adapters: createSwitcherAdapterRegistry({ atem: service }) });
+  let prepared = { shotId: "left-motion" };
+  let motionCalls = 0;
+  const commands = {
+    getPreparedMotion: cameraId => cameraId === "left" ? prepared : null,
+    setPreparedMotionStatus: async () => {},
+    runCameraMotion: async () => { motionCalls += 1; prepared = null; return {}; }
+  };
+  const transaction = createVideoTakeLive({ commands, videoRouter: router });
+  const taking = transaction.takeSource("source-left");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(client.autoCalls, 1);
+  assert.equal(motionCalls, 0);
+  assert.equal(router.getStatus().liveSourceId, "source-main");
+  client.setState({ programInput: 2, inTransition: false, remainingFrames: 0 });
+  await taking;
+  assert.equal(motionCalls, 1);
+  assert.equal(prepared, null);
+  assert.equal(router.getStatus().liveSourceId, "source-left");
 });
 
 test("disabled, disconnected, missing mapping, and failed connection remain safe", async () => {

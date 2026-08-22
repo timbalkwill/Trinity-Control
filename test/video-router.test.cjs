@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { migrateVideoSources, normalizeVideoSource } = require("../video-source-operations.cjs");
+const { migrateVideoSources, normalizeVideoSource, updateVideoSwitchingSettings } = require("../video-source-operations.cjs");
 const { createSwitcherAdapterRegistry } = require("../switcher-adapter-registry.cjs");
 const { createVideoRouter } = require("../video-router.cjs");
 const { createVideoTakeLive } = require("../video-take-live.cjs");
@@ -27,13 +27,14 @@ function stateFixture() {
 function adapterHarness(initialInput = 1) {
   let programInput = initialInput;
   const calls = [];
+  const transitions = [];
   const subscribers = new Set();
   const adapter = {
     getStatus: () => ({ name: "ATEM", enabled: true, configured: true, connectionState: "connected", programInput }),
-    takeSource: async mapping => { calls.push(mapping.input); programInput = mapping.input; for (const fn of subscribers) fn(); },
+    takeSource: async (mapping, options) => { calls.push(mapping.input); transitions.push(options.transition); programInput = mapping.input; for (const fn of subscribers) fn(); },
     subscribe: fn => { subscribers.add(fn); return () => subscribers.delete(fn); }
   };
-  return { adapter, calls, physical(input) { programInput = input; for (const fn of subscribers) fn(); } };
+  return { adapter, calls, transitions, physical(input) { programInput = input; for (const fn of subscribers) fn(); } };
 }
 
 test("migration creates stable logical camera and Presentation sources with preserved ATEM inputs", () => {
@@ -43,6 +44,7 @@ test("migration creates stable logical camera and Presentation sources with pres
   assert.equal(state.videoSources.find(item => item.id === "source-presentation").sourceType, "video");
   assert.deepEqual(state.videoSources.map(item => item.switcherMappings.atem.input), [1, 2, 3, 4]);
   assert.equal(state.settings.activeSwitcherBackend, "atem");
+  assert.equal(state.settings.videoSwitching.defaultTransition, "mix");
   const again = JSON.stringify(state.videoSources);
   migrateVideoSources(state);
   assert.equal(JSON.stringify(state.videoSources), again);
@@ -66,9 +68,35 @@ test("router resolves source mapping and reverse-maps authoritative PROGRAM iden
   assert.equal(router.getStatus().liveSourceId, "source-main-camera");
   await router.takeSource("source-presentation");
   assert.deepEqual(harness.calls, [4]);
+  assert.deepEqual(harness.transitions, ["mix"]);
   assert.equal(router.getStatus().liveSourceId, "source-presentation");
   assert.equal(router.getStatus().liveSourceName, "Presentation");
   assert.notEqual(router.getStatus().liveSourceId, "source-main-camera");
+});
+
+test("generic router defaults to Mix, preserves explicit Cut, and passes intent to a future adapter", async () => {
+  const state = stateFixture();
+  const future = adapterHarness(9);
+  state.settings.activeSwitcherBackend = "vmix";
+  state.videoSources[0].switcherMappings.vmix = { input: 10 };
+  const router = createVideoRouter({ getState: () => state, adapters: createSwitcherAdapterRegistry({ vmix: future.adapter }) });
+  await router.takeSource("source-main-camera");
+  assert.deepEqual(future.transitions, ["mix"]);
+  future.physical(9);
+  await router.takeSource("source-main-camera", { transition: "cut" });
+  assert.deepEqual(future.transitions, ["mix", "cut"]);
+});
+
+test("Default Transition setting persists only supported generic modes", () => {
+  const state = stateFixture();
+  updateVideoSwitchingSettings(state, { defaultTransition: "cut" });
+  assert.equal(state.settings.videoSwitching.defaultTransition, "cut");
+  assert.throws(() => updateVideoSwitchingSettings(state, { defaultTransition: "wipe" }), /Mix or Cut/);
+  const renderer = source("public/app.js");
+  assert.match(renderer, /Default Transition/);
+  assert.match(renderer, /updateVideoSwitchingSettings/);
+  assert.match(source("preload.cjs"), /video-switcher:update-settings/);
+  assert.match(source("electron-main.cjs"), /video-switcher:update-settings/);
 });
 
 test("missing mappings fail safely and another adapter can register without router or UI changes", async () => {

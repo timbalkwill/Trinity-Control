@@ -2,9 +2,13 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const {
   DEFAULT_SHOT_DEFINITIONS,
+  MOTION_SPEED_SETTINGS,
   SUGGESTED_SHOT_CATEGORIES,
+  SHOT_TYPES,
   countShotReferences,
   createShot,
   deleteShot,
@@ -19,6 +23,7 @@ const {
   normalizeShot,
   reorderShot,
   resolveShotTarget,
+  resolveShotExecution,
   summarizeShot,
   updateShot,
   validateShot
@@ -74,6 +79,212 @@ test("malformed partial Shots normalize safely and preserve unknown fields", () 
   assert.deepEqual(migrated[0].tags, []);
   assert.equal(migrated[0].customFutureField, "preserved");
   assert.equal(validateShot(migrated[0]).valid, true);
+});
+
+test("Shot types migrate, default, and persist through CRUD", () => {
+  assert.deepEqual(SHOT_TYPES, ["static", "motion", "tracking"]);
+  assert.deepEqual(MOTION_SPEED_SETTINGS, ["verySlow", "slow", "medium", "fast"]);
+  assert.equal(migrateShots([{ id: "legacy", name: "Legacy Shot" }])[0].shotType, "static");
+  assert.equal(normalizeShot({ name: "Unknown Type", shotType: "other" }).shotType, "static");
+
+  const current = state();
+  const created = createShot(current, { name: "New Shot" }, { id: "shot", now: 1000 });
+  assert.equal(created.shotType, "static");
+
+  updateShot(current, "shot", { shotType: "motion" }, { now: 2000 });
+  assert.equal(current.shots[0].shotType, "motion");
+
+  const copy = duplicateShot(current, "shot", { id: "copy", now: 3000 });
+  assert.equal(copy.shotType, "motion");
+
+  updateShot(current, "shot", { shotType: "tracking" }, { now: 4000 });
+  assert.equal(current.shots[0].shotType, "tracking");
+});
+
+test("type-specific Shot fields normalize, persist, and duplicate", () => {
+  const current = state();
+  current.cameraPresets.push(normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true }));
+  const legacy = normalizeShot({ id: "legacy", name: "Legacy", cameraPresetId: "pastor-tight", trackingPreferred: true, motionSpeed: 0.5 });
+  assert.equal(legacy.shotType, "static");
+  assert.equal(legacy.cameraPresetId, "pastor-tight");
+  assert.equal(legacy.trackingPreferred, true);
+  assert.equal(legacy.motionSpeed, 0.5);
+  assert.equal(legacy.motionEndPresetId, null);
+  assert.equal(legacy.motionSpeedSetting, "medium");
+
+  createShot(current, {
+    name: "Motion Shot",
+    shotType: "motion",
+    cameraDeviceId: "main",
+    cameraPresetId: "pastor-tight",
+    motionEndPresetId: "main-end",
+    motionSpeedSetting: "verySlow"
+  }, { id: "motion", now: 1000 });
+  const copy = duplicateShot(current, "motion", { id: "motion-copy", now: 2000 });
+  assert.equal(copy.shotType, "motion");
+  assert.equal(copy.cameraDeviceId, "main");
+  assert.equal(copy.cameraPresetId, "pastor-tight");
+  assert.equal(copy.motionEndPresetId, "main-end");
+  assert.equal(copy.motionSpeedSetting, "verySlow");
+
+  updateShot(current, "motion", { motionSpeedSetting: "fast" }, { now: 3000 });
+  assert.equal(current.shots[0].motionSpeedSetting, "fast");
+  assert.equal(normalizeShot({ name: "Invalid speed", motionSpeedSetting: "warp" }).motionSpeedSetting, "medium");
+});
+
+test("Shot execution resolution creates immutable type-specific objects", () => {
+  const current = state();
+  current.cameraPresets.find(preset => preset.id === "pastor-tight").presetNumber = 3;
+  current.cameraPresets.push(
+    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true, presetNumber: 5 })
+  );
+  const executions = [
+    resolveShotExecution(current, normalizeShot({
+      id: "static", name: "Static", shotType: "static", cameraDeviceId: "main", cameraPresetId: "pastor-tight"
+    })),
+    resolveShotExecution(current, normalizeShot({
+      id: "motion", name: "Motion", shotType: "motion", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", motionEndPresetId: "main-end", motionSpeedSetting: "verySlow"
+    })),
+    resolveShotExecution(current, normalizeShot({
+      id: "tracking", name: "Tracking", shotType: "tracking", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", trackingPreferred: true
+    }))
+  ];
+  assert.equal(executions[0].static.preset.id, "pastor-tight");
+  assert.equal(executions[1].motion.startPreset.id, "pastor-tight");
+  assert.equal(executions[1].motion.endPreset.id, "main-end");
+  assert.deepEqual(executions[1].motion.speed, { value: "verySlow", label: "Very Slow" });
+  assert.equal(executions[2].tracking.startingPreset.id, "pastor-tight");
+  assert.equal(executions[2].tracking.enabled, true);
+  assert.ok(executions.every(item => item.valid && Object.isFrozen(item) && Object.isFrozen(item.camera)));
+});
+
+test("Shot execution resolution reports missing and invalid references", () => {
+  const current = state();
+  const missing = resolveShotExecution(current, "missing-shot");
+  assert.equal(missing.valid, false);
+  assert.match(missing.errors[0], /Invalid Shot reference/);
+
+  const motion = resolveShotExecution(current, normalizeShot({
+    id: "bad-motion", name: "Bad Motion", shotType: "motion",
+    cameraDeviceId: "main", cameraPresetId: "missing-start", motionEndPresetId: "left-wide"
+  }));
+  assert.equal(motion.valid, false);
+  assert.match(motion.errors.join("; "), /Missing start preset/);
+  assert.match(motion.errors.join("; "), /belongs to another camera/);
+
+  const tracking = resolveShotExecution(current, normalizeShot({
+    id: "bad-tracking", name: "Bad Tracking", shotType: "tracking", cameraDeviceId: "missing-camera"
+  }));
+  assert.match(tracking.errors.join("; "), /Missing camera/);
+  assert.match(tracking.errors.join("; "), /Missing starting preset/);
+});
+
+test("GO excludes every legacy Production Look Shot reference from its snapshot", () => {
+  const current = state();
+  current.cameraPresets.push(
+    normalizeCameraPreset({ id: "main-end", name: "Main End", cameraDeviceId: "main", enabled: true })
+  );
+  current.shots = [
+    normalizeShot({
+      id: "static", name: "Static", shotType: "static", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", operatorNotes: "private notes"
+    }),
+    normalizeShot({
+      id: "motion", name: "Motion", shotType: "motion", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", motionEndPresetId: "main-end", motionSpeedSetting: "slow"
+    }),
+    normalizeShot({
+      id: "tracking", name: "Tracking", shotType: "tracking", cameraDeviceId: "main",
+      cameraPresetId: "pastor-tight", trackingPreferred: true
+    })
+  ];
+  current.productionLooks = [{
+    schemaVersion: 3,
+    id: "look",
+    name: "Shot Look",
+    enabled: true,
+    selectedShotId: "static",
+    cameraAssignments: [
+      { role: "motion", shotId: "motion" },
+      { role: "tracking", shotId: "tracking" },
+      { role: "invalid", shotId: "missing-shot" }
+    ],
+    cameraPresets: {},
+    priorityCameraId: "main"
+  }];
+  current.runOfService = [{ id: "cue", name: "Cue", productionLookId: "look" }];
+
+  executeCue(current, 0, { now: () => 5000 });
+  const snapshot = current.live.executionSnapshot;
+  assert.equal(Object.hasOwn(snapshot, "shotExecutions"), false);
+  assert.equal(Object.hasOwn(snapshot, "shotValidationErrors"), false);
+  assert.equal(snapshot.warnings.some(item => item.includes("missing-shot")), false);
+  const frozen = JSON.stringify(snapshot);
+  current.shots[0].name = "Edited after GO";
+  current.cameraPresets.find(item => item.id === "pastor-tight").name = "Edited preset";
+  assert.equal(JSON.stringify(current.live.executionSnapshot), frozen);
+});
+
+test("Shot reference summary renders without undefined camera variables", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const source = renderer.match(/function shotReferenceSummary\(shotId\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(source, "Shot reference summary function is present");
+  const summarize = new Function("state", `${source}; return shotReferenceSummary("shot");`);
+  const summary = summarize({
+    productionLooks: [{ selectedShotId: "shot", cameraAssignments: [{ shotId: "shot" }] }],
+    runOfService: [],
+    cueTemplates: [],
+    motionStudioReferences: []
+  });
+  assert.deepEqual(summary, {
+    counts: { "Production Looks": 2, Cues: 0, Templates: 0, "Motion Studio": 0 },
+    total: 2
+  });
+});
+
+test("renderer wires Shot Type persistence and Lighting card interactions", () => {
+  const renderer = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
+  const scopedPresetSource = renderer.match(/function cameraScopedPresets\(presets, cameraDeviceId\) \{[\s\S]*?\n\}/)?.[0];
+  assert.ok(scopedPresetSource, "camera-scoped preset helper is present");
+  const scopePresets = new Function(`${scopedPresetSource}; return cameraScopedPresets;`)();
+  assert.deepEqual(scopePresets([
+    { id: "wide", cameraDeviceId: "main", name: "Wide" },
+    { id: "wide", cameraDeviceId: "left", name: "Wide" },
+    { id: "wide", cameraDeviceId: "main", name: "Duplicate exact pair" },
+    { id: "tight", cameraDeviceId: "main", name: "Wide" }
+  ], "main"), [
+    { id: "wide", cameraDeviceId: "main", name: "Wide" },
+    { id: "tight", cameraDeviceId: "main", name: "Wide" }
+  ]);
+
+  const shotsPage = renderer.slice(renderer.indexOf("function shotsPage()"), renderer.indexOf("function deviceConfigured"));
+  assert.match(shotsPage, /select data-shot-field="shotType"/);
+  assert.match(shotsPage, /window\.trinity\.updateShot\(selected\.id, patch\)/);
+  assert.match(shotsPage, /id="shot-save" class="live-button">SAVE</);
+  assert.match(shotsPage, /saveButton\.onpointerdown/);
+  assert.match(shotsPage, /visibleShotPatch\(\)/);
+  assert.match(shotsPage, /<details class="advanced-camera-notes"><summary>ADVANCED CAMERA NOTES<\/summary>/);
+  assert.doesNotMatch(shotsPage, /<details class="advanced-camera-notes" open/);
+  assert.doesNotMatch(shotsPage, /ACTIONS · DANGER ZONE|shot-delete-danger/);
+  assert.equal((shotsPage.match(/id="shot-delete"/g) || []).length, 1);
+  for (const field of ["logicalCameraRole", "subject", "framingType", "composition", "orientation", "safeArea", "framingNotes", "color", "icon", "operatorNotes", "thumbnailReference"]) {
+    const advanced = shotsPage.slice(shotsPage.indexOf('<details class="advanced-camera-notes"'), shotsPage.indexOf('<section class="danger-zone'));
+    assert.ok(advanced.includes(`data-shot-field="${field}"`) || advanced.includes(`'${field}'`), `${field} is in Advanced Camera Notes`);
+  }
+  const cameraTarget = shotsPage.slice(shotsPage.indexOf("<fieldset><legend>CAMERA TARGET"), shotsPage.indexOf("</fieldset>", shotsPage.indexOf("<fieldset><legend>CAMERA TARGET")));
+  assert.match(cameraTarget, /selectedType === 'motion'.*data-shot-field="motionEndPresetId"/s);
+  assert.match(cameraTarget, /selectedType === 'motion'.*data-shot-field="motionSpeedSetting"/s);
+  assert.match(cameraTarget, /selectedType === 'tracking'.*data-shot-field="trackingPreferred"/s);
+  assert.doesNotMatch(shotsPage, /<legend>MOTION<\/legend>|<legend>TRACKING<\/legend>/);
+  assert.match(shotsPage, /cameraScopedPresets\(state\.cameraPresets, selectedCameraId\)/);
+  assert.match(shotsPage, /patch\.cameraPresetId = null/);
+  assert.match(shotsPage, /patch\.motionEndPresetId = null/);
+
+  const lightingPage = renderer.slice(renderer.indexOf("function lightingPage()"), renderer.indexOf("function camerasPage()"));
+  assert.match(lightingPage, /data-activate-lighting="\$\{scene\.id\}"/);
+  assert.match(lightingPage, /window\.trinity\.executeLightingScene\(button\.dataset\.activateLighting\)/);
 });
 
 test("Shot CRUD, favorite, enable, reorder, and duplicate isolation", () => {
@@ -154,74 +365,4 @@ test("Shot deletion is reference-aware and preserves missing references", () => 
   deleteShot(current, "shot", { confirmReferences: true });
   assert.equal(current.productionLooks[0].selectedShotId, "shot");
   assert.equal(current.runOfService[0].shotId, "shot");
-});
-
-test("Production Look Shot resolution is pure and precedes explicit assignment fields", () => {
-  const current = state();
-  current.shots.push(normalizeShot({ id: "shot", name: "Pastor Tight", cameraDeviceId: "main", cameraPresetId: "pastor-tight", trackingPreferred: true }));
-  current.productionLooks.push(normalizeProductionLook({
-    id: "look",
-    name: "Look",
-    cameraAssignments: [{ role: "program", shotId: "shot", cameraId: "left", presetId: "left-wide" }]
-  }));
-  const before = JSON.stringify(current);
-  const plan = buildCueExecutionPlan(current, { id: "cue", productionLookId: "look" });
-  assert.equal(plan.cameraAssignments[0].shotId, "shot");
-  assert.equal(plan.cameraAssignments[0].shotName, "Pastor Tight");
-  assert.equal(plan.cameraAssignments[0].cameraDeviceId, "main");
-  assert.equal(plan.cameraAssignments[0].presetId, "pastor-tight");
-  assert.equal(plan.cameraAssignments[0].tracking.preferred, true);
-  assert.equal(plan.cameraAssignments[0].source, "production-look-shot");
-  assert.equal(JSON.stringify(current), before);
-});
-
-test("missing Shot falls back to explicit assignment and records a warning", () => {
-  const current = state();
-  current.productionLooks.push(normalizeProductionLook({
-    id: "look", name: "Look",
-    cameraAssignments: [{ role: "program", shotId: "missing", cameraId: "main", presetId: "pastor-tight" }]
-  }));
-  const plan = buildCueExecutionPlan(current, { id: "cue", productionLookId: "look" });
-  assert.equal(plan.video.programCameraId, "main");
-  assert.equal(plan.cameraAssignments[0].shotId, "missing");
-  assert.ok(plan.warnings.some(warning => warning.includes("Missing Shot")));
-});
-
-test("explicit preset fills an otherwise valid Shot target without overriding its camera", () => {
-  const current = state();
-  current.shots.push(normalizeShot({ id: "shot", name: "Pastor", cameraDeviceId: "main" }));
-  current.productionLooks.push(normalizeProductionLook({
-    id: "look", name: "Look",
-    cameraAssignments: [{ role: "program", shotId: "shot", cameraId: "left", presetId: "pastor-tight" }]
-  }));
-  const assignment = buildCueExecutionPlan(current, { id: "cue", productionLookId: "look" }).cameraAssignments[0];
-  assert.equal(assignment.cameraDeviceId, "main");
-  assert.equal(assignment.presetId, "pastor-tight");
-  assert.equal(assignment.source, "production-look-shot");
-});
-
-test("executed Shot snapshot is frozen until cue re-execution", () => {
-  const current = state();
-  current.shots.push(normalizeShot({ id: "shot", name: "Pastor Tight", cameraDeviceId: "main", cameraPresetId: "pastor-tight", trackingPreferred: true, motionEnabled: true }));
-  current.productionLooks.push(normalizeProductionLook({ id: "look", name: "Look", cameraAssignments: [{ role: "program", shotId: "shot" }] }));
-  current.runOfService.push({ id: "cue", name: "Cue", productionLookId: "look" });
-  executeCue(current, 0, { now: () => 1 });
-  assert.equal(current.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
-  current.shots[0].name = "Pastor Medium";
-  assert.equal(current.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
-  executeCue(current, 0, { now: () => 2 });
-  assert.equal(current.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Medium");
-});
-
-test("Browser projection includes safe executed Shot summary but excludes Shot records and notes", () => {
-  const current = state();
-  current.shots.push(normalizeShot({ id: "shot", name: "Pastor Tight", cameraDeviceId: "main", cameraPresetId: "pastor-tight", operatorNotes: "private operator", framingNotes: "private framing", trackingNotes: "private tracking" }));
-  current.productionLooks.push(normalizeProductionLook({ id: "look", name: "Look", cameraAssignments: [{ role: "program", shotId: "shot" }] }));
-  current.runOfService.push({ id: "cue", name: "Cue", productionLookId: "look" });
-  executeCue(current, 0, { now: () => 1 });
-  const projected = projectBrowserState(current);
-  const serialized = JSON.stringify(projected);
-  assert.equal("shots" in projected, false);
-  assert.equal(projected.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
-  assert.doesNotMatch(serialized, /private operator|private framing|private tracking/);
 });

@@ -14,6 +14,26 @@ function createCueId() {
   return `cue-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function requiredCueName(value) {
+  const name = typeof value === "string" ? value.trim() : "";
+  if (!name) throw new TypeError("Cue Name is required");
+  return name;
+}
+
+function createCue(state, input = {}, { id = createCueId() } = {}) {
+  const list = cues(state);
+  const cue = {
+    id,
+    name: requiredCueName(input.name),
+    duration: Math.max(0, Number(input.duration) || 0),
+    notes: typeof input.notes === "string" ? input.notes.trim() : "",
+    productionLookId: typeof input.productionLookId === "string" ? input.productionLookId : "",
+    lightingSceneId: typeof input.lightingSceneId === "string" ? input.lightingSceneId : ""
+  };
+  list.push(cue);
+  return cue;
+}
+
 function reorderCue(state, from, to) {
   const list = cues(state);
   if (![from, to].every(Number.isInteger) || from < 0 || to < 0 || from >= list.length || to >= list.length || from === to) return state;
@@ -23,6 +43,29 @@ function reorderCue(state, from, to) {
   const activeIndex = indexOfCue(list, activeId);
   if (activeIndex >= 0) state.live.cueIndex = activeIndex;
   return state;
+}
+
+function reorderCueById(state, cueId, targetCueId, placement = "before") {
+  const list = cues(state);
+  const from = indexOfCue(list, cueId);
+  const originalTarget = indexOfCue(list, targetCueId);
+  if (from < 0 || originalTarget < 0) throw new RangeError("Cue not found");
+  if (cueId === targetCueId) return state;
+  const activeId = list[Number(state.live.cueIndex) || 0]?.id;
+  const [cue] = list.splice(from, 1);
+  const target = indexOfCue(list, targetCueId);
+  list.splice(target + (placement === "after" ? 1 : 0), 0, cue);
+  const activeIndex = indexOfCue(list, activeId);
+  if (activeIndex >= 0) state.live.cueIndex = activeIndex;
+  return state;
+}
+
+function moveCueById(state, cueId, direction) {
+  const list = cues(state);
+  const index = indexOfCue(list, cueId);
+  if (index < 0) throw new RangeError("Cue not found");
+  const destination = direction === "up" ? index - 1 : direction === "down" ? index + 1 : index;
+  return reorderCue(state, index, destination);
 }
 
 function duplicateCue(state, index, { id = createCueId() } = {}) {
@@ -72,6 +115,12 @@ function deleteCue(state, index, { confirmActive = false } = {}) {
   return state;
 }
 
+function deleteCueById(state, cueId, options) {
+  const index = indexOfCue(cues(state), cueId);
+  if (index < 0) throw new RangeError("Cue not found");
+  return deleteCue(state, index, options);
+}
+
 function updateCue(state, index, patch) {
   const list = cues(state);
   const cue = list[index];
@@ -80,7 +129,7 @@ function updateCue(state, index, patch) {
   for (const key of allowed) {
     if (Object.prototype.hasOwnProperty.call(patch, key)) cue[key] = patch[key];
   }
-  cue.name = String(cue.name || "Untitled Cue").trim() || "Untitled Cue";
+  cue.name = requiredCueName(cue.name);
   cue.duration = Math.max(0, Number(cue.duration) || 0);
   return state;
 }
@@ -103,4 +152,16 @@ function keyboardCommand(event) {
   return ({ " ": "go", Enter: "go", ArrowRight: "next", ArrowLeft: "back", h: "hold", H: "hold", Escape: "escape" })[event?.key] || null;
 }
 
-module.exports = { deleteCue, duplicateCue, insertCue, keyboardCommand, reorderCue, timingSnapshot, updateCue };
+module.exports = {
+  createCue,
+  deleteCue,
+  deleteCueById,
+  duplicateCue,
+  insertCue,
+  keyboardCommand,
+  moveCueById,
+  reorderCue,
+  reorderCueById,
+  timingSnapshot,
+  updateCue
+};

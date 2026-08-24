@@ -24,6 +24,26 @@ function portValue(value) {
   return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : null;
 }
 
+function viscaAddressValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const address = Number(value);
+  return Number.isInteger(address) && address >= 1 && address <= 7 ? address : null;
+}
+
+function normalizedControlIdentity(value) {
+  return text(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function inferredCameraAdapter(input, connection) {
+  const explicit = nullable(input.adapterType ?? input.metadata?.adapter);
+  if (explicit) return explicit;
+  const protocol = normalizedControlIdentity(input.protocol ?? connection.protocol);
+  const manufacturerModel = `${text(input.manufacturer)} ${text(input.model)}`.trim();
+  if (["visca-udp", "visca-over-ip", "visca-ip"].includes(protocol)) return "visca-udp";
+  if (["udp", "visca"].includes(protocol) && /ptz\s*optics/i.test(manufacturerModel)) return "visca-udp";
+  return null;
+}
+
 function normalizeDevice(input = {}, { now } = {}) {
   const type = DEVICE_TYPES.has(input.type) ? input.type : "camera";
   const createdAt = nullable(input.createdAt) || (now ? new Date(now).toISOString() : EPOCH);
@@ -46,9 +66,11 @@ function normalizeDevice(input = {}, { now } = {}) {
       host: nullable(connection.host ?? input.ipAddress),
       port: portValue(connection.port ?? input.port),
       protocol: nullable(connection.protocol ?? input.protocol),
+      timeoutMs: portValue(connection.timeoutMs ?? input.timeoutMs),
       username: nullable(connection.username ?? input.username),
       credentialReference: nullable(connection.credentialReference ?? input.credentialReference),
-      password: nullable(connection.password ?? input.password)
+      password: nullable(connection.password ?? input.password),
+      viscaAddress: viscaAddressValue(connection.viscaAddress ?? input.viscaAddress)
     },
     capabilities: {
       tracking: capabilities.tracking === true || input.trackingEnabled === true,
@@ -58,11 +80,14 @@ function normalizeDevice(input = {}, { now } = {}) {
     },
     metadata,
     logicalRole: camera ? (nullable(input.logicalRole ?? input.role) || "camera") : null,
+    adapterType: camera ? inferredCameraAdapter(input, connection) : nullable(input.adapterType ?? input.metadata?.adapter),
     manufacturer: camera ? text(input.manufacturer) : text(input.manufacturer),
     model: camera ? text(input.model) : text(input.model),
     ipAddress: camera ? nullable(input.ipAddress ?? connection.host) : nullable(input.ipAddress ?? connection.host),
     port: portValue(input.port ?? connection.port),
     protocol: nullable(input.protocol ?? connection.protocol),
+    viscaAddress: camera ? viscaAddressValue(input.viscaAddress ?? connection.viscaAddress) : null,
+    timeoutMs: portValue(input.timeoutMs ?? connection.timeoutMs),
     username: nullable(input.username ?? connection.username),
     credentialReference: nullable(input.credentialReference ?? connection.credentialReference),
     password: nullable(input.password ?? connection.password),
@@ -78,6 +103,7 @@ function normalizeDevice(input = {}, { now } = {}) {
 function cameraFromLegacy(camera, index) {
   const suggested = ["main", "left", "right"][index] || camera?.role || "camera";
   return normalizeDevice({
+    ...camera,
     id: camera?.id,
     type: "camera",
     name: camera?.name || `${suggested[0].toUpperCase()}${suggested.slice(1)} Camera`,
@@ -87,6 +113,7 @@ function cameraFromLegacy(camera, index) {
     ipAddress: camera?.host,
     port: camera?.port,
     protocol: camera?.protocol,
+    viscaAddress: camera?.viscaAddress,
     enabled: camera?.enabled !== false,
     trackingEnabled: camera?.tracking === true,
     motionEnabled: camera?.motionEnabled === true,
@@ -98,7 +125,7 @@ function cameraFromLegacy(camera, index) {
 function defaultPlaceholders() {
   return [
     { id: "device-qlc", type: "lighting", name: "QLC+", metadata: { adapter: "qlc-plus" } },
-    { id: "device-atem", type: "switcher", name: "ATEM", metadata: { adapter: "atem" } },
+    { id: "device-atem", type: "switcher", name: "ATEM Mini Pro", metadata: { adapter: "atem" } },
     { id: "device-x32", type: "audio", name: "X32", metadata: { adapter: "x32" } },
     { id: "device-presentation", type: "presentation", name: "Presentation System" },
     { id: "device-browser-operator", type: "browserOperator", name: "Browser Operator" }
@@ -133,6 +160,7 @@ function validateDevice(device, state) {
   if (!DEVICE_TYPES.has(device?.type)) errors.push("Unsupported device type");
   if (device?.type === "camera" && !text(device.logicalRole)) errors.push("Camera logical role is required");
   if (device?.port !== null && (!Number.isInteger(device.port) || device.port < 0 || device.port > 65535)) errors.push("Port must be between 0 and 65535");
+  if (device?.type === "camera" && device.viscaAddress !== null && (!Number.isInteger(device.viscaAddress) || device.viscaAddress < 1 || device.viscaAddress > 7)) errors.push("VISCA address must be between 1 and 7");
   if (device?.type === "camera" && device.enabled) {
     const duplicates = (state?.devices || []).filter(item => item.id !== device.id && item.type === "camera" && item.enabled && item.logicalRole === device.logicalRole);
     if (duplicates.length) warnings.push(`Logical role "${device.logicalRole}" is also used by ${duplicates.map(item => item.name).join(", ")}`);
@@ -190,6 +218,10 @@ function reorderDevice(state, from, to) {
 function countDeviceReferences(state, deviceId) {
   const references = [];
   for (const look of state?.productionLooks || []) {
+    if (look.priorityCameraId === deviceId) references.push({ type: "Production Look priority camera", id: look.id, name: look.name });
+    for (const [role, assignment] of Object.entries(look.cameraPresets || {})) {
+      if (assignment?.cameraId === deviceId) references.push({ type: `Production Look ${role}`, id: look.id, name: look.name });
+    }
     if (look.programCameraId === deviceId) references.push({ type: "Production Look program camera", id: look.id, name: look.name });
     if (look.previewCameraId === deviceId) references.push({ type: "Production Look preview camera", id: look.id, name: look.name });
     for (const assignment of look.cameraAssignments || []) if (assignment.cameraId === deviceId) references.push({ type: `Production Look ${assignment.role}`, id: look.id, name: look.name });
@@ -226,7 +258,11 @@ function deleteDevice(state, deviceId, { confirmReferences = false } = {}) {
 
 function configured(device) {
   if (device?.type === "browserOperator") return true;
-  if (device?.type === "camera") return Boolean(device.ipAddress && device.protocol);
+  if (device?.type === "camera") {
+    const protocol = normalizedControlIdentity(device.protocol ?? device.connection?.protocol);
+    const needsUdpPort = ["visca-udp", "visca-over-ip", "visca-ip"].includes(protocol) || device.adapterType === "visca-udp";
+    return Boolean(device.ipAddress && device.protocol && (!needsUdpPort || (Number.isInteger(device.port) && device.port > 0)));
+  }
   return Boolean(device?.connection?.host || device?.metadata?.configured);
 }
 
@@ -256,6 +292,7 @@ function diagnosticResult(device, now = Date.now()) {
   let message = "Adapter not implemented";
   if (!device.enabled) message = "Disabled";
   else if (!configured(device)) message = "Not configured";
+  else if (device.type === "camera" && ["visca-udp", "ptzoptics"].includes(device.adapterType)) message = "Configured — not tested";
   else if (device.type === "browserOperator") message = "Ready for future test";
   return { status: "stub", message, testedAt: new Date(now).toISOString(), error: null };
 }
@@ -320,6 +357,11 @@ function projectBrowserState(state) {
   const executionSnapshot = state?.live?.executionSnapshot;
   const projected = {
     ...state,
+    videoSources: (state?.videoSources || []).map(source => ({
+      id: source.id, name: source.name, sourceType: source.sourceType,
+      cameraDeviceId: source.cameraDeviceId || null, enabled: source.enabled !== false,
+      switcherMappings: JSON.parse(JSON.stringify(source.switcherMappings || {})), needsReview: source.needsReview === true
+    })),
     live: {
       ...(state?.live || {}),
       cameraPreparations: cameraPreparationSummaries(state),
@@ -346,22 +388,36 @@ function projectBrowserState(state) {
     })),
     deviceSummaries: (state?.devices || []).filter(device => device.enabled || device.type === "camera").map(device => browserSafeDeviceSummary(device, state)),
     managedCameras,
-    shotSummaries: (state?.shots || []).map(shot => ({
+    productionLooks: (state?.productionLooks || []).map(look => ({
+      id: look.id,
+      name: look.name,
+      enabled: look.enabled !== false
+    })),
+    shotSummaries: (state?.shots || []).map((shot, index) => ({
       id: shot.id,
       name: shot.name,
       enabled: shot.enabled !== false,
       category: shot.category || null,
       cameraDeviceId: shot.cameraDeviceId || null,
       logicalCameraRole: shot.logicalCameraRole || null,
-      cameraPresetId: shot.cameraPresetId || null
+      cameraPresetId: shot.cameraPresetId || null,
+      shotType: shot.shotType || (shot.motionEnabled === true ? "motion" : "static"),
+      motionEnabled: shot.motionEnabled === true,
+      motionEndPresetId: shot.motionEndPresetId || null,
+      motionStyle: shot.motionStyle || "presetTransition",
+      motionSpeedSetting: shot.motionSpeedSetting || "medium",
+      motionTargetDurationMs: Number(shot.motionTargetDurationMs) || 0,
+      favorite: shot.favorite === true,
+      favoriteOrder: Number.isFinite(Number(shot.favoriteOrder)) ? Number(shot.favoriteOrder) : (Number.isFinite(Number(shot.order)) ? Number(shot.order) : index)
     })),
-    cameraPresetSummaries: (state?.cameraPresets || []).map(preset => ({
+    cameraPresetSummaries: (state?.cameraPresets || []).map((preset, index) => ({
       id: preset.id,
       name: preset.name,
       cameraDeviceId: preset.cameraDeviceId,
       logicalRole: preset.logicalRole,
       enabled: preset.enabled !== false,
       favorite: preset.favorite === true,
+      favoriteOrder: Number.isFinite(Number(preset.favoriteOrder)) ? Number(preset.favoriteOrder) : index,
       category: preset.category || null
     }))
   };

@@ -1,7 +1,5 @@
 "use strict";
 
-const { synchronizeLiveCameraFromSnapshot } = require("./camera-preparation-operations.cjs");
-
 function commandError(message, code) {
   const error = new Error(message);
   error.code = code;
@@ -50,37 +48,57 @@ function swapVideo(video) {
   };
 }
 
+function migrateLiveState(live) {
+  const migrated = live && typeof live === "object" ? { ...live } : {};
+  delete migrated.lightingOverrideId;
+  delete migrated.lightingOverrideExecutionResult;
+  if (Array.isArray(migrated.activityLog)) {
+    migrated.activityLog = migrated.activityLog.filter(entry =>
+      !/^Lighting scene:/.test(String(entry?.message || "")) &&
+      entry?.message !== "Returned to cue lighting"
+    );
+  }
+  return migrated;
+}
+
 function takeLive(state, { now = Date.now } = {}) {
   const live = state?.live;
-  const snapshot = live?.executionSnapshot;
-  if (!live || typeof live !== "object" || !snapshot || typeof snapshot !== "object") {
-    throw commandError("TAKE LIVE is unavailable until a cue has been executed.", "TAKE_LIVE_NO_SNAPSHOT");
+  if (!live || typeof live !== "object") {
+    throw commandError("TAKE LIVE is unavailable until Live has been initialized.", "TAKE_LIVE_UNAVAILABLE");
   }
-
-  const assignments = Array.isArray(snapshot.cameraAssignments) ? snapshot.cameraAssignments : [];
-  const program = assignmentForRole(assignments, "program");
-  const preview = assignmentForRole(assignments, "preview");
-  if (!preview?.cameraDeviceId) {
+  const previewCameraId = live.previewCamera || null;
+  const programCameraId = live.programCamera || null;
+  if (!previewCameraId) {
     throw commandError("TAKE LIVE could not run because PREVIEW is unassigned.", "TAKE_LIVE_PREVIEW_UNASSIGNED");
   }
-  if (program?.cameraDeviceId && program.cameraDeviceId === preview.cameraDeviceId) {
+  if (programCameraId && programCameraId === previewCameraId) {
     throw commandError("TAKE LIVE was not needed because PROGRAM and PREVIEW use the same camera.", "TAKE_LIVE_SAME_CAMERA");
   }
-
-  snapshot.cameraAssignments = swapAssignmentRoles(assignments);
-  snapshot.cameras = swapAssignmentRoles(snapshot.cameras);
-  snapshot.video = swapVideo(snapshot.video);
-
-  live.programCamera = preview.cameraDeviceId;
-  live.programPreset = preview.presetName || null;
-  live.previewCamera = program?.cameraDeviceId || null;
-  live.previewPreset = program?.presetName || null;
-  synchronizeLiveCameraFromSnapshot(state);
+  const camera = (state.devices || []).find(item => item?.type === "camera" && item.id === previewCameraId) ||
+    (state.cameras || []).find(item => item?.id === previewCameraId);
+  const previewPreset = live.previewPreset || null;
+  const programPreset = live.programPreset || null;
+  const preparation = (live.cameraPreparations || []).find(item => item?.cameraId === previewCameraId);
+  live.programCamera = previewCameraId;
+  live.previewCamera = programCameraId;
+  live.programPreset = previewPreset;
+  live.previewPreset = programPreset;
+  live.activeCameraAssignment = {
+    cameraId: previewCameraId,
+    cameraName: camera?.name || previewCameraId,
+    mode: preparation?.selectedMode || "static",
+    presetId: preparation?.preparedAssignment?.presetId || preparation?.preparedAssignment?.startingPresetId || null,
+    presetName: preparation?.preparedAssignment?.presetName || preparation?.preparedAssignment?.startingPresetName || previewPreset,
+    motionId: preparation?.selectedMotionId || null,
+    motionName: preparation?.preparedAssignment?.motionName || null,
+    trackingActive: preparation?.tracking?.active === true,
+    preparationStatus: preparation?.preparationStatus || "idle"
+  };
   live.activityLog = [
-    { at: now(), message: `TAKE LIVE: ${preview.shotName || preview.cameraName || preview.cameraDeviceId}` },
+    { at: now(), message: `TAKE LIVE: ${camera?.name || previewCameraId}` },
     ...(Array.isArray(live.activityLog) ? live.activityLog : [])
   ].slice(0, 8);
   return state;
 }
 
-module.exports = { takeLive };
+module.exports = { migrateLiveState, takeLive };

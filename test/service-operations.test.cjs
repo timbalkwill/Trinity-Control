@@ -1,6 +1,16 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { deleteCue, duplicateCue, insertCue, keyboardCommand, reorderCue, timingSnapshot } = require("../service-operations.cjs");
+const {
+  deleteCue,
+  deleteCueById,
+  duplicateCue,
+  insertCue,
+  keyboardCommand,
+  moveCueById,
+  reorderCue,
+  reorderCueById,
+  timingSnapshot
+} = require("../service-operations.cjs");
 
 function state() {
   return {
@@ -18,6 +28,29 @@ test("reorder preserves the active cue by ID", () => {
   reorderCue(value, 0, 2);
   assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "c", "a"]);
   assert.equal(value.runOfService[value.live.cueIndex].id, "b");
+});
+
+test("ID-based Move Up and Move Down preserve cue identity and boundaries", () => {
+  const value = state();
+  moveCueById(value, "b", "up");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "a", "c"]);
+  moveCueById(value, "b", "up");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "a", "c"]);
+  moveCueById(value, "a", "down");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "c", "a"]);
+  moveCueById(value, "a", "down");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "c", "a"]);
+});
+
+test("ID-based drag placement moves exactly one cue without loss or duplication", () => {
+  const value = state();
+  const original = Object.fromEntries(value.runOfService.map(cue => [cue.id, JSON.stringify(cue)]));
+  reorderCueById(value, "a", "b", "after");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["b", "a", "c"]);
+  reorderCueById(value, "c", "b", "before");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["c", "b", "a"]);
+  assert.equal(new Set(value.runOfService.map(cue => cue.id)).size, 3);
+  for (const cue of value.runOfService) assert.equal(JSON.stringify(cue), original[cue.id]);
 });
 
 test("duplicate retains cue-specific overrides with a unique identity", () => {
@@ -39,6 +72,24 @@ test("delete non-active cue preserves active cue", () => {
   const value = state();
   deleteCue(value, 0);
   assert.equal(value.runOfService[value.live.cueIndex].id, "b");
+});
+
+test("ID-based delete distinguishes duplicate display names and preserves remaining order", () => {
+  const value = state();
+  value.runOfService[0].name = "Prayer";
+  value.runOfService[2].name = "Prayer";
+  deleteCueById(value, "c");
+  assert.deepEqual(value.runOfService.map(cue => cue.id), ["a", "b"]);
+  assert.equal(value.runOfService[0].name, "Prayer");
+});
+
+test("rapid ID-based reorders preserve a valid cue permutation", () => {
+  const value = state();
+  for (let index = 0; index < 50; index += 1) {
+    moveCueById(value, index % 2 ? "a" : "c", index % 2 ? "up" : "down");
+    reorderCueById(value, "b", index % 2 ? "a" : "c", index % 2 ? "before" : "after");
+  }
+  assert.deepEqual([...value.runOfService.map(cue => cue.id)].sort(), ["a", "b", "c"]);
 });
 
 test("delete active cue requires confirmation and selects nearest cue", () => {

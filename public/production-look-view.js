@@ -1,11 +1,13 @@
 (() => {
   const byId = (items, id) => id && Array.isArray(items) ? items.find(item => item?.id === id) : undefined;
   const escapeHtml = (value = "") => String(value).replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
-  const normalizedRole = role => {
-    const value = String(role || "").trim().toLowerCase();
-    return value === "aux" ? "auxiliary" : value;
-  };
-  const assignment = (look, role) => (Array.isArray(look?.cameraAssignments) ? look.cameraAssignments : []).find(item => normalizedRole(item?.role) === role && item?.cameraId);
+  const roles = ["main", "left", "right"];
+
+  function cameraItems(state) {
+    const devices = (state?.devices || []).filter(item => item?.type === "camera");
+    const known = new Set(devices.map(item => item.id));
+    return [...devices, ...(state?.cameras || []).filter(item => item?.id && !known.has(item.id))];
+  }
 
   function cameraRole(state, cameraId) {
     const snapshot = state?.live?.executionSnapshot;
@@ -18,61 +20,114 @@
     return "idle";
   }
 
-  function resolve(state, cue) {
-    const look = byId(state?.productionLooks, cue?.productionLookId);
-    const layout = byId(state?.cameraLayouts, cue?.cameraLayoutId || look?.cameraLayoutId);
-    const deviceCameras = state?.devices || state?.deviceSummaries || [];
-    const camera = id => byId(deviceCameras, id) || byId(state?.cameras, id);
-    const programId = cue?.cameraLayoutId ? layout?.programCamera : assignment(look, "program")?.cameraId || look?.programCameraId || layout?.programCamera;
-    const previewId = cue?.cameraLayoutId ? layout?.previewCamera : assignment(look, "preview")?.cameraId || look?.previewCameraId || layout?.previewCamera;
+  function roleDetails(state, look, role) {
+    const assignment = look?.cameraPresets?.[role] || {};
+    const cameraId = assignment.cameraId || assignment.cameraDeviceId || null;
+    const camera = byId(cameraItems(state), cameraId);
+    const preset = (state?.cameraPresets || []).find(item => item?.id === assignment.presetId && (!cameraId || item?.cameraDeviceId === cameraId));
     return {
-      look,
-      layout,
-      lighting: byId(state?.lightingScenes, cue?.lightingSceneId || look?.lightingSceneId),
-      programCamera: camera(programId),
-      previewCamera: camera(previewId),
-      programCameraId: programId || null,
-      previewCameraId: previewId || null,
-      lightingSource: cue?.lightingSceneId ? "Cue Override" : look?.lightingSceneId ? "From Production Look" : "Not assigned",
-      cameraSource: cue?.cameraLayoutId ? "Cue Override" : (programId || previewId) ? "From Production Look" : "Not assigned"
+      role,
+      cameraId,
+      camera,
+      presetId: assignment.presetId || null,
+      preset,
+      ready: Boolean(camera && preset)
     };
   }
+
+  function resolve(state, cue) {
+    const look = byId(state?.productionLooks, cue?.productionLookId);
+    const lighting = byId(state?.lightingScenes, cue?.lightingSceneId || look?.lightingSceneId);
+    const roleAssignments = Object.fromEntries(roles.map(role => [role, roleDetails(state, look, role)]));
+    const priorityCamera = byId(cameraItems(state), look?.priorityCameraId);
+    return {
+      look,
+      lighting,
+      roles: roleAssignments,
+      priorityCamera,
+      lightingSource: cue?.lightingSceneId ? "Cue Override" : look?.lightingSceneId ? "From Production Look" : "Not assigned",
+      cameraSource: look ? "From Production Look" : "Not assigned"
+    };
+  }
+
+  function summarizeSnapshot(snapshot) {
+    const assignments = snapshot.cameraAssignments || snapshot.cameras || [];
+    const lightingExecution = snapshot.lightingExecutions?.[0];
+    const lightingResult = snapshot.lightingExecutionResults?.[0];
+    const byRole = Object.fromEntries(roles.map(role => [role, assignments.find(item => item?.role === role)]));
+    const cameraParts = roles.map(role => byRole[role]?.presetName).filter(Boolean);
+    return {
+      name: snapshot.productionLookName || (snapshot.productionLookId ? "Missing reference" : "Not assigned"),
+      lighting: lightingExecution?.widgetName || snapshot.lighting?.sceneName || (snapshot.lighting?.sceneId ? "Missing reference" : "Not assigned"),
+      priorityCamera: snapshot.video?.programCameraName || "Not assigned",
+      programCamera: snapshot.video?.programCameraName || (snapshot.video?.programCameraId ? "Missing reference" : "Not assigned"),
+      previewCamera: snapshot.video?.previewCameraName || (snapshot.video?.previewCameraId ? "Missing reference" : "Not assigned"),
+      cameraLayout: snapshot.video?.cameraLayoutName || "Not assigned",
+      presets: cameraParts.length ? cameraParts.join(" • ") : "No presets",
+      shots: "No Shots",
+      motion: snapshot.motion?.enabled ? `On · ${snapshot.motion.speed || 1}x` : "Off",
+      tracking: snapshot.motion?.enabled ? "Starts On" : "Off",
+      roleAssignments: byRole,
+      cameraReady: roles.every(role => Boolean(byRole[role]?.cameraDeviceId && byRole[role]?.presetId)),
+      cameraSummary: cameraParts.length ? cameraParts.join(" • ") : "Camera presets not assigned",
+      enabled: true,
+      lightingSource: lightingResult?.status === "success"
+        ? "Activated"
+        : lightingResult?.reason === "already-active"
+          ? "Lighting already active"
+        : lightingResult?.status === "failed"
+          ? `Failed — ${lightingResult.message || "Lighting not ready"}`
+          : lightingExecution ? "Pending" : snapshot.lighting?.source || "Not assigned",
+      cameraSource: snapshot.video?.source || "Executed snapshot",
+      warnings: snapshot.warnings || [],
+      executed: true
+    };
+  }
+
   function summarize(state, cue) {
     const snapshot = state?.live?.executionSnapshot;
-    if (snapshot?.cueId && snapshot.cueId === cue?.id) {
-      const assignments = snapshot.cameraAssignments || snapshot.cameras || [];
-      const presets = assignments.filter(item => item.presetId).map(item => `${item.role}: ${item.presetName || `Missing: ${item.presetId}`}`).join(", ");
-      const shots = assignments.filter(item => item.shotId).map(item => `${item.role}: ${item.shotName || `Missing Shot: ${item.shotId}`}`).join(", ");
-      return {
-        name: snapshot.productionLookName || (snapshot.productionLookId ? "Missing reference" : "Not assigned"),
-        lighting: snapshot.lighting?.sceneName || (snapshot.lighting?.sceneId ? "Missing reference" : "Not assigned"),
-        lightingFadeMs: snapshot.lighting?.fadeMs || 0,
-        stageWashMode: snapshot.lighting?.stageWashMode || "Not assigned",
-        wallWashMode: snapshot.lighting?.wallWashMode || "Not assigned",
-        programCamera: snapshot.video?.programCameraName || (snapshot.video?.programCameraId ? "Missing reference" : "Not assigned"),
-        previewCamera: snapshot.video?.previewCameraName || (snapshot.video?.previewCameraId ? "Missing reference" : "Not assigned"),
-        cameraLayout: snapshot.video?.cameraLayoutName || "Not assigned",
-        presets: presets || [snapshot.video?.programPreset, snapshot.video?.previewPreset].filter(Boolean).join(" / ") || "No presets",
-        shots: shots || "No Shots",
-        motion: snapshot.motion?.enabled ? `On · ${snapshot.motion.speed || 1}x` : "Off",
-        enabled: true,
-        lightingSource: snapshot.lighting?.source || "Not assigned",
-        cameraSource: snapshot.video?.source || "Not assigned",
-        warnings: snapshot.warnings || [],
-        executed: true
-      };
-    }
+    if (snapshot?.cueId && snapshot.cueId === cue?.id) return summarizeSnapshot(snapshot);
+
     const resources = resolve(state, cue);
-    const look = resources.look;
-    const presetLibrary = state?.cameraPresets || state?.cameraPresetSummaries || [];
-    const shotLibrary = state?.shots || state?.shotSummaries || [];
-    const presets = Array.isArray(look?.cameraAssignments) ? look.cameraAssignments.filter(item => item?.presetId).map(item => `${item.role}: ${byId(presetLibrary, item.presetId)?.name || `Missing: ${item.presetId}`}`).join(", ") : "";
-    const shots = Array.isArray(look?.cameraAssignments) ? look.cameraAssignments.filter(item => item?.shotId).map(item => `${item.role}: ${byId(shotLibrary, item.shotId)?.name || `Missing Shot: ${item.shotId}`}`).join(", ") : "";
-    return { name: look?.name || (cue?.productionLookId ? "Missing reference" : "Not assigned"), lighting: resources.lighting?.name || ((cue?.lightingSceneId || look?.lightingSceneId) ? "Missing reference" : "Not assigned"), lightingFadeMs: look?.lightingFadeMs || 0, stageWashMode: look?.stageWashMode || "Not assigned", wallWashMode: look?.wallWashMode || "Not assigned", programCamera: resources.programCamera?.name || (resources.programCameraId ? "Missing reference" : "Not assigned"), previewCamera: resources.previewCamera?.name || (resources.previewCameraId ? "Missing reference" : "Not assigned"), cameraLayout: resources.layout?.name || "Not assigned", presets: presets || "No presets", shots: shots || "No Shots", motion: look?.motionEnabled ? `On · ${look.motionSpeed || 1}x` : "Off", enabled: look?.enabled !== false, lightingSource: resources.lightingSource, cameraSource: resources.cameraSource, warnings: [], executed: false };
+    const roleAssignments = resources.roles;
+    const cameraParts = roles.map(role => roleAssignments[role].preset?.name).filter(Boolean);
+    const warnings = [];
+    if (!resources.look) warnings.push("Production Look required");
+    for (const role of roles) {
+      if (!roleAssignments[role].ready) warnings.push(`${role[0].toUpperCase() + role.slice(1)} camera preset incomplete`);
+    }
+    return {
+      name: resources.look?.name || (cue?.productionLookId ? "Missing reference" : "Not assigned"),
+      lighting: resources.lighting?.name || ((cue?.lightingSceneId || resources.look?.lightingSceneId) ? "Missing reference" : "Not assigned"),
+      priorityCamera: resources.priorityCamera?.name || (resources.look?.priorityCameraId ? "Missing reference" : "Not assigned"),
+      programCamera: roleAssignments.main.camera?.name || "Not assigned",
+      previewCamera: roleAssignments.left.camera?.name || "Not assigned",
+      cameraLayout: "Not assigned",
+      presets: cameraParts.length ? cameraParts.join(" • ") : "No presets",
+      shots: "No Shots",
+      motion: resources.look?.startMainTracking ? "On · 1x" : "Off",
+      tracking: resources.look?.startMainTracking ? "Starts On" : "Off",
+      roleAssignments,
+      cameraReady: Boolean(resources.look) && roles.every(role => roleAssignments[role].ready),
+      cameraSummary: cameraParts.length ? cameraParts.join(" • ") : "Camera presets not assigned",
+      enabled: resources.look?.enabled !== false,
+      lightingSource: resources.lightingSource,
+      cameraSource: resources.cameraSource,
+      warnings,
+      executed: false
+    };
   }
+
   function card(state, cue, { compact = false } = {}) {
     const summary = summarize(state, cue);
-    return `<div class="look-summary ${compact ? "compact" : ""}"><strong>${escapeHtml(summary.name)}</strong><span>💡 ${escapeHtml(summary.lighting)} <small>${escapeHtml(summary.lightingSource)}</small></span><span>🎥 ${escapeHtml(summary.programCamera)} / ${escapeHtml(summary.previewCamera)} <small>${escapeHtml(summary.cameraSource)}</small></span><span>🎬 ${escapeHtml(summary.shots || "No Shots")}</span><span>📍 ${escapeHtml(summary.presets)}</span><span>Motion ${escapeHtml(summary.motion)}</span>${summary.warnings?.length ? `<span>⚠ ${escapeHtml(summary.warnings.join("; "))}</span>` : ""}<em class="${summary.enabled ? "enabled" : "disabled"}">${summary.enabled ? "Enabled" : "Disabled"}</em></div>`;
+    const cameraRows = roles.map(role => {
+      const assignment = summary.roleAssignments?.[role] || {};
+      const cameraName = assignment.camera?.name || assignment.cameraName || "Not configured";
+      const presetName = assignment.preset?.name || assignment.presetName || "No preset";
+      return `<span class="look-role"><small>${role.toUpperCase()}</small><strong>${escapeHtml(cameraName)}</strong><em>${escapeHtml(presetName)}</em></span>`;
+    }).join("");
+    return `<div class="look-summary simplified ${compact ? "compact" : ""}"><div class="look-summary-title"><strong>${escapeHtml(summary.name)}</strong><em class="${summary.enabled ? "enabled" : "disabled"}">${summary.enabled ? "Enabled" : "Disabled"}</em></div><div class="look-summary-facts"><span>💡 <strong>${escapeHtml(summary.lighting)}</strong><small>${escapeHtml(summary.lightingSource)}</small></span><span>🎯 <strong>${escapeHtml(summary.priorityCamera)}</strong><small>Priority camera</small></span><span>Tracking <strong>${escapeHtml(summary.tracking)}</strong></span></div><div class="look-role-grid">${cameraRows}</div>${summary.warnings?.length ? `<div class="look-summary-warnings">${summary.warnings.map(item => `<span>⚠ ${escapeHtml(item)}</span>`).join("")}</div>` : ""}</div>`;
   }
+
   globalThis.TrinityLookView = { cameraRole, card, resolve, summarize };
 })();

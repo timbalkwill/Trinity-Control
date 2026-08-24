@@ -20,11 +20,22 @@ function resolveLegacyCamera(state, cameraDevice) {
 }
 
 function resolveCameraDevice(state, cameraId) {
-  const direct = (state?.devices || []).find(device => device?.type === "camera" && device.id === cameraId);
+  const devices = (state?.devices || []).filter(device => device?.type === "camera");
+  const direct = devices.find(device => device.id === cameraId);
   if (direct) return direct;
   const legacy = (state?.cameras || []).find(camera => camera?.id === cameraId);
-  if (!legacy) return null;
-  return (state?.devices || []).find(device => device?.type === "camera" && (device.id === legacy.id || device.metadata?.legacyCameraId === legacy.id)) || null;
+  const legacyMatches = devices.filter(device => device.metadata?.legacyCameraId === cameraId || (legacy && (device.id === legacy.id || device.metadata?.legacyCameraId === legacy.id)));
+  if (legacyMatches.length === 1) return legacyMatches[0];
+  const roleMatches = devices.filter(device => device.logicalRole === cameraId || (cameraId === "main" && device.logicalRole === "center"));
+  return roleMatches.length === 1 ? roleMatches[0] : null;
+}
+
+function productionCameraRole(state, cameraDevice) {
+  if (!cameraDevice) return null;
+  for (const role of ["main", "left", "right"]) {
+    if (resolveCameraDevice(state, role)?.id === cameraDevice.id) return role;
+  }
+  return null;
 }
 
 function resolveCameraCapabilities(device = {}) {
@@ -114,15 +125,12 @@ function normalizeManagedCamera(device, state, order = 0) {
 }
 
 function buildManagedCameraProjection(state) {
-  const priority = camera => camera.cameraDeviceId === "main" || camera.logicalRole === "main" || (camera.logicalRole === "center" && /\bmain\b/i.test(camera.displayName))
-    ? 0
-    : ROLE_PRIORITY.has(camera.logicalRole) ? ROLE_PRIORITY.get(camera.logicalRole) : 3;
   return (state?.devices || [])
     .filter(device => device?.type === "camera")
-    .map((device, index) => normalizeManagedCamera(device, state, index))
+    .map((device, index) => ({ ...normalizeManagedCamera(device, state, index), productionRole: productionCameraRole(state, device) }))
     .sort((a, b) => {
-      const aPriority = priority(a);
-      const bPriority = priority(b);
+      const aPriority = ROLE_PRIORITY.has(a.productionRole) ? ROLE_PRIORITY.get(a.productionRole) : 3;
+      const bPriority = ROLE_PRIORITY.has(b.productionRole) ? ROLE_PRIORITY.get(b.productionRole) : 3;
       return aPriority - bPriority || a.order - b.order || a.displayName.localeCompare(b.displayName);
     });
 }
@@ -132,7 +140,10 @@ function summarizeManagedCamera(camera) {
     cameraDeviceId: camera.cameraDeviceId,
     displayName: camera.displayName,
     logicalRole: camera.logicalRole,
+    productionRole: camera.productionRole || null,
     enabled: camera.enabled,
+    configured: camera.configured,
+    adapterId: camera.adapterId,
     readiness: camera.readiness,
     connectionStatus: camera.connectionStatus,
     currentPresetId: camera.currentPresetId,
@@ -149,6 +160,7 @@ module.exports = {
   CAMERA_MANAGER_SCHEMA_VERSION,
   buildManagedCameraProjection,
   normalizeManagedCamera,
+  productionCameraRole,
   resolveCameraCapabilities,
   resolveCameraDevice,
   resolveLegacyCamera,

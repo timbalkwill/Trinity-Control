@@ -9,11 +9,17 @@ exports.default = async function afterPack(context) {
     `${context.packager.appInfo.productFilename}.app`
   );
 
+  console.log(`Clearing macOS extended attributes from: ${appPath}`);
+
+  execFileSync("/usr/bin/xattr", ["-cr", appPath], {
+    stdio: "inherit",
+  });
+
   console.log(`Applying coherent ad-hoc signature to: ${appPath}`);
 
   try {
     execFileSync("/usr/bin/codesign", ["--remove-signature", appPath], {
-      stdio: "inherit"
+      stdio: "inherit",
     });
   } catch {
     // Fine when the outer bundle has no existing signature.

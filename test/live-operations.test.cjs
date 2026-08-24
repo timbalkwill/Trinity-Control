@@ -4,139 +4,93 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { takeLive } = require("../live-operations.cjs");
+const { migrateLiveState, takeLive } = require("../live-operations.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
-function assignment(role, overrides = {}) {
+function stateWith(program = "main", preview = "left") {
   return {
-    role,
-    shotId: `${role}-shot`,
-    shotName: `${role} Shot`,
-    cameraDeviceId: `${role}-camera`,
-    cameraName: `${role} Camera`,
-    presetId: `${role}-preset`,
-    presetName: `${role} Preset`,
-    tracking: { mode: "subject", preferred: role === "preview", subject: "speaker" },
-    motion: { enabled: role === "preview", profileId: `${role}-motion`, durationMs: 1200, speed: 0.8 },
-    source: `${role}-frozen-source`,
-    warnings: [`${role} frozen warning`],
-    missing: false,
-    frozenExtra: `${role}-extra`,
-    ...overrides
-  };
-}
-
-function stateWith(program = assignment("program"), preview = assignment("preview")) {
-  const cameraAssignments = [program, preview].filter(Boolean);
-  return {
-    shots: [{ id: "edited-shot", name: "Edited after execution" }],
-    productionLooks: [{ id: "edited-look", cameraAssignments: [] }],
+    devices: [
+      { id: "main", type: "camera", name: "Main Camera" },
+      { id: "left", type: "camera", name: "Left Camera" }
+    ],
     live: {
-      programCamera: program?.cameraDeviceId || null,
-      programPreset: program?.presetName || null,
-      previewCamera: preview?.cameraDeviceId || null,
-      previewPreset: preview?.presetName || null,
+      programCamera: program,
+      previewCamera: preview,
+      programPreset: program ? "Main Wide" : null,
+      previewPreset: preview ? "Left Tight" : null,
+      cameraPreparations: [{
+        cameraId: "left", selectedMode: "static", preparationStatus: "ready",
+        selectedMotionId: null, tracking: { active: false },
+        preparedAssignment: { presetId: "left-tight", presetName: "Left Tight" }
+      }],
       activityLog: [],
-      executionSnapshot: {
-        video: {
-          programCameraId: program?.cameraDeviceId || null,
-          programCameraName: program?.cameraName || null,
-          previewCameraId: preview?.cameraDeviceId || null,
-          previewCameraName: preview?.cameraName || null,
-          programShotId: program?.shotId || null,
-          programShotName: program?.shotName || null,
-          previewShotId: preview?.shotId || null,
-          previewShotName: preview?.shotName || null,
-          programPreset: program?.presetName || null,
-          previewPreset: preview?.presetName || null,
-          source: "executed"
-        },
-        cameraAssignments,
-        cameras: cameraAssignments.map(item => ({
-          role: item.role,
-          cameraId: item.cameraDeviceId,
-          cameraName: item.cameraName,
-          presetId: item.presetId,
-          presetName: item.presetName,
-          shotId: item.shotId,
-          shotName: item.shotName,
-          tracking: clone(item.tracking),
-          motion: clone(item.motion),
-          source: item.source,
-          warnings: [...item.warnings]
-        }))
-      }
+      executionSnapshot: { cueId: "cue", lighting: { sceneId: "warm" }, futureField: true }
     }
   };
 }
 
-test("TAKE LIVE swaps complete frozen PROGRAM and PREVIEW assignments", () => {
-  const current = stateWith();
-  const oldProgram = clone(current.live.executionSnapshot.cameraAssignments[0]);
-  const oldPreview = clone(current.live.executionSnapshot.cameraAssignments[1]);
-  takeLive(current, { now: () => 123 });
+test("legacy Live state drops obsolete lighting overrides without altering other data", () => {
+  const legacy = {
+    cueIndex: 4, lightingOverrideId: "legacy-scene", lightingOverrideExecutionResult: { ok: true },
+    executionSnapshot: { cueId: "cue", futureField: true },
+    activityLog: [
+      { at: 1, message: "Lighting scene: Welcome" },
+      { at: 2, message: "Returned to cue lighting" },
+      { at: 3, message: "Cue started: Welcome" }
+    ], futureField: { retained: true }
+  };
+  const migrated = migrateLiveState(legacy);
+  assert.equal("lightingOverrideId" in migrated, false);
+  assert.equal("lightingOverrideExecutionResult" in migrated, false);
+  assert.equal(migrated.cueIndex, 4);
+  assert.deepEqual(migrated.executionSnapshot, legacy.executionSnapshot);
+  assert.deepEqual(migrated.activityLog, [{ at: 3, message: "Cue started: Welcome" }]);
+  assert.deepEqual(migrated.futureField, { retained: true });
+});
 
-  const program = current.live.executionSnapshot.cameraAssignments.find(item => item.role === "program");
-  const preview = current.live.executionSnapshot.cameraAssignments.find(item => item.role === "preview");
-  assert.deepEqual(program, { ...oldPreview, role: "program" });
-  assert.deepEqual(preview, { ...oldProgram, role: "preview" });
-  assert.equal(current.live.executionSnapshot.video.programShotId, oldPreview.shotId);
-  assert.equal(current.live.executionSnapshot.video.programShotName, oldPreview.shotName);
-  assert.equal(current.live.executionSnapshot.video.programPreset, oldPreview.presetName);
-  assert.equal(current.live.executionSnapshot.video.previewShotId, oldProgram.shotId);
-  assert.equal(current.live.programCamera, oldPreview.cameraDeviceId);
-  assert.equal(current.live.previewCamera, oldProgram.cameraDeviceId);
+test("manual TAKE LIVE swaps independent PROGRAM/PREVIEW state without changing the cue snapshot", () => {
+  const current = stateWith();
+  const frozen = clone(current.live.executionSnapshot);
+  takeLive(current, { now: () => 123 });
+  assert.equal(current.live.programCamera, "left");
+  assert.equal(current.live.previewCamera, "main");
+  assert.equal(current.live.programPreset, "Left Tight");
+  assert.equal(current.live.previewPreset, "Main Wide");
+  assert.equal(current.live.activeCameraAssignment.cameraId, "left");
+  assert.equal(current.live.activeCameraAssignment.presetId, "left-tight");
+  assert.deepEqual(current.live.executionSnapshot, frozen);
   assert.equal(current.live.activityLog[0].at, 123);
 });
 
-test("TAKE LIVE promotes PREVIEW when PROGRAM is unassigned", () => {
-  const current = stateWith(null, assignment("preview"));
+test("manual TAKE LIVE works before any service cue has executed", () => {
+  const current = stateWith(null, "left");
+  delete current.live.executionSnapshot;
   takeLive(current);
-  assert.equal(current.live.executionSnapshot.cameraAssignments[0].role, "program");
-  assert.equal(current.live.executionSnapshot.video.programCameraId, "preview-camera");
-  assert.equal(current.live.executionSnapshot.video.previewCameraId, null);
+  assert.equal(current.live.programCamera, "left");
   assert.equal(current.live.previewCamera, null);
 });
 
 test("TAKE LIVE leaves state unchanged when PREVIEW is unassigned", () => {
-  const current = stateWith(assignment("program"), null);
+  const current = stateWith("main", null);
   const before = clone(current);
   assert.throws(() => takeLive(current), error => error.code === "TAKE_LIVE_PREVIEW_UNASSIGNED");
   assert.deepEqual(current, before);
 });
 
 test("TAKE LIVE handles the same PROGRAM and PREVIEW camera deterministically", () => {
-  const current = stateWith(assignment("program", { cameraDeviceId: "same" }), assignment("preview", { cameraDeviceId: "same" }));
+  const current = stateWith("main", "main");
   const before = clone(current);
   assert.throws(() => takeLive(current), error => error.code === "TAKE_LIVE_SAME_CAMERA");
   assert.deepEqual(current, before);
 });
 
-test("TAKE LIVE preserves frozen missing Shot and camera references without library resolution", () => {
-  const current = stateWith(
-    assignment("program", { shotId: "deleted-shot", cameraDeviceId: "deleted-camera", missing: true }),
-    assignment("preview", { shotId: "missing-shot", shotName: "Frozen Missing Shot", cameraDeviceId: "missing-camera", cameraName: null, missing: true })
-  );
-  Object.defineProperty(current, "shots", { get: () => { throw new Error("Shot library must not be read"); } });
-  Object.defineProperty(current, "productionLooks", { get: () => { throw new Error("Look library must not be read"); } });
-  Object.defineProperty(current, "hardware", { get: () => { throw new Error("Hardware must not be contacted"); } });
-
+test("malformed legacy snapshots cannot influence manual TAKE LIVE", () => {
+  const current = stateWith();
+  current.live.executionSnapshot = { video: { programCameraId: "legacy" }, cameraAssignments: "bad" };
   takeLive(current);
-  const program = current.live.executionSnapshot.cameraAssignments.find(item => item.role === "program");
-  assert.equal(program.shotId, "missing-shot");
-  assert.equal(program.shotName, "Frozen Missing Shot");
-  assert.equal(program.cameraDeviceId, "missing-camera");
-  assert.equal(program.cameraName, null);
-  assert.equal(program.missing, true);
-});
-
-test("TAKE LIVE rejects malformed snapshots without crashing or mutation", () => {
-  for (const current of [{}, { live: {} }, { live: { executionSnapshot: { cameraAssignments: "bad" } } }]) {
-    const before = clone(current);
-    assert.throws(() => takeLive(current), error => ["TAKE_LIVE_NO_SNAPSHOT", "TAKE_LIVE_PREVIEW_UNASSIGNED"].includes(error.code));
-    assert.deepEqual(current, before);
-  }
+  assert.equal(current.live.programCamera, "left");
+  assert.equal(current.live.executionSnapshot.video.programCameraId, "legacy");
 });
 
 test("Electron TAKE LIVE uses preload IPC rather than renderer state replacement", () => {

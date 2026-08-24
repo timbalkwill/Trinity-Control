@@ -15,7 +15,7 @@ The app uses a separate product name and application ID so it does not overwrite
 
 ## Browser Operator
 
-Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with the Electron application. Browse to `http://<Mac-LAN-IP>:4310/operator/` from a trusted device on the same local network. `/` redirects to the Operator page.
+Trinity Control starts one dependency-free HTTP server on `0.0.0.0:4310` with the Electron application. Browse to `http://<host-LAN-IP>:4310/operator/` from a trusted device on the same local network. On Windows, allow Trinity Control on private networks if Windows Firewall prompts. `/` redirects to the Operator page.
 
 The browser API exposes only state reads, health, SSE state events, and the approved operator commands. It does not expose Electron, filesystem access, arbitrary state replacement, or arbitrary static files. Electron IPC and browser requests call the same serialized command service, which persists state before broadcasting the authoritative snapshot to connected SSE clients.
 
@@ -27,13 +27,13 @@ Reordering records the active cue ID before moving the array item and restores `
 
 GO, NEXT, and BACK still use the single authoritative `executeCue()` path. Direct jumps beyond two positions require an explicit confirmation flag, while sequential NEXT and BACK remain immediate.
 
-## Production Looks 2.0 foundation
+## Simplified Production Looks
 
-`production-look-operations.cjs` owns the versioned Production Look schema, normalization, validation, resource resolution, summaries, and CRUD operations. Migration is applied in the main process before state reaches either renderer. Electron IPC and narrow HTTP commands both use the serialized operator-command queue, so every edit begins with the latest saved state and publishes only the resulting authoritative snapshot.
+`production-look-operations.cjs` owns schema v3, normalization, validation, resource resolution, readiness warnings, search, and reference-aware CRUD. A Look defines only how a cue begins: name, enabled state, lighting scene, stable Main/Left/Right camera-preset pairs, priority camera, and whether Main tracking starts. Migration preserves Look IDs, names, enabled state, timestamps, valid lighting, and safely resolvable legacy layout/assignment/Shot preset intent without inventing references. Explicitly saved empty Look collections remain empty and cues are never rewritten.
 
-`cue-execution-plan.cjs` builds a pure hardware-independent description of the desired cue state. It records the source of lighting and video values, camera assignments, motion intent, future audio/presentation references, and non-fatal missing-resource warnings. `executeCue()` remains the only runtime entry point for GO, NEXT, and BACK; the execution plan does not communicate with hardware or create another execution path.
+`cue-execution-plan.cjs` builds a pure hardware-independent description of service-owned state. `executeCue()` remains the only runtime entry point for GO, NEXT, BACK, and direct execution, but it resolves and freezes lighting and other explicitly non-camera service state only. Camera layouts, presets, Shots, tracking, motion, PROGRAM/PREVIEW, and ATEM switching are excluded from the plan and `live.executionSnapshot`. Legacy camera references remain loadable in saved cues and Production Looks but have no execution semantics.
 
-Cue precedence remains: valid cue override, valid referenced Production Look value, then the existing safe fallback. Updating or deleting a Look never rewrites a cue. A confirmed deletion may leave an intentional missing reference so an operator can repair the cue later.
+Cue precedence is: valid cue lighting/layout compatibility override, valid simplified Look value, then safe fallback. A missing priority camera preserves the current program camera. `startMainTracking: false` explicitly stops Main tracking at cue start; `true` starts it only when supported and otherwise records a warning. Updating or deleting a Look never rewrites a cue or an active snapshot. Manual camera preparation, tracking, and Make Live remain independent after execution and never rebuild the frozen snapshot.
 
 ## Device configuration foundation
 
@@ -57,7 +57,7 @@ Shot Library adds `state.shots` between camera presets and Production Looks. `sh
 
 The renderer uses narrow preload commands. `operator-commands.cjs` serializes preparation, tracking, and Make Live mutations before persistence and publication to Electron and SSE subscribers. The renderer never replaces the full application state for these actions.
 
-`executeCue()` remains the only cue-execution path and `live.executionSnapshot` remains the immutable record of what the cue executed. A manual Make Live action changes `live.programCamera`, `live.previewCamera`, and `live.activeCameraAssignment`; it does not rebuild or mutate the cue snapshot. The older PROGRAM/PREVIEW TAKE LIVE swap remains supported for compatibility and continues preserving complete frozen assignment details.
+`executeCue()` remains the only service-execution path and `live.executionSnapshot` remains the immutable record of the non-camera state that the cue executed. Manual preparation, Make Live, and TAKE LIVE operate on independent Live camera state; they do not read, rebuild, or mutate the cue snapshot.
 
 Motion preparation currently uses Shot Library entries assigned to the camera. A Shot's linked camera preset is treated as its starting preset. The current data model has no explicit ending preset or path geometry, so simulation records an immediate deterministic completion without inventing a physical end position.
 

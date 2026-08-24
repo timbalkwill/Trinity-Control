@@ -1,24 +1,67 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, Menu } = require("electron");
+const { createHomeAssistantController } = require("./home-assistant-operations.cjs");
 const path = require("path");
 const fs = require("fs");
+const os = require("os");
 const { createOperatorCommands } = require("./operator-commands.cjs");
 const { normalizeExecutionSnapshot } = require("./cue-execution.cjs");
 const { DEFAULT_PORT, createOperatorServer } = require("./operator-server.cjs");
 const { normalizeProductionLooks } = require("./production-look-operations.cjs");
 const { CAMERA_MANAGER_SCHEMA_VERSION } = require("./camera-manager-operations.cjs");
-const { CAMERA_PRESET_SCHEMA_VERSION, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
+const { CAMERA_PRESET_SCHEMA_VERSION, hasDuplicateCameraPresetIds, migrateDuplicateCameraPresetIds, migrateLegacyPresets } = require("./camera-preset-operations.cjs");
 const { SHOT_SCHEMA_VERSION, defaultShots, migrateShots } = require("./shot-operations.cjs");
 const { CAMERA_PREPARATION_SCHEMA_VERSION, migrateCameraPreparations } = require("./camera-preparation-operations.cjs");
+const { migrateLightingScenes } = require("./lighting-scene-operations.cjs");
+const { migrateLiveState } = require("./live-operations.cjs");
+const { createQlcLauncher, createQlcServiceManager, normalizeQlcServiceSettings } = require("./qlcplus-service-manager.cjs");
 const {
   defaultCameras,
   defaultPlaceholders,
   normalizeDeviceCollection
 } = require("./device-operations.cjs");
+const { createApplicationMenuTemplate } = require("./application-menu.cjs");
+const { buildSystemStatus, readGitMetadata } = require("./system-status.cjs");
+const { createAtemService } = require("./atem-service.cjs");
+const { migrateVideoSources } = require("./video-source-operations.cjs");
+const { createSwitcherAdapterRegistry } = require("./switcher-adapter-registry.cjs");
+const { createVideoRouter } = require("./video-router.cjs");
+const { createVideoTakeLive } = require("./video-take-live.cjs");
+const { createTakeLatency } = require("./take-latency.cjs");
+const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
+const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
+const { deriveProductionReadiness } = require("./production-readiness.cjs");
 
-app.setName("Trinity Control Refresh");
+const APPLICATION_ID = "org.trinitybaptist.trinitycontrol";
+const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control Refresh");
+app.setName("Trinity Control");
+app.setAppUserModelId(APPLICATION_ID);
+app.setPath("userData", existingUserDataPath);
+
+function createProductionTakeLatency(options) {
+  const enabled = process.env.TRINITY_TAKE_LATENCY === "1";
+  return createTakeLatency({
+    ...options,
+    enabled,
+    logger: {
+      info(line) {
+        console.info(line);
+        if (enabled) fs.appendFile(path.join(app.getPath("userData"), "take-latency.log"), `${line}\n`, () => {});
+      }
+    }
+  });
+}
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
 
 let mainWindow;
 let operatorServer;
+let qlcServiceManager;
+let atemService;
+let videoRouter;
+let videoTakeLive;
+let selectedBackupImportPath = null;
+let qlcServiceStatus = { state: "disabled", message: "Automatic QLC+ management is disabled" };
 let operatorServerStatus = {
   running: false,
   port: DEFAULT_PORT,
@@ -26,9 +69,14 @@ let operatorServerStatus = {
   networkUrls: []
 };
 
-function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
-function uid(prefix) { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; }
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
+function dataPath() { return path.join(app.getPath("userData"), "trinity-data.json"); }
 function defaultState() {
   return {
     version: "1.0.2-alpha.5.2-refined",
@@ -38,6 +86,10 @@ function defaultState() {
     cameraPresetSchemaVersion: CAMERA_PRESET_SCHEMA_VERSION,
     shotSchemaVersion: SHOT_SCHEMA_VERSION,
     cameraPreparationSchemaVersion: CAMERA_PREPARATION_SCHEMA_VERSION,
+    settings: {
+      qlcplusService: normalizeQlcServiceSettings()
+    },
+    setup: normalizeSetup(),
     cameras: [
       { id: "main", name: "Main Camera", role: "main", online: true, enabled: true },
       { id: "left", name: "Left Camera", role: "left", online: true, enabled: true },
@@ -695,7 +747,6 @@ function defaultState() {
       programPreset: "Stage Wide",
       previewPreset: "Stage Left",
       hold: false,
-      lightingOverrideId: null,
       lastLightingSceneId: null,
       cueStartedAt: Date.now(),
       serviceStartedAt: Date.now(),
@@ -707,7 +758,14 @@ function defaultState() {
 function migrate(state) {
   const fresh = defaultState();
   const merged = { ...fresh, ...state, version: fresh.version, schemaVersion: fresh.schemaVersion };
-  for (const key of ["lightingScenes", "cameraLayouts", "productionLooks", "cueTemplates"]) {
+  merged.settings = {
+    ...(state?.settings || {}),
+    qlcplusService: normalizeQlcServiceSettings(state?.settings?.qlcplusService)
+  };
+  merged.setup = normalizeSetup(state?.setup, {
+    legacy: !Object.prototype.hasOwnProperty.call(state || {}, "setup")
+  });
+  for (const key of ["lightingScenes", "cameraLayouts", "cueTemplates"]) {
     if (!Array.isArray(merged[key]) || !merged[key].length) {
       merged[key] = fresh[key];
     } else {
@@ -715,26 +773,28 @@ function migrate(state) {
       merged[key] = [...merged[key], ...fresh[key].filter(item => !existing.has(item.id))];
     }
   }
-  merged.productionLooks = normalizeProductionLooks(merged.productionLooks);
   merged.devices = normalizeDeviceCollection(state.devices, { legacyCameras: merged.cameras });
+  migrateVideoSources(merged);
   merged.deviceSchemaVersion = 1;
   merged.cameraPresets = migrateLegacyPresets({ ...merged, cameraPresets: state.cameraPresets });
   merged.shots = migrateShots(state.shots);
+  const savedLooks = Object.prototype.hasOwnProperty.call(state, "productionLooks") && Array.isArray(state.productionLooks);
+  merged.productionLooks = normalizeProductionLooks(savedLooks ? state.productionLooks : fresh.productionLooks, { state: merged });
   merged.cameraManagerSchemaVersion = CAMERA_MANAGER_SCHEMA_VERSION;
   merged.cameraPresetSchemaVersion = CAMERA_PRESET_SCHEMA_VERSION;
   merged.shotSchemaVersion = SHOT_SCHEMA_VERSION;
-    merged.lightingScenes = merged.lightingScenes.map(scene => ({
+    merged.lightingScenes = migrateLightingScenes(merged.lightingScenes.map(scene => ({
     category: "Custom",
     favorite: false,
     ...scene
-  }));
+  })));
 merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     category: "Custom",
     favorite: false,
     ...layout
   }));
   if (!Array.isArray(merged.runOfService)) merged.runOfService = fresh.runOfService;
-  merged.live = { ...fresh.live, ...(state.live || {}) };
+  merged.live = migrateLiveState({ ...fresh.live, ...(state.live || {}) });
   if (state.live?.executionSnapshot) merged.live.executionSnapshot = normalizeExecutionSnapshot(state.live.executionSnapshot);
   if (!merged.live.cueStartedAt) merged.live.cueStartedAt = Date.now();
   if (!state.live?.serviceStartedAt) merged.live.serviceStartedAt = merged.live.cueStartedAt;
@@ -744,55 +804,286 @@ merged.cameraLayouts = merged.cameraLayouts.map(layout => ({
     productionLookId: fresh.productionLooks[Math.min(i, fresh.productionLooks.length - 1)]?.id || "look-sermon",
     ...cue
   }));
-  return merged;
+  return migrateDuplicateCameraPresetIds(merged);
 }
 
 function loadState() {
-  try { return migrate(JSON.parse(fs.readFileSync(dataPath(), "utf8"))); }
-  catch { const s = migrate(defaultState()); saveState(s); return s; }
+  let serialized;
+  let parsed;
+  try {
+    serialized = fs.readFileSync(dataPath(), "utf8");
+    parsed = JSON.parse(serialized);
+  } catch {
+    const state = migrate(defaultState());
+    saveState(state);
+    return state;
+  }
+  const needsPresetIdMigration = hasDuplicateCameraPresetIds(parsed);
+  const needsSetupMigration = !Object.prototype.hasOwnProperty.call(parsed, "setup");
+  let migrated;
+  try { migrated = migrate(parsed); }
+  catch (error) {
+    if (error?.code === "CAMERA_PRESET_MIGRATION_AMBIGUOUS") throw error;
+    const state = migrate(defaultState());
+    saveState(state);
+    return state;
+  }
+  if (needsPresetIdMigration) {
+    const recoveryDirectory = path.join(app.getPath("userData"), "Trinity Recovery Backups");
+    const timestamp = new Date().toISOString().replace(/[:]/g, "-").replace(/\.\d{3}Z$/, "Z");
+    atomicWrite(path.join(recoveryDirectory, `trinity-data-before-preset-id-migration-${timestamp}.json`), serialized);
+  }
+  if (needsPresetIdMigration || needsSetupMigration) saveState(migrated);
+  return migrated;
 }
-function saveState(state) { fs.writeFileSync(dataPath(), JSON.stringify(state, null, 2)); return state; }
+function saveState(state) { atomicWrite(dataPath(), `${JSON.stringify(state, null, 2)}\n`); return state; }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1366, height: 900, minWidth: 1024, minHeight: 700,
     backgroundColor: "#081018", title: "Trinity Control",
+    icon: path.join(__dirname, "build", "icons", "trinity-control.png"),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, nodeIntegration: false }
   });
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.loadFile(path.join(__dirname, "public", "index.html"));
 }
 
+function sendApplicationCommand(channel, payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+}
+
+function installApplicationMenu() {
+  const template = createApplicationMenuTemplate({
+    isMac: process.platform === "darwin",
+    isDevelopment: !app.isPackaged,
+    navigate: page => sendApplicationCommand("app:navigate", page),
+    showAbout: () => sendApplicationCommand("app:show-about"),
+    showKeyboardShortcuts: () => sendApplicationCommand("app:show-keyboard-shortcuts"),
+    showSystemStatus: () => sendApplicationCommand("app:navigate", "settings"),
+    closeWindow: () => mainWindow?.close()
+  });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
 app.whenReady().then(async () => {
   const commands = createOperatorCommands({ loadState, saveState, normalizeState: migrate });
+  const backupManager = createBackupManager({
+    getState: commands.getState,
+    replaceState: commands.replaceState,
+    normalizeState: migrate,
+    trinityVersion: app.getVersion(),
+    userDataPath: app.getPath("userData")
+  });
+  atemService = createAtemService({ getState: commands.getState, logger: console });
+  const switcherAdapters = createSwitcherAdapterRegistry({ atem: atemService });
+  videoRouter = createVideoRouter({ getState: commands.getState, adapters: switcherAdapters });
+  videoTakeLive = createVideoTakeLive({ commands, videoRouter, traceFactory: createProductionTakeLatency });
+  const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("operator:state-changed", state);
     }
   });
   ipcMain.handle("state:get", () => commands.getState());
-  ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
-  ipcMain.handle("operator-server:status", () => operatorServerStatus);
-  ipcMain.handle("cue:addTemplate", (_e, templateId) => commands.updateState(s => {
-    const t = s.cueTemplates.find(x => x.id === templateId); if (!t) return;
-    s.runOfService.push({ id: uid("cue"), name: t.name, duration: t.duration, notes: t.notes, productionLookId: t.productionLookId });
+  ipcMain.handle("app:info", () => ({
+    name: "Trinity Control",
+    version: app.getVersion(),
+    buildVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    nodeVersion: process.versions.node,
+    platform: process.platform,
+    architecture: process.arch,
+    isPackaged: app.isPackaged
   }));
+  ipcMain.handle("system:status", () => {
+    const packageStats = fs.statSync(path.join(__dirname, "package.json"));
+    const git = readGitMetadata(__dirname);
+    const memory = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    const activeResources = typeof process.getActiveResourcesInfo === "function" ? process.getActiveResourcesInfo() : [];
+    return buildSystemStatus({
+      state: commands.getState(),
+      qlcStatus: qlcServiceStatus,
+      atemStatus: { ...atemService.getStatus(), ...videoRouter.getStatus() },
+      operatorStatus: operatorServerStatus,
+      homeAssistant: homeAssistant.getConfiguration(),
+      appInfo: {
+        name: "Trinity Control",
+        version: app.getVersion(),
+        buildConfiguration: app.isPackaged ? "Packaged" : "Source",
+        buildDate: process.env.TRINITY_BUILD_DATE || process.env.BUILD_DATE || packageStats.mtime.toISOString(),
+        commit: git.commit,
+        branch: git.branch,
+        environment: app.isPackaged ? (/[-.]rc/i.test(app.getVersion()) ? "Release Candidate" : "Production") : "Development",
+        electronVersion: process.versions.electron,
+        nodeVersion: process.versions.node,
+        chromeVersion: process.versions.chrome,
+        operatingSystem: process.platform,
+        architecture: process.arch
+      },
+      processInfo: {
+        memoryBytes: memory.rss,
+        cpuUserMicroseconds: cpu.user,
+        cpuSystemMicroseconds: cpu.system,
+        uptimeSeconds: process.uptime(),
+        activeTimers: activeResources.filter(resource => resource === "Timeout").length
+      },
+      storage: {
+        userData: app.getPath("userData"),
+        configuration: dataPath(),
+        servicePlans: app.getPath("userData"),
+        logs: app.getPath("logs")
+      },
+      localSettings: {
+        qlcApplicationConfigured: Boolean(commands.getState().settings?.qlcplusService?.applicationPath),
+        qlcWorkspaceConfigured: Boolean(commands.getState().settings?.qlcplusService?.workspacePath)
+      }
+    });
+  });
+  ipcMain.handle("state:save", (_e, s) => commands.replaceState(s));
+  ipcMain.handle("backup:export", async () => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "Export Trinity Backup",
+      defaultPath: path.join(app.getPath("documents"), defaultBackupFilename()),
+      filters: [{ name: "Trinity Backup", extensions: ["trinitybackup"] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const filePath = result.filePath.toLowerCase().endsWith(".trinitybackup") ? result.filePath : `${result.filePath}.trinitybackup`;
+    const exported = backupManager.exportTo(filePath);
+    return { canceled: false, preview: exported.preview };
+  });
+  ipcMain.handle("backup:select-import", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Select Trinity Backup",
+      properties: ["openFile"],
+      filters: [{ name: "Trinity Backup", extensions: ["trinitybackup"] }, { name: "All Files", extensions: ["*"] }]
+    });
+    if (result.canceled || !result.filePaths[0]) {
+      selectedBackupImportPath = null;
+      return { canceled: true };
+    }
+    const filePath = result.filePaths[0];
+    const preview = backupManager.previewFile(filePath);
+    selectedBackupImportPath = filePath;
+    return { canceled: false, preview };
+  });
+  ipcMain.handle("backup:cancel-import", () => { selectedBackupImportPath = null; return true; });
+  ipcMain.handle("backup:confirm-import", async () => {
+    if (!selectedBackupImportPath) throw Object.assign(new Error("Select a Trinity backup before importing"), { code: "BACKUP_NOT_SELECTED" });
+    const filePath = selectedBackupImportPath;
+    selectedBackupImportPath = null;
+    const imported = await backupManager.importFile(filePath);
+    return { state: imported.state, preview: imported.preview, restartRequired: imported.restartRequired };
+  });
+  const setupContext = () => {
+    const current = commands.getState();
+    const qlcSettings = current.settings?.qlcplusService || {};
+    const homeAssistantConfiguration = homeAssistant.getConfiguration();
+    return {
+      platform: process.platform,
+      hostLabel: process.platform === "win32" ? "Windows production host" : process.platform === "darwin" ? "macOS host" : `${process.platform} host`,
+      version: app.getVersion(),
+      computerName: os.hostname(),
+      dataLocation: app.getPath("userData"),
+      operator: operatorServerStatus,
+      qlcplus: {
+        settings: qlcSettings,
+        status: qlcServiceStatus,
+        applicationPathValid: Boolean(qlcSettings.applicationPath && fs.existsSync(qlcSettings.applicationPath)),
+        workspacePathValid: Boolean(qlcSettings.workspacePath && fs.existsSync(qlcSettings.workspacePath))
+      },
+      atem: atemService.getStatus(),
+      cameras: (current.devices || []).filter(device => device.type === "camera" && ["main", "left", "right"].includes(device.logicalRole || device.id)),
+      homeAssistant: homeAssistantConfiguration,
+      readiness: setupReadiness({
+        state: current,
+        operatorStatus: operatorServerStatus,
+        qlcStatus: qlcServiceStatus,
+        atemStatus: atemService.getStatus(),
+        homeAssistant: homeAssistantConfiguration
+      })
+    };
+  };
+  ipcMain.handle("setup:context", setupContext);
+  ipcMain.handle("setup:finish", (_event, options) => commands.updateState(state => {
+    completeSetup(state, { skippedSystems: options?.skippedSystems });
+  }));
+  ipcMain.handle("setup:update-device", (_event, { deviceId, patch }) => {
+    const current = commands.getState();
+    const device = (current.devices || []).find(item => item.id === deviceId);
+    if (!device || !["camera", "switcher"].includes(device.type)) throw new RangeError("Setup device not found");
+    const allowed = device.type === "camera"
+      ? ["name", "enabled", "adapterType", "protocol", "ipAddress", "port", "viscaAddress"]
+      : ["name", "enabled", "ipAddress", "metadata"];
+    const safePatch = Object.fromEntries(Object.entries(patch || {}).filter(([key]) => allowed.includes(key)));
+    return commands.updateDevice(deviceId, safePatch);
+  });
+  ipcMain.handle("home-assistant:configuration", () => homeAssistant.getConfiguration());
+  ipcMain.handle("home-assistant:update-configuration", (_event, patch) => homeAssistant.saveConfiguration(patch));
+  ipcMain.handle("operator-server:status", () => operatorServerStatus);
+  ipcMain.handle("qlc-service:status", () => qlcServiceStatus);
+  ipcMain.handle("qlc-service:update-settings", (_e, patch) => commands.updateState(state => {
+    state.settings = {
+      ...(state.settings || {}),
+      qlcplusService: normalizeQlcServiceSettings({
+        ...state.settings?.qlcplusService,
+        ...(patch || {})
+      })
+    };
+  }));
+  ipcMain.handle("qlc-service:browse-application", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose QLC+ Application",
+      properties: process.platform === "darwin" ? ["openFile", "openDirectory"] : ["openFile"],
+      ...(process.platform === "win32" ? { filters: [{ name: "QLC+ Application", extensions: ["exe"] }] } : {})
+    });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
+  ipcMain.handle("qlc-service:browse-workspace", async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Choose QLC+ Workspace",
+      properties: ["openFile"],
+      filters: [{ name: "QLC+ Workspace", extensions: ["qxw"] }, { name: "All Files", extensions: ["*"] }]
+    });
+    return result.canceled ? null : result.filePaths[0] || null;
+  });
+  ipcMain.handle("cue:addTemplate", (_e, templateId) => {
+    const template = commands.getState().cueTemplates.find(item => item.id === templateId);
+    if (!template) throw new RangeError("Cue template not found");
+    return commands.createCue(template);
+  });
   ipcMain.handle("cue:move", (_e, { from, to }) => commands.reorderCue(from, to));
+  ipcMain.handle("cue:move-by-id", (_e, { cueId, targetCueId, placement }) => commands.reorderCueById(cueId, targetCueId, placement));
+  ipcMain.handle("cue:nudge-by-id", (_e, { cueId, direction }) => commands.moveCueById(cueId, direction));
   ipcMain.handle("cue:duplicate", (_e, index) => commands.duplicateCue(index));
+  ipcMain.handle("cue:create", (_e, input) => commands.createCue(input));
   ipcMain.handle("cue:insert", (_e, { index, position }) => commands.insertCue(index, position));
   ipcMain.handle("cue:remove", (_e, { index, options }) => commands.deleteCue(index, options));
+  ipcMain.handle("cue:remove-by-id", (_e, { cueId, options }) => commands.deleteCueById(cueId, options));
   ipcMain.handle("cue:update", (_e, { index, patch }) => commands.updateCue(index, patch));
   ipcMain.handle("look:create", (_e, input) => commands.createProductionLook(input));
   ipcMain.handle("look:update", (_e, { lookId, patch }) => commands.updateProductionLook(lookId, patch));
   ipcMain.handle("look:duplicate", (_e, lookId) => commands.duplicateProductionLook(lookId));
   ipcMain.handle("look:delete", (_e, { lookId, options }) => commands.deleteProductionLook(lookId, options));
   ipcMain.handle("device:create", (_e, input) => commands.createDevice(input));
-  ipcMain.handle("device:update", (_e, { deviceId, patch }) => commands.updateDevice(deviceId, patch));
+  ipcMain.handle("device:update", async (_e, { deviceId, patch }) => {
+    const state = await commands.updateDevice(deviceId, patch);
+    if ((state.devices || []).find(device => device.id === deviceId)?.type === "switcher") await atemService.reconfigure();
+    return state;
+  });
   ipcMain.handle("device:duplicate", (_e, deviceId) => commands.duplicateDevice(deviceId));
   ipcMain.handle("device:delete", (_e, { deviceId, options }) => commands.deleteDevice(deviceId, options));
   ipcMain.handle("device:reorder", (_e, { from, to }) => commands.reorderDevice(from, to));
   ipcMain.handle("device:test", (_e, deviceId) => commands.testDevice(deviceId));
   ipcMain.handle("device:testAll", () => commands.testAllDevices());
+  ipcMain.handle("lighting-adapter:test", (_e, deviceId) => commands.testLightingConnection(deviceId));
+  ipcMain.handle("lighting-adapter:discover", (_e, deviceId) => commands.discoverLightingControls(deviceId));
+  ipcMain.handle("lighting-scene:execute", (_e, sceneId) => commands.executeLightingScene(sceneId));
+  ipcMain.handle("lighting-scene:update", (_e, { sceneId, patch }) => commands.updateLightingScene(sceneId, patch));
+  ipcMain.handle("lighting-scene:duplicate", (_e, sceneId) => commands.duplicateLightingScene(sceneId));
+  ipcMain.handle("lighting-scene:replace-references", (_e, { missingSceneId, replacementSceneId, selection }) =>
+    commands.replaceLightingReferences(missingSceneId, replacementSceneId, selection));
   ipcMain.handle("device:clearDiagnostic", (_e, deviceId) => commands.clearDeviceDiagnostic(deviceId));
   ipcMain.handle("camera-preset:create", (_e, input) => commands.createCameraPreset(input));
   ipcMain.handle("camera-preset:update", (_e, { presetId, patch }) => commands.updateCameraPreset(presetId, patch));
@@ -810,15 +1101,94 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:take", () => commands.takeLive());
   ipcMain.handle("live:cameraMode", (_e, { cameraId, mode }) => commands.setCameraMode(cameraId, mode));
   ipcMain.handle("live:prepareCamera", (_e, { cameraId, selectionId }) => commands.prepareCamera(cameraId, selectionId));
+  ipcMain.handle("live:recallCameraPreset", (_e, { cameraId, presetId }) => commands.recallCameraPreset(cameraId, presetId));
+  ipcMain.handle("live:runCameraMotion", (_e, { cameraId, shotId }) => commands.runCameraMotion(cameraId, shotId));
+  ipcMain.handle("motion-studio:prepare-start", (_e, { cameraId, shotId }) => commands.prepareMotionStart(cameraId, shotId));
+  ipcMain.handle("motion-studio:store-preset", (_e, { cameraId, shotId, endpoint, input }) => commands.storeMotionPreset(cameraId, shotId, endpoint, input));
+  ipcMain.handle("camera:execution-capabilities", (_e, cameraId) => commands.getCameraExecutionCapabilities(cameraId));
   ipcMain.handle("live:cameraTracking", (_e, { cameraId, active }) => commands.setCameraTracking(cameraId, active));
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
-  ipcMain.handle("lighting:override", (_e, sceneId) => commands.setLightingOverride(sceneId));
-  ipcMain.handle("lighting:returnToCue", () => commands.returnToCueLighting());
+  ipcMain.handle("video-switcher:status", () => videoRouter.getStatus());
+  ipcMain.handle("video-switcher:take-source", (_e, request) => {
+    const videoSourceId = typeof request === "string" ? request : request?.videoSourceId;
+    return videoTakeLive.takeSource(videoSourceId, { origin: "desktop" });
+  });
+  ipcMain.handle("video-source:update", (_e, { sourceId, patch }) => commands.updateVideoSource(sourceId, patch));
+  ipcMain.handle("video-switcher:update-settings", (_e, patch) => commands.updateVideoSwitchingSettings(patch));
+  ipcMain.handle("atem:status", () => videoRouter.getStatus());
+  ipcMain.handle("atem:take-live", (_e, cameraDeviceId) => {
+    const source = videoRouter.getSources().find(item => item.cameraDeviceId === cameraDeviceId);
+    return videoTakeLive.takeSource(source?.id);
+  });
+  ipcMain.handle("motion:cancel-prepared", (_e, cameraDeviceId) => commands.cancelPreparedMotion(cameraDeviceId));
+  ipcMain.handle("home-assistant:status", () => homeAssistant.getStatus());
+  ipcMain.handle("home-assistant:lighting-on", () => homeAssistant.turnOn());
+  ipcMain.handle("home-assistant:lighting-off", () => homeAssistant.turnOff());
 
+  const serviceContext = () => {
+    const state = commands.getState();
+    return {
+      settings: state.settings?.qlcplusService,
+      device: (state.devices || []).find(device => device.type === "lighting"),
+      lightingScenes: state.lightingScenes || []
+    };
+  };
+  qlcServiceManager = createQlcServiceManager({
+    getContext: serviceContext,
+    discover: async device => {
+      if (!device) return { ok: false, code: "configurationIncomplete", message: "Lighting device is not configured" };
+      const outcome = await commands.discoverLightingControlsDetailed(device.id);
+      return outcome.result || { ok: false, message: "QLC+ discovery failed" };
+    },
+    launch: createQlcLauncher({ logger: console }),
+    logger: console,
+    onStatus: status => {
+      qlcServiceStatus = status;
+      if (["stopped", "degraded", "restarting", "failed"].includes(status.state)) {
+        commands.resetLightingActiveState(`service-${status.state}`);
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("qlc-service:status-changed", status);
+      operatorServer?.publishState();
+    }
+  });
+  ipcMain.handle("qlc-service:start", () => qlcServiceManager.start());
+  ipcMain.handle("qlc-service:restart", () => qlcServiceManager.restart());
+  ipcMain.handle("qlc-service:refresh", () => qlcServiceManager.refresh());
+  ipcMain.handle("qlc-service:set-enabled", async (_event, enabled) => {
+    const current = commands.getState();
+    const lightingDevice = (current.devices || []).find(device =>
+      device.type === "lighting" && device.adapterType === "qlcplus-websocket"
+    );
+    if (!lightingDevice) throw new RangeError("QLC+ lighting device is not configured");
+    await commands.updateDevice(lightingDevice.id, { enabled: enabled === true });
+    if (enabled === true) await qlcServiceManager.enable();
+    else qlcServiceManager.disable();
+    return commands.getState();
+  });
+
+  createWindow();
+  installApplicationMenu();
+  videoRouter.subscribe(status => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("video-switcher:status-changed", status);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("atem:status-changed", status);
+  });
+  videoRouter.bindAdapter("atem");
+  void atemService.initialize();
+  void qlcServiceManager.initialize().then(() => qlcServiceManager.scheduleMonitor());
   operatorServer = createOperatorServer({
     commands,
-    assetsDirectory: path.join(__dirname, "public")
+    assetsDirectory: path.join(__dirname, "public"),
+    getVideoRouterStatus: () => videoRouter?.getStatus(),
+    subscribeVideoRouterStatus: subscriber => videoRouter?.subscribe(subscriber) || (() => {}),
+    takeVideoSource: (videoSourceId, options) => videoTakeLive.takeSource(videoSourceId, { ...options, origin: "browser" }),
+    getProductionReadiness: current => deriveProductionReadiness({
+      state: current,
+      qlcStatus: qlcServiceStatus,
+      videoStatus: videoRouter?.getStatus(),
+      operatorStatus: operatorServerStatus,
+      homeAssistant: homeAssistant.getConfiguration()
+    })
   });
   try {
     operatorServerStatus = await operatorServer.start();
@@ -826,16 +1196,20 @@ app.whenReady().then(async () => {
     operatorServerStatus = { ...operatorServerStatus, error: error.message };
     console.error(`[Trinity Operator] Server failed to start on port ${DEFAULT_PORT}: ${error.message}`);
   }
-  createWindow();
 });
 app.on("activate", () => { if (!mainWindow) createWindow(); });
 app.on("before-quit", event => {
-  if (!operatorServer) return;
+  qlcServiceManager?.shutdown();
+  if (!operatorServer && !atemService) return;
   event.preventDefault();
   const server = operatorServer;
+  const switcher = atemService;
   operatorServer = null;
-  server.close()
-    .catch(error => console.error(`[Trinity Operator] Server failed to close cleanly: ${error.message}`))
+  atemService = null;
+  Promise.all([
+    server?.close().catch(error => console.error(`[Trinity Operator] Server failed to close cleanly: ${error.message}`)),
+    switcher?.shutdown()
+  ])
     .finally(() => app.quit());
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

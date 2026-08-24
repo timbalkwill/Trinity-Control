@@ -167,21 +167,47 @@ test("diagnostic stubs never report a fake connection", () => {
   const current = state();
   assert.equal(diagnosticResult(getDeviceById(current, "main"), 1000).message, "Not configured");
   assert.equal(diagnosticResult(getDeviceById(current, "device-qlc"), 1000).message, "Disabled");
-  updateDevice(current, "main", { ipAddress: "10.0.0.5", protocol: "visca-over-ip" });
-  assert.equal(runDeviceDiagnostic(current, "main", { now: 2000 }).message, "Adapter not implemented");
+  updateDevice(current, "main", { ipAddress: "10.0.0.5", port: 1259, protocol: "visca-over-ip" });
+  assert.equal(runDeviceDiagnostic(current, "main", { now: 2000 }).message, "Configured — not tested");
   assert.equal(getDeviceById(current, "main").metadata.diagnostic.status, "stub");
   clearDeviceDiagnostic(current, "main");
   assert.equal(getDeviceById(current, "main").metadata.diagnostic, undefined);
 });
 
-test("Production Look references and pure execution plans continue to resolve device IDs", () => {
+test("legacy VISCA camera normalization preserves identity and configuration", () => {
+  const legacy = normalizeDeviceCollection(null, { legacyCameras: [{
+    id: "main", name: "PTZ Optics Move SE", role: "main", enabled: true,
+    manufacturer: "PTZ Optics", model: "Move SE", host: "10.1.10.183",
+    port: 1259, protocol: "VISCA (UDP)", viscaAddress: 1, unknownFutureField: "preserved"
+  }] });
+  assert.equal(legacy[0].id, "main");
+  assert.equal(legacy[0].name, "PTZ Optics Move SE");
+  assert.equal(legacy[0].adapterType, "visca-udp");
+  assert.equal(legacy[0].ipAddress, "10.1.10.183");
+  assert.equal(legacy[0].port, 1259);
+  assert.equal(legacy[0].protocol, "VISCA (UDP)");
+  assert.equal(legacy[0].viscaAddress, 1);
+  assert.equal(legacy[0].unknownFutureField, "preserved");
+});
+
+test("VISCA port and address remain independently device-configurable", () => {
+  const camera = normalizeDevice({
+    id: "left", type: "camera", enabled: true, adapterType: "visca-udp",
+    ipAddress: "10.1.10.197", port: 1259, protocol: "visca-udp", viscaAddress: 2
+  });
+  assert.equal(camera.port, 1259);
+  assert.equal(camera.connection.port, 1259);
+  assert.equal(camera.viscaAddress, 2);
+  assert.equal(camera.connection.viscaAddress, 2);
+});
+
+test("Production Look camera references remain loadable but service plans ignore device IDs", () => {
   const current = state();
   current.lightingScenes = [];
   current.productionLooks.push({ id: "look", name: "Look", programCameraId: "main", previewCameraId: "left", cameraAssignments: [], transitionStyle: "cut" });
   const snapshot = JSON.stringify(current);
   const plan = buildCueExecutionPlan(current, { id: "cue", productionLookId: "look" });
-  assert.equal(plan.video.programCameraId, "main");
-  assert.equal(plan.video.previewCameraId, "left");
+  assert.equal(Object.hasOwn(plan, "video"), false);
   assert.equal(plan.warnings.length, 0);
   assert.equal(JSON.stringify(current), snapshot);
 });

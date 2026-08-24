@@ -1,0 +1,193 @@
+/* Trinity Control — Production Look editor accessibility pass */
+
+.look-editor {
+  padding: clamp(18px, 2vw, 28px) !important;
+}
+
+.look-editor-header {
+  margin-bottom: 20px !important;
+}
+
+.look-editor-header .eyebrow {
+  font-size: 13px !important;
+  letter-spacing: .16em !important;
+}
+
+.look-editor-header h1 {
+  font-size: clamp(28px, 2.4vw, 38px) !important;
+  line-height: 1.05 !important;
+  margin-top: 7px !important;
+}
+
+.look-editor-header .row-actions button {
+  min-height: 48px !important;
+  padding: 0 18px !important;
+  font-size: 15px !important;
+}
+
+.simplified-look-form {
+  grid-template-columns: minmax(320px, .9fr) minmax(430px, 1.25fr) !important;
+  gap: 18px !important;
+  align-items: start !important;
+}
+
+.simplified-look-form fieldset {
+  padding: 20px !important;
+  gap: 15px !important;
+  border-radius: 15px !important;
+}
+
+.simplified-look-form legend {
+  padding: 0 7px !important;
+  font-size: 14px !important;
+  letter-spacing: .13em !important;
+}
+
+.simplified-look-form label {
+  gap: 8px !important;
+  font-size: 14px !important;
+  line-height: 1.25 !important;
+}
+
+.simplified-look-form input[type="text"],
+.simplified-look-form input:not([type]),
+.simplified-look-form select {
+  width: 100% !important;
+  min-height: 54px !important;
+  padding: 0 15px !important;
+  border-radius: 11px !important;
+  font-size: 16px !important;
+  font-weight: 750 !important;
+}
+
+.simplified-look-form select {
+  padding-right: 42px !important;
+}
+
+.simplified-look-form small {
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+}
+
+.simplified-look-form .checkbox-label {
+  min-height: 44px !important;
+  gap: 11px !important;
+  font-size: 15px !important;
+  cursor: pointer;
+}
+
+.simplified-look-form input[type="checkbox"] {
+  width: 22px !important;
+  height: 22px !important;
+}
+
+/* Put live-camera settings beneath the look basics and keep camera presets tall. */
+.simplified-look-form fieldset:nth-child(2) {
+  grid-row: span 2 !important;
+}
+
+.look-form-actions {
+  margin-top: 20px !important;
+  padding-top: 18px !important;
+  gap: 12px !important;
+}
+
+.look-form-actions button {
+  min-width: 155px !important;
+  min-height: 52px !important;
+  font-size: 16px !important;
+}
+
+.look-form-actions #look-save {
+  min-width: 190px !important;
+}
+
+/* Live summary injected by production-look-editor-enhancements.js */
+.look-live-summary {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 18px 20px;
+  border: 1px solid rgba(71, 213, 158, .34);
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(16, 44, 47, .86), rgba(9, 24, 34, .94));
+}
+
+.look-live-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.look-live-summary-header strong {
+  font-size: 18px;
+}
+
+.look-live-summary-header span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.look-live-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.look-live-summary-item {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: rgba(7, 16, 25, .72);
+}
+
+.look-live-summary-item small {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 11px !important;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.look-live-summary-item strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.look-live-summary-item.is-missing strong {
+  color: var(--amber);
+}
+
+@media (max-width: 1250px) {
+  .simplified-look-form {
+    grid-template-columns: 1fr !important;
+  }
+  .simplified-look-form fieldset:nth-child(2) {
+    grid-row: auto !important;
+  }
+  .look-live-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .look-live-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .look-form-actions {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+  }
+  .look-form-actions button {
+    min-width: 0 !important;
+  }
+}

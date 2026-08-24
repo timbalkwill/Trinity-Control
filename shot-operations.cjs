@@ -1,6 +1,9 @@
 "use strict";
 
-const SHOT_SCHEMA_VERSION = 1;
+const SHOT_SCHEMA_VERSION = 4;
+const SHOT_TYPES = ["static", "motion", "tracking"];
+const MOTION_SPEED_SETTINGS = ["verySlow", "slow", "medium", "fast"];
+const MOTION_STYLES = ["presetTransition", "pushIn", "pullOut", "panLeft", "panRight", "tiltUp", "tiltDown", "diagonalDrift", "reveal", "custom"];
 const SUGGESTED_SHOT_CATEGORIES = ["Pastor", "Platform", "Music", "Piano", "Choir", "Baptistry", "Congregation", "Wide", "Utility"];
 const EPOCH = "1970-01-01T00:00:00.000Z";
 const nullable = value => typeof value === "string" && value.trim() ? value.trim() : null;
@@ -9,6 +12,20 @@ const clone = value => JSON.parse(JSON.stringify(value));
 const finite = (value, fallback = 0, minimum = 0) => Number.isFinite(Number(value)) ? Math.max(minimum, Number(value)) : fallback;
 const uniqueId = () => `shot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const categoryKey = value => (nullable(value) || "Utility").toLocaleLowerCase();
+const shotType = value => SHOT_TYPES.includes(value) ? value : "static";
+const motionSpeedSetting = value => MOTION_SPEED_SETTINGS.includes(value) ? value : "medium";
+const motionStyle = value => nullable(value) || "presetTransition";
+const speedLabel = value => ({ verySlow: "Very Slow", slow: "Slow", medium: "Medium", fast: "Fast" })[value] || "Medium";
+const styleLabel = value => ({
+  presetTransition: "Preset Transition", pushIn: "Push In", pullOut: "Pull Out", panLeft: "Pan Left",
+  panRight: "Pan Right", tiltUp: "Tilt Up", tiltDown: "Tilt Down", diagonalDrift: "Diagonal / Drift",
+  reveal: "Reveal", custom: "Custom"
+})[value] || `Needs Review: ${value}`;
+const freeze = value => {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  Object.values(value).forEach(freeze);
+  return Object.freeze(value);
+};
 
 const DEFAULT_SHOT_DEFINITIONS = [
   ["shot-pastor-tight", "Pastor Tight", "Pastor", "main", "Pastor", "Tight"],
@@ -31,6 +48,7 @@ function normalizeShot(input = {}, { id, now, order = 0 } = {}) {
     id: nullable(input.id) || id || uniqueId(),
     name: text(input.name, "Untitled Shot") || "Untitled Shot",
     description: text(input.description),
+    shotType: shotType(input.shotType),
     enabled: input.enabled !== false,
     createdAt,
     updatedAt: nullable(input.updatedAt) || createdAt,
@@ -55,6 +73,10 @@ function normalizeShot(input = {}, { id, now, order = 0 } = {}) {
     trackingNotes: text(input.trackingNotes),
     motionEnabled: input.motionEnabled === true,
     motionProfileId: nullable(input.motionProfileId),
+    motionEndPresetId: nullable(input.motionEndPresetId),
+    motionSpeedSetting: motionSpeedSetting(input.motionSpeedSetting),
+    motionStyle: motionStyle(input.motionStyle),
+    motionTargetDurationMs: finite(input.motionTargetDurationMs ?? input.motionDurationMs, 0),
     motionDurationMs: finite(input.motionDurationMs, 0),
     motionSpeed: finite(input.motionSpeed, 1),
     motionNotes: text(input.motionNotes),
@@ -94,10 +116,25 @@ function validateShot(shot) {
   return { valid: errors.length === 0, errors };
 }
 
+function validateShotReferences(state, shot) {
+  const errors = [];
+  if (shot?.shotType !== "motion") return errors;
+  const camera = (state?.devices || []).find(item => item?.type === "camera" && item.id === shot.cameraDeviceId);
+  if (!camera) return errors;
+  for (const [presetId, label] of [[shot.cameraPresetId, "Start preset"], [shot.motionEndPresetId, "End preset"]]) {
+    if (!presetId) continue;
+    const preset = (state?.cameraPresets || []).find(item => item?.id === presetId);
+    if (preset && preset.cameraDeviceId !== camera.id) errors.push(`${label} belongs to another camera`);
+  }
+  return errors;
+}
+
 function createShot(state, input = {}, { id, now = Date.now() } = {}) {
+  if (Object.prototype.hasOwnProperty.call(input, "name") && !text(input.name)) throw new TypeError("Shot name is required");
   const shot = normalizeShot(input, { id: input.id || id || uniqueId(), now, order: collection(state).length });
   const validation = validateShot(shot);
-  if (!validation.valid) throw new TypeError(validation.errors.join("; "));
+  const referenceErrors = validateShotReferences(state, shot);
+  if (!validation.valid || referenceErrors.length) throw new TypeError([...validation.errors, ...referenceErrors].join("; "));
   if (state.shots.some(item => item.id === shot.id)) throw new RangeError(`Shot ID already exists: ${shot.id}`);
   state.shots.push(shot);
   return shot;
@@ -107,9 +144,11 @@ function updateShot(state, shotId, patch = {}, { now = Date.now() } = {}) {
   const index = collection(state).findIndex(item => item.id === shotId);
   if (index < 0) throw new RangeError(`Unknown Shot: ${shotId}`);
   const current = state.shots[index];
+  if (Object.prototype.hasOwnProperty.call(patch, "name") && !text(patch.name)) throw new TypeError("Shot name is required");
   const updated = normalizeShot({ ...current, ...clone(patch), id: current.id, createdAt: current.createdAt, updatedAt: new Date(now).toISOString() }, { order: current.order });
   const validation = validateShot(updated);
-  if (!validation.valid) throw new TypeError(validation.errors.join("; "));
+  const referenceErrors = validateShotReferences(state, updated);
+  if (!validation.valid || referenceErrors.length) throw new TypeError([...validation.errors, ...referenceErrors].join("; "));
   state.shots[index] = updated;
   return updated;
 }
@@ -231,6 +270,103 @@ function resolveShotTarget(state, shotOrId) {
   };
 }
 
+function resolveShotExecution(state, shotOrId, { referenceRole = null, referenceSource = "production-look" } = {}) {
+  const requestedShotId = typeof shotOrId === "string" ? shotOrId : shotOrId?.id || null;
+  const rawShot = typeof shotOrId === "string" ? (state?.shots || []).find(item => item?.id === shotOrId) : shotOrId;
+  if (!rawShot || typeof rawShot !== "object") {
+    return freeze({
+      referenceRole,
+      referenceSource,
+      shotId: requestedShotId,
+      shotName: null,
+      type: null,
+      camera: null,
+      static: null,
+      motion: null,
+      tracking: null,
+      valid: false,
+      errors: [`Invalid Shot reference: ${requestedShotId || "not assigned"}`]
+    });
+  }
+
+  const shot = normalizeShot(rawShot);
+  const type = shot.shotType;
+  const errors = [];
+  const cameras = (state?.devices || []).filter(item => item?.type === "camera");
+  const requestedCamera = shot.cameraDeviceId ? cameras.find(item => item.id === shot.cameraDeviceId) : null;
+  const roleCamera = shot.logicalCameraRole
+    ? cameras.find(item => item.logicalRole === shot.logicalCameraRole || (shot.logicalCameraRole === "main" && item.logicalRole === "center"))
+    : null;
+  const camera = requestedCamera || roleCamera || null;
+  if (shot.enabled === false) errors.push(`Invalid Shot reference "${shot.name}": Shot is disabled`);
+  if (!camera) errors.push(`Missing camera for Shot "${shot.name}"`);
+  else if (camera.enabled === false) errors.push(`Invalid camera reference for Shot "${shot.name}": ${camera.name || camera.id} is disabled`);
+
+  const resolvePreset = (presetId, label, { requireHardwareNumber = false } = {}) => {
+    if (!presetId) {
+      errors.push(`Missing ${label} for Shot "${shot.name}"`);
+      return null;
+    }
+    const scoped = camera
+      ? (state?.cameraPresets || []).find(item => item?.id === presetId && item?.cameraDeviceId === camera.id)
+      : null;
+    if (!scoped) {
+      const existsElsewhere = (state?.cameraPresets || []).some(item => item?.id === presetId);
+      errors.push(existsElsewhere && camera
+        ? `Invalid ${label} reference for Shot "${shot.name}": ${presetId} belongs to another camera`
+        : `Missing ${label} for Shot "${shot.name}": ${presetId}`);
+      return null;
+    }
+    if (scoped.enabled === false) {
+      errors.push(`Invalid ${label} reference for Shot "${shot.name}": ${scoped.name || scoped.id} is disabled`);
+      return null;
+    }
+    if (requireHardwareNumber && (!Number.isInteger(scoped.presetNumber) || scoped.presetNumber < 0)) {
+      errors.push(`Invalid ${label} reference for Shot "${shot.name}": ${scoped.name || scoped.id} needs a hardware preset number`);
+    }
+    return { id: scoped.id, name: scoped.name || null, cameraDeviceId: scoped.cameraDeviceId, presetNumber: scoped.presetNumber ?? null };
+  };
+
+  const cameraExecution = camera ? {
+    id: camera.id,
+    name: camera.name || null,
+    logicalRole: camera.logicalRole || null
+  } : null;
+  let staticExecution = null;
+  let motionExecution = null;
+  let trackingExecution = null;
+  if (type === "static") {
+    staticExecution = { preset: resolvePreset(shot.cameraPresetId, "preset") };
+  } else if (type === "motion") {
+    motionExecution = {
+      startPreset: resolvePreset(shot.cameraPresetId, "start preset", { requireHardwareNumber: true }),
+      endPreset: resolvePreset(shot.motionEndPresetId, "end preset", { requireHardwareNumber: true }),
+      speed: { value: shot.motionSpeedSetting, label: speedLabel(shot.motionSpeedSetting) },
+      style: { value: shot.motionStyle, label: styleLabel(shot.motionStyle), recognized: MOTION_STYLES.includes(shot.motionStyle) },
+      targetDurationMs: shot.motionTargetDurationMs
+    };
+  } else {
+    trackingExecution = {
+      startingPreset: resolvePreset(shot.cameraPresetId, "starting preset"),
+      enabled: shot.trackingPreferred === true
+    };
+  }
+
+  return freeze({
+    referenceRole,
+    referenceSource,
+    shotId: shot.id,
+    shotName: shot.name,
+    type,
+    camera: cameraExecution,
+    static: staticExecution,
+    motion: motionExecution,
+    tracking: trackingExecution,
+    valid: errors.length === 0,
+    errors
+  });
+}
+
 function summarizeShotReadiness(resolved) {
   const labels = {
     ready: "Ready",
@@ -292,7 +428,10 @@ function filterShots(state, filters = {}) {
 
 module.exports = {
   DEFAULT_SHOT_DEFINITIONS,
+  MOTION_SPEED_SETTINGS,
+  MOTION_STYLES,
   SHOT_SCHEMA_VERSION,
+  SHOT_TYPES,
   SUGGESTED_SHOT_CATEGORIES,
   countShotReferences,
   createShot,
@@ -309,8 +448,11 @@ module.exports = {
   normalizeShot,
   reorderShot,
   resolveShotTarget,
+  resolveShotExecution,
   summarizeShot,
   summarizeShotReadiness,
+  speedLabel,
+  styleLabel,
   updateShot,
   validateShot
 };

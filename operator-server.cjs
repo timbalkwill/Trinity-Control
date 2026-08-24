@@ -5,6 +5,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { projectBrowserState } = require("./device-operations.cjs");
+const { safeProductionReadiness } = require("./production-readiness.cjs");
 
 const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 4310;
@@ -25,6 +26,13 @@ function networkUrls(port) {
 function createOperatorServer({
   commands,
   assetsDirectory,
+  getAtemStatus = () => null,
+  subscribeAtemStatus = null,
+  takeCameraLive = null,
+  getVideoRouterStatus = getAtemStatus,
+  subscribeVideoRouterStatus = subscribeAtemStatus,
+  takeVideoSource = null,
+  getProductionReadiness = null,
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   logger = console
@@ -38,6 +46,7 @@ function createOperatorServer({
     ["/operator/production-look-view.js", ["production-look-view.js", "text/javascript; charset=utf-8"]],
     ["/operator/operator.css", ["operator/operator.css", "text/css; charset=utf-8"]],
     ["/operator/compact.css", ["operator/compact.css", "text/css; charset=utf-8"]],
+    ["/operator/manifest.webmanifest", ["operator/manifest.webmanifest", "application/manifest+json; charset=utf-8"]],
     ["/operator/trinity-logo.png", ["assets/trinity-logo.png", "image/png"]]
   ]);
 
@@ -49,8 +58,22 @@ function createOperatorServer({
     response.end(JSON.stringify(payload));
   }
 
+  function operatorState(state = commands.getState()) {
+    const router = getVideoRouterStatus?.();
+    const videoSwitcherStatus = router ? {
+      backend: router.backend || "atem", backendName: router.backendName || router.name || "ATEM",
+      enabled: router.enabled === true, configured: router.configured === true,
+      connectionState: router.connectionState || "disconnected", programInput: router.programInput ?? null,
+      liveSourceId: router.liveSourceId || null, liveSourceName: router.liveSourceName || null,
+      liveCameraId: router.liveCameraId || null, cameraInputs: { ...(router.cameraInputs || {}) },
+      message: router.message || null
+    } : null;
+    const readiness = typeof getProductionReadiness === "function" ? getProductionReadiness(state) : null;
+    return { ...projectBrowserState(state), videoSwitcherStatus, atemStatus: videoSwitcherStatus, ...(readiness ? { productionReadiness: safeProductionReadiness(readiness) } : {}) };
+  }
+
   function writeEvent(response, state) {
-    response.write(`event: state\ndata: ${JSON.stringify(projectBrowserState(state))}\n\n`);
+    response.write(`event: state\ndata: ${JSON.stringify(operatorState(state))}\n\n`);
   }
 
   async function readJson(request) {
@@ -87,16 +110,26 @@ function createOperatorServer({
     ["/api/live/take", () => commands.takeLive()],
     ["/api/live/camera-mode", body => commands.setCameraMode(body.cameraId, body.mode)],
     ["/api/live/prepare-camera", body => commands.prepareCamera(body.cameraId, body.selectionId)],
+    ["/api/live/recall-camera-preset", body => commands.recallCameraPreset(body.cameraId, body.presetId)],
+    ["/api/live/run-camera-motion", body => commands.runCameraMotion(body.cameraId, body.shotId)],
+    ["/api/live/prepare-motion", body => commands.prepareMotionStart(body.cameraId, body.shotId)],
+    ["/api/live/cancel-prepared-motion", body => commands.cancelPreparedMotion(body.cameraId)],
+    ["/api/atem/take-live", async body => {
+      if (typeof takeCameraLive !== "function") throw Object.assign(new Error("ATEM control is unavailable"), { code: "ATEM_UNAVAILABLE" });
+      await takeCameraLive(body.cameraId);
+      return commands.getState();
+    }],
+    ["/api/video-sources/take-live", async body => {
+      if (typeof takeVideoSource !== "function") throw Object.assign(new Error("Video Switcher control is unavailable"), { code: "SWITCHER_UNAVAILABLE" });
+      await takeVideoSource(body.videoSourceId);
+      return commands.getState();
+    }],
     ["/api/live/camera-tracking", body => commands.setCameraTracking(body.cameraId, body.active === true)],
     ["/api/live/make-camera-live", body => commands.makeCameraLive(body.cameraId)],
     ["/api/live/hold", () => commands.toggleHold()],
-    ["/api/lighting/override", body => {
-      if (typeof body.sceneId !== "string" || !body.sceneId) throw new TypeError("sceneId is required");
-      return commands.setLightingOverride(body.sceneId);
-    }],
-    ["/api/lighting/return-to-cue", () => commands.returnToCueLighting()],
     ["/api/cues/reorder", body => commands.reorderCue(body.from, body.to)],
     ["/api/cues/duplicate", body => commands.duplicateCue(body.index)],
+    ["/api/cues/create", body => commands.createCue(body.cue || body)],
     ["/api/cues/insert", body => commands.insertCue(body.index, body.position)],
     ["/api/cues/delete", body => commands.deleteCue(body.index, { confirmActive: body.confirmActive === true })],
     ["/api/cues/update", body => commands.updateCue(body.index, body.patch || {})],
@@ -123,7 +156,7 @@ function createOperatorServer({
       return json(response, 200, { status: "ok", port: server.address()?.port || port });
     }
     if (request.method === "GET" && pathname === "/api/state") {
-      return json(response, 200, projectBrowserState(commands.getState()));
+      return json(response, 200, operatorState());
     }
     if (request.method === "GET" && pathname === "/api/events") {
       const clientId = nextClientId++;
@@ -166,7 +199,7 @@ function createOperatorServer({
       try {
         const body = await readJson(request);
         const state = await commandRoutes.get(pathname)(body);
-        return json(response, 200, projectBrowserState(state));
+        return json(response, 200, operatorState(state));
       } catch (error) {
         const status = error.statusCode || (error instanceof TypeError ? 400 : error instanceof RangeError ? 404 : 500);
         return json(response, status, { error: error.message, code: error.code, references: error.references });
@@ -185,8 +218,20 @@ function createOperatorServer({
       }
     }
   });
+  const unsubscribeAtem = typeof subscribeVideoRouterStatus === "function" ? subscribeVideoRouterStatus(() => {
+    for (const [clientId, response] of clients) {
+      try { writeEvent(response, commands.getState()); }
+      catch { clients.delete(clientId); response.destroy(); }
+    }
+  }) : () => {};
 
   return {
+    publishState: () => {
+      for (const [clientId, response] of clients) {
+        try { writeEvent(response, commands.getState()); }
+        catch { clients.delete(clientId); response.destroy(); }
+      }
+    },
     start: () => new Promise((resolve, reject) => {
       const onError = error => reject(error);
       server.once("error", onError);
@@ -207,6 +252,7 @@ function createOperatorServer({
     }),
     close: () => new Promise((resolve, reject) => {
       unsubscribe();
+      unsubscribeAtem();
       for (const response of clients.values()) response.end();
       clients.clear();
       if (!server.listening) return resolve();

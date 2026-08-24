@@ -33,18 +33,20 @@ function initialState() {
     configuration: { privateValue: "hidden" },
     cameraPresets: [
       { id: "pastor-tight", name: "Pastor Tight", cameraDeviceId: "main", enabled: true, favorite: true, category: "Pastor", notes: "private-preset-notes" },
-      { id: "left-wide", name: "Left Wide", cameraDeviceId: "left", enabled: true, favorite: false, category: "Wide" }
+      { id: "left-wide", name: "Left Wide", cameraDeviceId: "left", enabled: true, favorite: false, category: "Wide" },
+      { id: "right-tight", name: "Right Tight", cameraDeviceId: "right", enabled: true, favorite: false, category: "Pastor" }
     ],
     shots: [{ id: "shot-right", name: "Pastor Tight", cameraDeviceId: "right", logicalCameraRole: "right", operatorNotes: "private-shot-notes", framingNotes: "private-framing-notes", trackingPreferred: true, motionEnabled: false, enabled: true }],
     lightingScenes: [{ id: "light-cue", name: "Cue" }, { id: "light-manual", name: "Manual" }],
     productionLooks: [{
-      id: "look",
+      schemaVersion: 3, id: "look", name: "Operator Look", enabled: true,
       lightingSceneId: "light-cue",
-      cameraLayoutId: "layout",
-      cameraAssignments: [
-        { role: "PROGRAM", shotId: "shot-right", cameraId: "right" },
-        { role: "PREVIEW", cameraId: "left" }
-      ]
+      cameraPresets: {
+        main: { cameraId: "main", presetId: "pastor-tight" },
+        left: { cameraId: "left", presetId: "left-wide" },
+        right: { cameraId: "right", presetId: "right-tight" }
+      },
+      priorityCameraId: "right", startMainTracking: false
     }],
     cameraLayouts: [{ id: "layout", programCamera: "main", programPreset: "Wide", previewCamera: "left", previewPreset: "Left" }],
     runOfService: [
@@ -52,12 +54,15 @@ function initialState() {
       { id: "two", name: "Two", productionLookId: "look" },
       { id: "three", name: "Three", productionLookId: "look" }
     ],
-    live: { cueIndex: 0, hold: false, lightingOverrideId: null, activityLog: [] }
+    live: { cueIndex: 0, programCamera: "main", previewCamera: "left", hold: false, activityLog: [] }
   };
 }
 
 function createHarness(port = 0) {
   let persisted = initialState();
+  let atemStatus = { enabled: true, configured: true, connectionState: "connected", programInput: 1, liveCameraId: "main", cameraInputs: { main: 1, left: 2, right: 3 } };
+  let atemSwitches = 0;
+  const atemSubscribers = new Set();
   const commands = createOperatorCommands({
     loadState: () => clone(persisted),
     saveState: state => { persisted = clone(state); return clone(persisted); }
@@ -65,11 +70,18 @@ function createHarness(port = 0) {
   const server = createOperatorServer({
     commands,
     assetsDirectory: path.join(__dirname, "..", "public"),
+    getAtemStatus: () => atemStatus,
+    subscribeAtemStatus: subscriber => { atemSubscribers.add(subscriber); return () => atemSubscribers.delete(subscriber); },
+    takeCameraLive: async cameraId => {
+      atemSwitches += 1;
+      atemStatus = { ...atemStatus, programInput: atemStatus.cameraInputs[cameraId], liveCameraId: cameraId };
+      for (const subscriber of atemSubscribers) subscriber(atemStatus);
+    },
     host: "127.0.0.1",
     port,
     logger: { info() {} }
   });
-  return { commands, server };
+  return { commands, server, getAtemSwitches: () => atemSwitches };
 }
 
 async function post(baseUrl, route, body = {}, headers = { "Content-Type": "application/json" }) {
@@ -118,7 +130,7 @@ function connectEvents(url) {
 }
 
 test("Browser Operator HTTP API and synchronization", async t => {
-  const { server } = createHarness();
+  const { server, getAtemSwitches } = createHarness();
   const status = await server.start();
   const baseUrl = `http://127.0.0.1:${status.port}`;
 
@@ -151,11 +163,8 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(state.live.cueIndex, 2);
       assert.equal(state.live.executionSnapshot.cueId, "three");
       assert.equal(state.live.executionSnapshot.productionLookId, "look");
-      assert.equal(state.live.executionSnapshot.video.programCameraName, "Right Camera");
-      assert.equal(state.live.executionSnapshot.video.previewCameraName, "Left Camera");
-      assert.equal(state.live.executionSnapshot.cameraAssignments[0].shotName, "Pastor Tight");
-      assert.equal(state.live.executionSnapshot.cameraAssignments[0].tracking.preferred, true);
-      assert.equal(state.live.executionSnapshot.cameraAssignments[0].cameraDeviceId, "right");
+      assert.equal("video" in state.live.executionSnapshot, false);
+      assert.deepEqual(state.live.executionSnapshot.cameraAssignments, []);
       assert.doesNotMatch(JSON.stringify(state.live.executionSnapshot), /private-user|private-password|private-reference|private-shot-notes|private-framing-notes/);
     });
     await t.test("BACK command", async () => {
@@ -170,16 +179,14 @@ test("Browser Operator HTTP API and synchronization", async t => {
       const response = await post(baseUrl, "/api/live/hold");
       assert.equal((await response.json()).live.hold, true);
     });
-    await t.test("TAKE LIVE command swaps frozen assignments and persists", async () => {
-      await post(baseUrl, "/api/live/go", { index: 0 });
-      const response = await post(baseUrl, "/api/live/take");
+    await t.test("TAKE LIVE invokes the host ATEM path exactly once", async () => {
+      const response = await post(baseUrl, "/api/atem/take-live", { cameraId: "left" });
       assert.equal(response.status, 200);
       const state = await response.json();
-      assert.equal(state.live.executionSnapshot.video.programCameraId, "left");
-      assert.equal(state.live.executionSnapshot.video.previewCameraId, "right");
-      assert.equal(state.live.executionSnapshot.cameraAssignments.find(item => item.role === "program").cameraDeviceId, "left");
+      assert.equal(getAtemSwitches(), 1);
+      assert.equal(state.atemStatus.liveCameraId, "left");
       const reloaded = await (await fetch(`${baseUrl}/api/state`)).json();
-      assert.equal(reloaded.live.executionSnapshot.video.programCameraId, "left");
+      assert.equal(reloaded.atemStatus.liveCameraId, "left");
     });
     await t.test("camera preparation and Make Live broadcast through SSE", async () => {
       const events = connectEvents(`${baseUrl}/api/events`);
@@ -198,14 +205,6 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.equal(update.live.cameraPreparations.find(item => item.cameraId === "left").presetName, "Left Wide");
       await events.close();
     });
-    await t.test("lighting override", async () => {
-      const response = await post(baseUrl, "/api/lighting/override", { sceneId: "light-manual" });
-      assert.equal((await response.json()).live.lightingOverrideId, "light-manual");
-    });
-    await t.test("return to cue lighting", async () => {
-      const response = await post(baseUrl, "/api/lighting/return-to-cue");
-      assert.equal((await response.json()).live.lightingOverrideId, null);
-    });
     await t.test("narrow cue mutation endpoints persist authoritative state", async () => {
       let response = await post(baseUrl, "/api/cues/reorder", { from: 0, to: 1 });
       assert.equal(response.status, 200);
@@ -218,9 +217,9 @@ test("Browser Operator HTTP API and synchronization", async t => {
       let response = await post(baseUrl, "/api/looks/create", { look: { name: "Browser Look", lightingSceneId: "light-cue" } });
       let payload = await response.json();
       const look = payload.productionLooks.at(-1);
-      response = await post(baseUrl, "/api/looks/update", { lookId: look.id, patch: { operatorNotes: "Narrow update" } });
+      response = await post(baseUrl, "/api/looks/update", { lookId: look.id, patch: { enabled: false } });
       payload = await response.json();
-      assert.equal(payload.productionLooks.at(-1).operatorNotes, "Narrow update");
+      assert.equal(payload.productionLooks.at(-1).enabled, false);
       response = await post(baseUrl, "/api/looks/duplicate", { lookId: look.id });
       assert.equal((await response.json()).productionLooks.at(-1).name, "Browser Look Copy");
     });
@@ -264,14 +263,12 @@ test("Browser Operator HTTP API and synchronization", async t => {
       assert.doesNotMatch(JSON.stringify(update), /private-password/);
       await events.close();
     });
-    await t.test("SSE receives matching TAKE LIVE updates", async () => {
-      await post(baseUrl, "/api/live/go", { index: 0 });
+    await t.test("SSE receives matching authoritative ATEM updates", async () => {
       const events = connectEvents(`${baseUrl}/api/events`);
       await events.next();
-      await post(baseUrl, "/api/live/take");
+      await post(baseUrl, "/api/atem/take-live", { cameraId: "right" });
       const update = await events.next();
-      assert.equal(update.live.executionSnapshot.video.programCameraId, "left");
-      assert.equal(update.live.executionSnapshot.cameraAssignments.find(item => item.role === "program").shotId, null);
+      assert.equal(update.atemStatus.liveCameraId, "right");
       await events.close();
     });
   } finally {

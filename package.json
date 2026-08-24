@@ -1,15 +1,20 @@
 {
   "name": "trinity-control-refresh",
+  "productName": "Trinity Control",
   "version": "1.0.2-alpha.5.2",
-  "description": "Clean refresh of Trinity Baptist Church production control application",
+  "description": "Production control system for Trinity Baptist Church",
   "author": "Tim Balkwill",
   "main": "electron-main.cjs",
   "private": true,
+  "dependencies": {
+    "atem-connection": "^3.8.2"
+  },
   "scripts": {
     "start": "electron .",
-    "check": "node --check electron-main.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
+    "check": "node --check electron-main.cjs && node --check application-menu.cjs && node --check backup-operations.cjs && node --check atem-service.cjs && node --check qlcplus-service-manager.cjs && node --check lighting-scene-operations.cjs && node --check lighting-reconciliation.cjs && node --check cue-execution.cjs && node --check cue-execution-plan.cjs && node --check camera-shot-execution.cjs && node --check prepared-motion-state.cjs && node --check prepared-motion-take-live.cjs && node --check camera-adapter-registry.cjs && node --check ptzoptics-adapter.cjs && node --check lighting-adapter-registry.cjs && node --check qlcplus-websocket-transport.cjs && node --check production-look-operations.cjs && node --check shot-operations.cjs && node --check live-operations.cjs && node --check camera-preparation-operations.cjs && node --check device-operations.cjs && node --check camera-manager-operations.cjs && node --check camera-preset-operations.cjs && node --check service-operations.cjs && node --check operator-commands.cjs && node --check operator-server.cjs && node --check preload.cjs && node --check public/production-look-view.js && node --check public/app.js && node --check public/operator/operator.js",
     "test": "node --test",
     "build:mac": "electron-builder --mac dmg --x64 --arm64 --publish never",
+    "build:win": "electron-builder --win nsis --x64 --publish never",
     "verify:mac": "bash build/verify-macos-apps.sh"
   },
   "devDependencies": {
@@ -17,17 +22,42 @@
     "electron-builder": "^26.0.12"
   },
   "build": {
-    "appId": "org.trinitybaptist.trinitycontrol.refresh",
-    "productName": "Trinity Control Refresh",
+    "appId": "org.trinitybaptist.trinitycontrol",
+    "productName": "Trinity Control",
+    "copyright": "Copyright © Trinity Baptist Church",
     "asar": true,
     "files": [
       "electron-main.cjs",
+      "system-status.cjs",
+      "production-readiness.cjs",
+      "onboarding-operations.cjs",
+      "application-menu.cjs",
       "cue-execution.cjs",
       "cue-execution-plan.cjs",
+      "camera-shot-execution.cjs",
+      "prepared-motion-state.cjs",
+      "prepared-motion-take-live.cjs",
+      "backup-operations.cjs",
+      "camera-adapter-registry.cjs",
+      "ptzoptics-adapter.cjs",
+      "lighting-adapter-registry.cjs",
+      "lighting-execution.cjs",
+      "qlcplus-websocket-transport.cjs",
+      "qlcplus-service-manager.cjs",
+      "lighting-scene-operations.cjs",
+      "lighting-reconciliation.cjs",
+      "lighting-active-state.cjs",
       "production-look-operations.cjs",
       "device-operations.cjs",
       "camera-manager-operations.cjs",
       "camera-preset-operations.cjs",
+      "atem-service.cjs",
+      "video-source-operations.cjs",
+      "switcher-adapter-registry.cjs",
+      "video-router.cjs",
+      "video-take-live.cjs",
+      "take-latency.cjs",
+      "home-assistant-operations.cjs",
       "shot-operations.cjs",
       "live-operations.cjs",
       "camera-preparation-operations.cjs",
@@ -35,6 +65,7 @@
       "operator-commands.cjs",
       "operator-server.cjs",
       "preload.cjs",
+      "build/icons/trinity-control.png",
       "public/**/*",
       "package.json"
     ],
@@ -42,6 +73,7 @@
       "output": "dist"
     },
     "mac": {
+      "icon": "build/icons/trinity-control.icns",
       "category": "public.app-category.utilities",
       "identity": null,
       "hardenedRuntime": false,
@@ -56,9 +88,30 @@
         }
       ]
     },
+    "win": {
+      "icon": "build/icons/trinity-control.ico",
+      "executableName": "Trinity Control",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "installerIcon": "build/icons/trinity-control.ico",
+      "uninstallerIcon": "build/icons/trinity-control.ico",
+      "installerHeaderIcon": "build/icons/trinity-control.ico",
+      "shortcutName": "Trinity Control",
+      "uninstallDisplayName": "Trinity Control",
+      "artifactName": "Trinity-Control-Setup-${version}-${arch}.${ext}"
+    },
     "dmg": {
-      "title": "Trinity Control Refresh ${version}",
-      "artifactName": "Trinity-Control-Refresh-${version}-${arch}.${ext}"
+      "title": "Trinity Control ${version}",
+      "artifactName": "Trinity-Control-${version}-${arch}.${ext}"
     },
     "afterPack": "build/after-pack.cjs"
   }

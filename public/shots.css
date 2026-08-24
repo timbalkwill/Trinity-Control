@@ -12,7 +12,7 @@
 .shot-order-controls { display: flex; gap: 5px; }
 .shot-order-controls button { padding: 4px 9px; }
 .shot-editor { display: grid; gap: 14px; }
-.shot-editor-heading { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.shot-editor-heading { position: sticky; top: 0; z-index: 4; display: flex; justify-content: space-between; gap: 14px; align-items: center; padding: 8px 0; background: #101c27; }
 .shot-editor-heading h1 { margin: 4px 0; }
 .shot-editor-heading p { margin: 0; color: var(--muted); }
 .shot-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
@@ -23,9 +23,25 @@
 .resolved-shot { display: grid; gap: 4px; padding: 10px; background: #0a151f; border-radius: 9px; }
 .resolved-shot span { color: var(--muted); }
 .resolved-shot em { color: var(--amber); font-style: normal; }
+.shot-section-grid label small { color: var(--muted); font-weight: 500; }
+.motion-assisted-setup { display: grid; gap: 12px; padding: 13px; border: 1px solid #31506a; border-radius: 12px; background: #0a1824; }
+.motion-assisted-setup h2, .motion-assisted-setup p { margin: 4px 0; }
+.motion-preset-status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.motion-preset-status { display: grid; gap: 4px; min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: #071019; }
+.motion-preset-status strong, .motion-preset-status small { overflow-wrap: anywhere; }
+.motion-position-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.motion-position-setup { display: grid; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #071019; }
+.motion-position-setup p { color: var(--muted); font-size: 12px; }
+.advanced-camera-notes { border: 1px solid var(--line); border-radius: 12px; background: #0b1620; }
+.advanced-camera-notes summary { padding: 13px 15px; color: var(--blue); font-size: 11px; font-weight: 900; letter-spacing: .1em; cursor: pointer; }
+.advanced-camera-notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; padding: 0 15px 15px; }
+.advanced-camera-notes-grid label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.advanced-camera-notes-grid textarea { min-height: 70px; background: #071019; color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 9px; }
 .thumbnail-placeholder { min-height: 95px; display: grid; place-content: center; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 9px; }
-.shot-danger-zone { margin-top: 0; }
 @media (max-width: 1120px) {
   .shot-library { grid-template-columns: 1fr; }
   .shot-section-grid { grid-template-columns: 1fr; }
+  .advanced-camera-notes-grid { grid-template-columns: 1fr; }
+  .motion-position-grid { grid-template-columns: 1fr; }
+  .motion-preset-status-grid { grid-template-columns: 1fr; }
 }

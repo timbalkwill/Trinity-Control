@@ -1,18 +1,71 @@
 const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("trinity", {
   getState: () => ipcRenderer.invoke("state:get"),
+  getAppInfo: () => ipcRenderer.invoke("app:info"),
+  getSystemStatus: () => ipcRenderer.invoke("system:status"),
+  onNavigate: subscriber => {
+    const listener = (_event, page) => subscriber(page);
+    ipcRenderer.on("app:navigate", listener);
+    return () => ipcRenderer.removeListener("app:navigate", listener);
+  },
+  onShowAbout: subscriber => {
+    const listener = () => subscriber();
+    ipcRenderer.on("app:show-about", listener);
+    return () => ipcRenderer.removeListener("app:show-about", listener);
+  },
+  onShowKeyboardShortcuts: subscriber => {
+    const listener = () => subscriber();
+    ipcRenderer.on("app:show-keyboard-shortcuts", listener);
+    return () => ipcRenderer.removeListener("app:show-keyboard-shortcuts", listener);
+  },
   getOperatorServerStatus: () => ipcRenderer.invoke("operator-server:status"),
+  getQlcServiceStatus: () => ipcRenderer.invoke("qlc-service:status"),
+  getAtemStatus: () => ipcRenderer.invoke("atem:status"),
+  getVideoSwitcherStatus: () => ipcRenderer.invoke("video-switcher:status"),
+  onAtemStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("atem:status-changed", listener);
+    return () => ipcRenderer.removeListener("atem:status-changed", listener);
+  },
+  onVideoSwitcherStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("video-switcher:status-changed", listener);
+    return () => ipcRenderer.removeListener("video-switcher:status-changed", listener);
+  },
+  onQlcServiceStatusChanged: subscriber => {
+    const listener = (_event, status) => subscriber(status);
+    ipcRenderer.on("qlc-service:status-changed", listener);
+    return () => ipcRenderer.removeListener("qlc-service:status-changed", listener);
+  },
+  updateQlcServiceSettings: patch => ipcRenderer.invoke("qlc-service:update-settings", patch),
+  browseQlcApplication: () => ipcRenderer.invoke("qlc-service:browse-application"),
+  browseQlcWorkspace: () => ipcRenderer.invoke("qlc-service:browse-workspace"),
+  startQlcService: () => ipcRenderer.invoke("qlc-service:start"),
+  restartQlcService: () => ipcRenderer.invoke("qlc-service:restart"),
+  refreshQlcService: () => ipcRenderer.invoke("qlc-service:refresh"),
+  setQlcDeviceEnabled: enabled => ipcRenderer.invoke("qlc-service:set-enabled", enabled),
   onStateChanged: subscriber => {
     const listener = (_event, state) => subscriber(state);
     ipcRenderer.on("operator:state-changed", listener);
     return () => ipcRenderer.removeListener("operator:state-changed", listener);
   },
   saveState: s => ipcRenderer.invoke("state:save", s),
+  exportTrinityBackup: () => ipcRenderer.invoke("backup:export"),
+  selectTrinityBackup: () => ipcRenderer.invoke("backup:select-import"),
+  cancelTrinityBackupImport: () => ipcRenderer.invoke("backup:cancel-import"),
+  importTrinityBackup: () => ipcRenderer.invoke("backup:confirm-import"),
+  getSetupContext: () => ipcRenderer.invoke("setup:context"),
+  finishSetup: options => ipcRenderer.invoke("setup:finish", options),
+  updateSetupDevice: (deviceId, patch) => ipcRenderer.invoke("setup:update-device", { deviceId, patch }),
   addCueTemplate: id => ipcRenderer.invoke("cue:addTemplate", id),
   moveCue: (from, to) => ipcRenderer.invoke("cue:move", { from, to }),
+  reorderCueById: (cueId, targetCueId, placement) => ipcRenderer.invoke("cue:move-by-id", { cueId, targetCueId, placement }),
+  moveCueById: (cueId, direction) => ipcRenderer.invoke("cue:nudge-by-id", { cueId, direction }),
   duplicateCue: index => ipcRenderer.invoke("cue:duplicate", index),
+  createCue: input => ipcRenderer.invoke("cue:create", input),
   insertCue: (index, position) => ipcRenderer.invoke("cue:insert", { index, position }),
   removeCue: (index, options) => ipcRenderer.invoke("cue:remove", { index, options }),
+  deleteCueById: (cueId, options) => ipcRenderer.invoke("cue:remove-by-id", { cueId, options }),
   updateCue: (index, patch) => ipcRenderer.invoke("cue:update", { index, patch }),
   createProductionLook: input => ipcRenderer.invoke("look:create", input),
   updateProductionLook: (lookId, patch) => ipcRenderer.invoke("look:update", { lookId, patch }),
@@ -25,6 +78,12 @@ contextBridge.exposeInMainWorld("trinity", {
   reorderDevice: (from, to) => ipcRenderer.invoke("device:reorder", { from, to }),
   testDevice: deviceId => ipcRenderer.invoke("device:test", deviceId),
   testAllDevices: () => ipcRenderer.invoke("device:testAll"),
+  testLightingConnection: deviceId => ipcRenderer.invoke("lighting-adapter:test", deviceId),
+  discoverLightingControls: deviceId => ipcRenderer.invoke("lighting-adapter:discover", deviceId),
+  executeLightingScene: sceneId => ipcRenderer.invoke("lighting-scene:execute", sceneId),
+  updateLightingScene: (sceneId, patch) => ipcRenderer.invoke("lighting-scene:update", { sceneId, patch }),
+  duplicateLightingScene: sceneId => ipcRenderer.invoke("lighting-scene:duplicate", sceneId),
+  replaceLightingReferences: (missingSceneId, replacementSceneId, selection) => ipcRenderer.invoke("lighting-scene:replace-references", { missingSceneId, replacementSceneId, selection }),
   clearDeviceDiagnostic: deviceId => ipcRenderer.invoke("device:clearDiagnostic", deviceId),
   createCameraPreset: input => ipcRenderer.invoke("camera-preset:create", input),
   updateCameraPreset: (presetId, patch) => ipcRenderer.invoke("camera-preset:update", { presetId, patch }),
@@ -42,9 +101,22 @@ contextBridge.exposeInMainWorld("trinity", {
   takeLive: () => ipcRenderer.invoke("live:take"),
   setCameraMode: (cameraId, mode) => ipcRenderer.invoke("live:cameraMode", { cameraId, mode }),
   prepareCamera: (cameraId, selectionId) => ipcRenderer.invoke("live:prepareCamera", { cameraId, selectionId }),
+  recallCameraPreset: (cameraId, presetId) => ipcRenderer.invoke("live:recallCameraPreset", { cameraId, presetId }),
+  runCameraMotion: (cameraId, shotId) => ipcRenderer.invoke("live:runCameraMotion", { cameraId, shotId }),
+  prepareMotionStart: (cameraId, shotId) => ipcRenderer.invoke("motion-studio:prepare-start", { cameraId, shotId }),
+  storeMotionPreset: (cameraId, shotId, endpoint, input) => ipcRenderer.invoke("motion-studio:store-preset", { cameraId, shotId, endpoint, input }),
+  cancelPreparedMotion: cameraId => ipcRenderer.invoke("motion:cancel-prepared", cameraId),
+  getCameraExecutionCapabilities: cameraId => ipcRenderer.invoke("camera:execution-capabilities", cameraId),
+  takeCameraLive: cameraId => ipcRenderer.invoke("atem:take-live", cameraId),
+  takeVideoSource: sourceId => ipcRenderer.invoke("video-switcher:take-source", { videoSourceId: sourceId }),
+  updateVideoSource: (sourceId, patch) => ipcRenderer.invoke("video-source:update", { sourceId, patch }),
+  updateVideoSwitchingSettings: patch => ipcRenderer.invoke("video-switcher:update-settings", patch),
   setCameraTracking: (cameraId, active) => ipcRenderer.invoke("live:cameraTracking", { cameraId, active }),
   makeCameraLive: cameraId => ipcRenderer.invoke("live:makeCameraLive", cameraId),
   toggleHold: () => ipcRenderer.invoke("live:hold"),
-  lightingOverride: id => ipcRenderer.invoke("lighting:override", id),
-  returnToCueLighting: () => ipcRenderer.invoke("lighting:returnToCue")
+  getHomeAssistantStatus: () => ipcRenderer.invoke("home-assistant:status"),
+  getHomeAssistantConfiguration: () => ipcRenderer.invoke("home-assistant:configuration"),
+  updateHomeAssistantConfiguration: patch => ipcRenderer.invoke("home-assistant:update-configuration", patch),
+  turnLightingPowerOn: () => ipcRenderer.invoke("home-assistant:lighting-on"),
+  turnLightingPowerOff: () => ipcRenderer.invoke("home-assistant:lighting-off")
 });

@@ -1,0 +1,38 @@
+.setup-wizard { width: 100vw; height: 100vh; min-width: 0; display: grid; grid-template-rows: 76px minmax(0, 1fr) 72px; background: var(--bg); overflow: hidden; }
+.setup-wizard > header { display: flex; align-items: center; gap: 18px; padding: 12px 24px; border-bottom: 1px solid var(--line); background: #09141d; }
+.setup-wizard > header img { width: 178px; max-height: 50px; object-fit: contain; }
+.setup-wizard > header span { color: var(--muted); font-size: 11px; font-weight: 900; letter-spacing: .12em; }
+.setup-wizard > header button { margin-left: auto; }
+.setup-wizard-body { min-width: 0; overflow: auto; padding: 24px; }
+.setup-welcome, .setup-step, .setup-loading { width: min(980px, 100%); margin: 0 auto; }
+.setup-welcome { min-height: 100%; display: grid; align-content: center; gap: 14px; text-align: center; }
+.setup-welcome h1, .setup-step h1 { margin: 4px 0; font-size: 34px; }
+.setup-welcome > p, .setup-step > p { max-width: 760px; margin: 0 auto; color: var(--muted); line-height: 1.55; }
+.setup-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.setup-choice { min-height: 112px; display: grid; place-content: center; gap: 8px; font-size: 15px; }
+.setup-choice small { color: var(--muted); font-size: 11px; font-weight: 600; }
+.setup-import-preview { margin-top: 10px; padding: 16px; text-align: left; }
+.setup-step { padding: 22px; display: grid; gap: 16px; }
+.setup-step > p { margin: 0; }
+.setup-navigation { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 24px; border-top: 1px solid var(--line); background: #09141d; }
+.setup-navigation span { color: var(--muted); font-size: 11px; }
+.setup-guidance { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: #0b1721; }
+.setup-guidance p { margin: 7px 0 0; color: var(--muted); line-height: 1.45; }
+.setup-camera-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.setup-camera-grid article { min-width: 0; padding: 13px; display: grid; gap: 8px; }
+.setup-camera-grid h2 { margin: 0; text-transform: capitalize; }
+.setup-camera-grid label { display: grid; gap: 4px; color: var(--muted); font-size: 11px; font-weight: 800; }
+.setup-camera-grid small { color: var(--muted); }
+.setup-review { display: grid; gap: 7px; }
+.setup-review > div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px; border: 1px solid var(--line); border-radius: 10px; background: #0b1721; }
+.setup-review > div > span:first-child { min-width: 0; display: grid; gap: 3px; }
+.setup-review small { color: var(--muted); }
+.setup-status { flex: 0 0 auto; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.setup-status.ready { color: var(--green); background: #123a2c; }
+.setup-status.needs-review, .setup-status.not-configured { color: var(--amber); background: #3b3020; }
+.setup-status.skipped { color: var(--muted); background: #1a2935; }
+.setup-skip { justify-self: start; }
+@media (max-width: 900px) {
+  .setup-camera-grid, .setup-choice-grid { grid-template-columns: 1fr; }
+  .setup-wizard-body { padding: 14px; }
+}

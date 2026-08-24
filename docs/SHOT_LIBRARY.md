@@ -30,7 +30,7 @@ Readiness labels are conservative and never claim hardware is connected.
 
 Each Production Look camera assignment may reference a `shotId` alongside explicit camera/preset compatibility fields. Resolution order is cue camera-layout override, valid Shot, explicit assignment, legacy direct camera fields, legacy Look layout, then unassigned.
 
-The cue plan records role, Shot ID/name, camera, preset, tracking intent, motion intent, source, and warnings. `executeCue()` freezes those values into `live.executionSnapshot`. Editing a Shot never changes the executed display until the cue executes again.
+Shots are manual camera resources. Service cue plans and `live.executionSnapshot` do not contain Shot, camera, preset, tracking, or motion instructions. Legacy Production Look and cue references remain loadable but are ignored by GO and BACK.
 
 ## References and security
 

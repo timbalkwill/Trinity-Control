@@ -1,0 +1,50 @@
+/* Live Camera Director viewport-fit overrides, loaded after styles.css. */
+html,body,#app,.shell{width:100%;height:100%;overflow:hidden}
+.content{min-height:0;overflow:hidden;padding:10px}
+.simple-live-layout{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;display:grid;grid-template-columns:clamp(260px,21vw,340px) minmax(0,1fr);gap:10px}
+.simple-cue-panel,.simple-live-main{min-width:0;min-height:0;overflow:hidden}
+.simple-cue-panel{padding:10px}
+.simple-cue-panel .cue-scroll{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+.simple-cue-controls{gap:7px;padding-top:8px}
+.simple-cue-controls button{min-height:52px}
+.simple-live-main{display:grid;grid-template-rows:auto auto minmax(60px,auto) minmax(0,1fr);gap:8px}
+.simple-live-main>.presentation-source-control{position:static;z-index:auto;min-width:0;min-height:60px;overflow:hidden;align-self:stretch;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px}
+.simple-live-main>.presentation-source-control>div{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px}
+.simple-live-main>.presentation-source-control strong{min-width:0;overflow-wrap:anywhere}
+.simple-live-main>.presentation-source-control small{white-space:nowrap}
+.simple-live-main>.presentation-source-control button{position:static;flex:0 0 auto;min-width:150px;max-width:100%;visibility:visible}
+.camera-director-grid{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch}
+.camera-director-card{width:100%;height:100%;min-width:0;min-height:0;overflow:hidden}
+.desktop-camera-preparation{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.camera-preset-list{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+@media(min-width:1101px){
+  .simple-live-main{grid-template-rows:auto auto minmax(52px,auto) minmax(0,1fr)}
+  .camera-director-card{padding:10px;gap:8px;grid-template-rows:auto auto minmax(0,1fr) auto}
+  .camera-director-card header{padding-bottom:6px}
+  .desktop-camera-selector-trigger{min-height:56px;padding:6px 9px;gap:2px}
+  .desktop-camera-selector-trigger strong{font-size:18px}
+  .camera-director-status{min-height:36px;gap:3px}
+  .desktop-camera-preparation{padding:10px;gap:5px;align-content:center}
+  .desktop-camera-preparation button{margin-top:3px}
+  .atem-take-live{min-height:54px}
+}
+@media(min-width:1101px) and (max-height:820px){
+  .simple-live-main{gap:6px}
+  .camera-director-heading{padding-block:0}
+  .camera-director-heading h1{font-size:21px}
+  .production-readiness-strip{padding-block:3px}
+  .simple-live-main>.presentation-source-control{min-height:52px;padding-block:5px}
+  .camera-director-grid{gap:8px}
+  .camera-director-card{padding:8px;gap:6px}
+  .desktop-camera-selector-trigger{min-height:50px}
+  .camera-director-status{min-height:32px}
+  .desktop-camera-preparation{padding:8px}
+  .atem-take-live{min-height:50px}
+}
+@media(max-width:1100px){
+  .simple-live-layout{grid-template-columns:clamp(230px,24vw,290px) minmax(0,1fr)}
+  .camera-director-grid{grid-template-columns:minmax(0,1fr);overflow-y:auto;align-content:start}
+  .camera-director-card{height:auto;min-height:270px}
+  .camera-preset-list{max-height:230px}
+}
+@media(max-height:720px){.camera-director-heading h1{font-size:20px}.camera-director-card{padding:9px;gap:8px}}

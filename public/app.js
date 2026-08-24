@@ -1355,8 +1355,10 @@ function livePage() {
   });
   document.querySelectorAll('[data-take-video-source]').forEach(button => {
     button.onclick = async () => {
+      const taking = window.trinity.takeVideoSource(button.dataset.takeVideoSource);
       button.disabled = true;
-      try { await window.trinity.takeVideoSource(button.dataset.takeVideoSource); }
+      button.textContent = 'TAKING…';
+      try { await taking; }
       catch (error) {
         showNotification(error.message || 'Video Switcher failed', { type: 'error' });
         button.disabled = false;

@@ -31,6 +31,7 @@ function createVideoRouter({ getState, adapters } = {}) {
   }
 
   async function takeSource(sourceId, options = {}) {
+    options.trace?.mark("router_entry");
     const source = getSource(sourceId);
     if (!source || source.enabled === false) throw Object.assign(new Error("Video Source is unavailable"), { code: "VIDEO_SOURCE_UNAVAILABLE" });
     const backend = activeBackend();
@@ -39,7 +40,7 @@ function createVideoRouter({ getState, adapters } = {}) {
     const mapping = source.switcherMappings?.[backend];
     if (!mapping || mapping.input === null || mapping.input === undefined) throw Object.assign(new Error(`Video Source has no ${backend.toUpperCase()} mapping`), { code: "SOURCE_MAPPING_MISSING" });
     const transition = normalizeVideoTransition(options.transition || defaultTransition());
-    await adapter.takeSource(mapping, { transition });
+    await adapter.takeSource(mapping, { transition, trace: options.trace });
     const status = getStatus();
     if (status.liveSourceId !== sourceId) throw Object.assign(new Error("Switcher did not confirm the requested Video Source"), { code: "SWITCHER_CONFIRMATION_MISSING" });
     return status;

@@ -177,7 +177,7 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     return pending;
   }
 
-  async function takeInput(input, { transition = "mix" } = {}) {
+  async function takeInput(input, { transition = "mix", trace } = {}) {
     if (!configuration.enabled) throw Object.assign(new Error("ATEM is disabled"), { code: "ATEM_DISABLED" });
     if (!configuration.configured) throw Object.assign(new Error("ATEM is not configured"), { code: "ATEM_NOT_CONFIGURED" });
     if (status.connectionState !== "connected" || !client) throw Object.assign(new Error("ATEM is disconnected"), { code: "ATEM_DISCONNECTED" });
@@ -186,28 +186,62 @@ function createAtemService({ getState, clientFactory = createDefaultClient, logg
     if (status.programInput === input) return status;
     transition = String(transition || "mix").toLocaleLowerCase();
     if (!new Set(["mix", "cut"]).has(transition)) throw Object.assign(new Error("Unsupported video transition"), { code: "ATEM_TRANSITION_UNSUPPORTED" });
-    try { await client.changePreviewInput(input); }
-    catch { throw Object.assign(new Error("ATEM rejected the PREVIEW selection"), { code: "ATEM_PREVIEW_FAILED" }); }
-    await waitForStatus(next => next.previewInput === input, confirmationTimeoutMs, "ATEM PREVIEW confirmation timed out", "ATEM_PREVIEW_TIMEOUT");
-    if (transition === "mix") {
-      const { Enums } = require("atem-connection");
-      try { await client.setTransitionStyle({ nextStyle: Enums.TransitionStyle.MIX }); }
-      catch { throw Object.assign(new Error("ATEM rejected the Mix transition style"), { code: "ATEM_MIX_STYLE_FAILED" }); }
-    }
+    trace?.mark("adapter_entry");
     let transitionStarted = false;
     const completion = waitForStatus(next => {
       if (next.transitioning) transitionStarted = true;
       return (transition === "cut" || transitionStarted) && !next.transitioning && next.programInput === input;
     }, transitionConfirmationTimeoutMs, "ATEM transition confirmation timed out", "ATEM_TRANSITION_TIMEOUT");
+    const observeTransition = next => {
+      if (next.previewInput === input) trace?.mark("preview_confirmed");
+      if (next.transitioning) trace?.mark("transition_started");
+      if (!next.transitioning && next.programInput === input) {
+        trace?.mark("program_target");
+        if (transition === "cut" || transitionStarted) trace?.mark("transition_complete");
+      }
+    };
+    const unsubscribeTiming = trace ? (subscribers.add(observeTransition), () => subscribers.delete(observeTransition)) : () => {};
     try {
-      if (transition === "mix") await client.autoTransition();
-      else await client.cut();
-    } catch {
+      if (typeof client.sendCommands === "function") {
+        const { Commands, Enums } = require("atem-connection");
+        const preview = new Commands.PreviewInputCommand(0, input);
+        trace?.mark("preview_command");
+        const commandBatch = [preview];
+        if (transition === "mix") {
+          const style = new Commands.TransitionPropertiesCommand(0);
+          style.updateProps({ nextStyle: Enums.TransitionStyle.MIX });
+          commandBatch.push(style, new Commands.AutoTransitionCommand(0));
+          trace?.mark("transition_style_command");
+          trace?.mark("auto_command");
+        } else {
+          commandBatch.push(new Commands.CutCommand(0));
+          trace?.mark("cut_command");
+        }
+        await client.sendCommands(commandBatch);
+      } else {
+        try { await client.changePreviewInput(input); }
+        catch { throw Object.assign(new Error("ATEM rejected the PREVIEW selection"), { code: "ATEM_PREVIEW_FAILED" }); }
+        trace?.mark("preview_command");
+        if (transition === "mix") {
+          const { Enums } = require("atem-connection");
+          try { await client.setTransitionStyle({ nextStyle: Enums.TransitionStyle.MIX }); }
+          catch { throw Object.assign(new Error("ATEM rejected the Mix transition style"), { code: "ATEM_MIX_STYLE_FAILED" }); }
+          trace?.mark("transition_style_command");
+          trace?.mark("auto_command");
+          await client.autoTransition();
+        } else {
+          trace?.mark("cut_command");
+          await client.cut();
+        }
+      }
+    } catch (error) {
+      unsubscribeTiming();
       completion.cancel();
       completion.catch(() => {});
+      if (error?.code) throw error;
       throw Object.assign(new Error(transition === "mix" ? "ATEM rejected the Auto transition" : "ATEM rejected the Cut"), { code: transition === "mix" ? "ATEM_AUTO_FAILED" : "ATEM_CUT_FAILED" });
     }
-    return completion;
+    return completion.finally(unsubscribeTiming);
   }
 
   const takeSource = (mapping, options) => takeInput(mapping?.input, options);

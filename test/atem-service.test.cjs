@@ -250,7 +250,7 @@ test("desktop integration routes logical Video Sources through the ATEM adapter 
   assert.match(card, /data-take-video-source/);
   assert.match(card, /atemStatus\.liveSourceId === videoSource\?\.id/);
   assert.match(card, /window\.trinity\.takeVideoSource/);
-  assert.match(preload, /takeVideoSource: sourceId => ipcRenderer\.invoke\("video-switcher:take-source", sourceId\)/);
+  assert.match(preload, /takeVideoSource: sourceId => ipcRenderer\.invoke\("video-switcher:take-source", \{ videoSourceId: sourceId \}\)/);
   assert.match(main, /ipcMain\.handle\("video-switcher:take-source"/);
   assert.match(server, /\/api\/video-sources\/take-live/);
   assert.match(server, /await takeVideoSource\(body\.videoSourceId\)/);

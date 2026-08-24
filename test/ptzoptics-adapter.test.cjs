@@ -59,6 +59,26 @@ test("PTZOptics registry maps application preset identity to the camera hardware
   assert.equal(selected.calls[0].presetNumber, 7);
 });
 
+test("authoritative preset normalization safely accepts persisted numeric strings", async () => {
+  const current = state();
+  current.cameraPresets[0].presetNumber = "0";
+  const selected = executorFor(current);
+  const result = await selected.executor.recallPreset({ cameraDeviceId: "main", presetId: "same-id" });
+  assert.equal(result.ok, true);
+  assert.equal(result.presetNumber, 0);
+  assert.equal(selected.calls[0].presetNumber, 0);
+});
+
+test("preset stable IDs and collection indexes are never used as hardware numbers", async () => {
+  const current = state();
+  current.cameraPresets[0].presetNumber = null;
+  const selected = executorFor(current);
+  const result = await selected.executor.recallPreset({ cameraDeviceId: "main", presetId: "same-id" });
+  assert.equal(result.code, "presetMappingMissing");
+  assert.equal(result.presetNumber, null);
+  assert.equal(selected.calls.length, 0);
+});
+
 test("identical preset IDs and names remain scoped to their selected camera", async () => {
   const current = state();
   const selected = executorFor(current);

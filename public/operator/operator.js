@@ -79,9 +79,10 @@
   async function command(key, route, body = {}) {
     if (!connected()) throw new Error("Trinity is offline. Commands are disabled and will not be queued.");
     if (pending.has(key)) return;
+    const request = fetch(route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     pending.add(key); errorMessage = ""; render();
     try {
-      const response = await fetch(route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await request;
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || `Command failed (${response.status})`);
       state = payload;

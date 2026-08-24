@@ -128,7 +128,7 @@ function listCameraPresetCategories(state) {
 
 function normalizeCameraPreset(input = {}, { cameraDeviceId, logicalRole, id, now } = {}) {
   const createdAt = nullable(input.createdAt) || (now ? new Date(now).toISOString() : EPOCH);
-  const presetNumber = input.presetNumber ?? input.number;
+  const presetNumber = input.presetNumber ?? input.hardwarePresetNumber ?? input.number;
   return {
     ...input,
     schemaVersion: CAMERA_PRESET_SCHEMA_VERSION,
@@ -149,7 +149,7 @@ function normalizeCameraPreset(input = {}, { cameraDeviceId, logicalRole, id, no
 
 function deterministicLegacyId(cameraId, preset, index) {
   if (nullable(preset?.id)) return preset.id;
-  const value = preset?.presetNumber ?? preset?.number ?? index + 1;
+  const value = preset?.presetNumber ?? preset?.hardwarePresetNumber ?? preset?.number ?? index + 1;
   return `${cameraId}-preset-${String(value).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 

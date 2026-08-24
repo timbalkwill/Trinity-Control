@@ -26,6 +26,7 @@ const { migrateVideoSources } = require("./video-source-operations.cjs");
 const { createSwitcherAdapterRegistry } = require("./switcher-adapter-registry.cjs");
 const { createVideoRouter } = require("./video-router.cjs");
 const { createVideoTakeLive } = require("./video-take-live.cjs");
+const { createTakeLatency } = require("./take-latency.cjs");
 const { atomicWrite, createBackupManager, defaultBackupFilename } = require("./backup-operations.cjs");
 const { completeSetup, normalizeSetup, setupReadiness } = require("./onboarding-operations.cjs");
 const { deriveProductionReadiness } = require("./production-readiness.cjs");
@@ -35,6 +36,20 @@ const existingUserDataPath = path.join(app.getPath("appData"), "Trinity Control 
 app.setName("Trinity Control");
 app.setAppUserModelId(APPLICATION_ID);
 app.setPath("userData", existingUserDataPath);
+
+function createProductionTakeLatency(options) {
+  const enabled = process.env.TRINITY_TAKE_LATENCY === "1";
+  return createTakeLatency({
+    ...options,
+    enabled,
+    logger: {
+      info(line) {
+        console.info(line);
+        if (enabled) fs.appendFile(path.join(app.getPath("userData"), "take-latency.log"), `${line}\n`, () => {});
+      }
+    }
+  });
+}
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
@@ -863,7 +878,7 @@ app.whenReady().then(async () => {
   atemService = createAtemService({ getState: commands.getState, logger: console });
   const switcherAdapters = createSwitcherAdapterRegistry({ atem: atemService });
   videoRouter = createVideoRouter({ getState: commands.getState, adapters: switcherAdapters });
-  videoTakeLive = createVideoTakeLive({ commands, videoRouter });
+  videoTakeLive = createVideoTakeLive({ commands, videoRouter, traceFactory: createProductionTakeLatency });
   const homeAssistant = createHomeAssistantController({ app, projectDirectory: __dirname });
   commands.subscribe(state => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1095,7 +1110,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("live:makeCameraLive", (_e, cameraId) => commands.makeCameraLive(cameraId));
   ipcMain.handle("live:hold", () => commands.toggleHold());
   ipcMain.handle("video-switcher:status", () => videoRouter.getStatus());
-  ipcMain.handle("video-switcher:take-source", (_e, videoSourceId) => videoTakeLive.takeSource(videoSourceId));
+  ipcMain.handle("video-switcher:take-source", (_e, request) => {
+    const videoSourceId = typeof request === "string" ? request : request?.videoSourceId;
+    return videoTakeLive.takeSource(videoSourceId, { origin: "desktop" });
+  });
   ipcMain.handle("video-source:update", (_e, { sourceId, patch }) => commands.updateVideoSource(sourceId, patch));
   ipcMain.handle("video-switcher:update-settings", (_e, patch) => commands.updateVideoSwitchingSettings(patch));
   ipcMain.handle("atem:status", () => videoRouter.getStatus());
@@ -1163,7 +1181,7 @@ app.whenReady().then(async () => {
     assetsDirectory: path.join(__dirname, "public"),
     getVideoRouterStatus: () => videoRouter?.getStatus(),
     subscribeVideoRouterStatus: subscriber => videoRouter?.subscribe(subscriber) || (() => {}),
-    takeVideoSource: videoSourceId => videoTakeLive.takeSource(videoSourceId),
+    takeVideoSource: (videoSourceId, options) => videoTakeLive.takeSource(videoSourceId, { ...options, origin: "browser" }),
     getProductionReadiness: current => deriveProductionReadiness({
       state: current,
       qlcStatus: qlcServiceStatus,

@@ -69,6 +69,50 @@ test("failed or unavailable manual camera actions do not become Last Commanded",
   assert.deepEqual(persisted.live.cameraPreparations, []);
 });
 
+test("manual recall rejects missing and invalid authoritative hardware mappings before execution", async () => {
+  for (const presetNumber of [undefined, null, Number.NaN, -1, 255, "stable-preset-id", 0]) {
+    let persisted = fixture();
+    if (presetNumber === 0) persisted.cameraPresets[0].presetNumber = "0";
+    else persisted.cameraPresets[0].presetNumber = presetNumber;
+    const calls = [];
+    const commands = createOperatorCommands({
+      loadState: () => clone(persisted),
+      saveState: state => { persisted = clone(state); return clone(persisted); },
+      cameraExecutorFactory: () => ({ recallPreset(command) { calls.push(command); return { ok: true }; } })
+    });
+    await assert.rejects(
+      commands.recallCameraPreset("main", "main-preset"),
+      error => error.code === "CAMERA_PRESET_MAPPING_MISSING" && /main Position has no valid hardware preset assigned\./.test(error.message)
+    );
+    assert.equal(calls.length, 0);
+    assert.deepEqual(persisted.live.cameraPreparations, []);
+  }
+});
+
+test("manual recall accepts hardware preset range endpoints without switching or lighting", async () => {
+  for (const presetNumber of [0, 254]) {
+    let persisted = fixture();
+    persisted.cameraPresets[0].presetNumber = presetNumber;
+    const calls = [];
+    const commands = createOperatorCommands({
+      loadState: () => clone(persisted),
+      saveState: state => { persisted = clone(state); return clone(persisted); },
+      cameraExecutorFactory: current => ({
+        recallPreset(command) {
+          const authoritative = current.cameraPresets.find(item => item.id === command.presetId && item.cameraDeviceId === command.cameraDeviceId);
+          calls.push({ ...command, presetNumber: authoritative.presetNumber });
+          return { ok: true };
+        }
+      })
+    });
+    await commands.recallCameraPreset("main", "main-preset");
+    assert.deepEqual(calls, [{ cameraDeviceId: "main", presetId: "main-preset", presetNumber }]);
+    assert.equal(persisted.live.programCamera, null);
+    assert.equal(persisted.live.previewCamera, null);
+    assert.equal(persisted.live.lastLightingSceneId, undefined);
+  }
+});
+
 test("Camera Director exposes accessible controls and authoritative Video Source LIVE state", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "public", "app.js"), "utf8");
   assert.match(source, /aria-label="Open shots for \$\{escapeHtml\(camera\.name\)\}"/);

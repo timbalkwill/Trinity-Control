@@ -69,6 +69,10 @@ test("Presentation, Production Readiness, and equal camera columns remain intact
   assert.match(live, /class="presentation-source-control/);
   assert.match(live, /productionDirectorCameras\(\)\.map\(CameraDirectorCard\)/);
   assert.match(styles, /grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(styles, /\.simple-live-main\{grid-template-rows:auto auto minmax\(52px,auto\) minmax\(0,1fr\)\}/);
+  assert.match(styles, /\.camera-director-card\{padding:10px;gap:8px;grid-template-rows:auto auto minmax\(0,1fr\) auto\}/);
+  assert.match(styles, /\.desktop-camera-preparation\{overflow-y:auto/);
+  assert.match(styles, /\.atem-take-live\{min-height:54px\}/);
 });
 
 test("desktop-only refactor leaves authoring and Browser Operator contracts present", () => {

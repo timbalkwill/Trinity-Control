@@ -56,6 +56,7 @@
       "switcher-adapter-registry.cjs",
       "video-router.cjs",
       "video-take-live.cjs",
+      "take-latency.cjs",
       "home-assistant-operations.cjs",
       "shot-operations.cjs",
       "live-operations.cjs",

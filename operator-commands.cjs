@@ -133,6 +133,12 @@ function createOperatorCommands({
       if (!camera) throw new RangeError(`Camera is unavailable: ${cameraId}`);
       const preset = (state.cameraPresets || []).find(item => item?.id === presetId && item.cameraDeviceId === cameraId && item.enabled !== false);
       if (!preset) throw new RangeError(`Unknown preset for camera ${cameraId}: ${presetId}`);
+      if (!Number.isInteger(preset.presetNumber) || preset.presetNumber < 0 || preset.presetNumber > 254) {
+        const error = new Error(`${preset.name || "Selected preset"} has no valid hardware preset assigned.`);
+        error.code = "CAMERA_PRESET_MAPPING_MISSING";
+        error.statusCode = 409;
+        throw error;
+      }
       const outcome = await cameraExecutorFactory(state).recallPreset({ cameraDeviceId: cameraId, presetId });
       if (outcome?.ok !== true) {
         const error = new Error(outcome?.message || "Camera preset recall failed");

@@ -1,6 +1,7 @@
 "use strict";
 
 const { createPtzOpticsTransport, createPtzOpticsStoreTransport, createViscaUdpTransport, createViscaUdpStoreTransport } = require("./ptzoptics-adapter.cjs");
+const { normalizeCameraPreset } = require("./camera-preset-operations.cjs");
 
 const clone = value => JSON.parse(JSON.stringify(value));
 
@@ -43,7 +44,7 @@ function cameraExecutionCapabilities(camera) {
 
 function createCameraExecutor(state, { transports = {}, timeoutMs } = {}) {
   const devices = clone(Array.isArray(state?.devices) ? state.devices : []);
-  const presets = clone(Array.isArray(state?.cameraPresets) ? state.cameraPresets : []);
+  const presets = clone(Array.isArray(state?.cameraPresets) ? state.cameraPresets : []).map(normalizeCameraPreset);
   const ptzoptics = transports.ptzoptics || createPtzOpticsTransport({ timeoutMs });
   const viscaUdp = transports.viscaUdp || createViscaUdpTransport();
   const ptzopticsStore = transports.ptzopticsStore || createPtzOpticsStoreTransport({ timeoutMs });

@@ -102,6 +102,12 @@ test("legacy preset migration preserves IDs and numbers and is idempotent", () =
   assert.deepEqual(migrateLegacyPresets(current), first);
 });
 
+test("historical hardwarePresetNumber mappings normalize without inventing missing values", () => {
+  assert.equal(normalizeCameraPreset({ id: "legacy", name: "Stage Wide", cameraDeviceId: "main", hardwarePresetNumber: "0" }).presetNumber, 0);
+  assert.equal(normalizeCameraPreset({ id: "missing", name: "Stage Left", cameraDeviceId: "main", hardwarePresetNumber: null }).presetNumber, null);
+  assert.equal(normalizeCameraPreset({ id: "current", name: "Stage Right", cameraDeviceId: "main", presetNumber: 254, hardwarePresetNumber: 9 }).presetNumber, 254);
+});
+
 test("preset migration preserves missing-camera records with stable identity", () => {
   const current = state();
   current.cameras.push({ id: "missing-camera", role: "remote", savedPositions: [{ id: "remote-wide", name: "Remote Wide", number: 5 }] });
